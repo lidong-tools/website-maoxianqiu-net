@@ -13,11 +13,14 @@
     "lint": "vue-tsc -b"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "catalog:",
+    "@aws-sdk/s3-request-presigner": "catalog:",
     "@fantastic-admin/components": "workspace:*",
     "@fantastic-admin/composables": "workspace:*",
     "@fantastic-admin/hotkeys": "workspace:*",
     "@fantastic-admin/settings": "workspace:*",
     "@fantastic-admin/types": "workspace:*",
+    "@supabase/supabase-js": "catalog:",
     "@tinymce/tinymce-vue": "catalog:",
     "@vee-validate/zod": "catalog:",
     "@visactor/vchart": "catalog:",
@@ -33,6 +36,7 @@
     "echarts": "catalog:",
     "eruda": "catalog:",
     "es-toolkit": "catalog:",
+    "hono": "catalog:",
     "mitt": "catalog:",
     "nprogress": "catalog:",
     "path-browserify": "catalog:",

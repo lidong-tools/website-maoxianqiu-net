@@ -35,4 +35,8 @@ if (icons.isOfflineUse) {
   }
 }
 
-app.mount('#app')
+// 挂载前恢复 Supabase 会话,保证路由守卫能判断登录状态
+void (async () => {
+  await useAppAccountStore(pinia).initSession()
+  app.mount('#app')
+})()

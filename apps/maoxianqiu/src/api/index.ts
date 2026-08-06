@@ -10,7 +10,6 @@ declare module 'axios' {
   export interface AxiosRequestConfig {
     retry?: boolean
     retryCount?: number
-    fake?: boolean
   }
 }
 
@@ -22,10 +21,6 @@ const api = axios.create({
 
 api.interceptors.request.use(
   (request) => {
-    // 如果设置了 fake 属性，强制使用 fake 的 baseURL
-    if (request.fake) {
-      request.baseURL = '/fake/'
-    }
     // 全局拦截请求发送前提交的参数
     const appAccountStore = useAppAccountStore()
     // 设置请求头

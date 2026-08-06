@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type { FormExpose } from '@fantastic-admin/components'
 import { toTypedSchema } from '@vee-validate/zod'
 import * as z from 'zod'
 
@@ -31,8 +30,6 @@ interface LoginModel {
   remember: boolean
 }
 
-const formRef = useTemplateRef<FormExpose<LoginModel>>('formRef')
-
 const model = ref<LoginModel>({
   account: props.account ?? localStorage.getItem('login_account') ?? '',
   password: '',
@@ -55,15 +52,13 @@ function onSubmit(values: LoginModel) {
       localStorage.removeItem('login_account')
     }
     emits('onLogin', values.account)
+  }).catch((error: Error) => {
+    useFaToast().error('登录失败', {
+      description: error.message,
+    })
   }).finally(() => {
     loading.value = false
   })
-}
-
-async function testAccount(account: string) {
-  model.value.account = account
-  model.value.password = '123456'
-  await formRef.value?.submit()
 }
 </script>
 
@@ -87,7 +82,6 @@ async function testAccount(account: string) {
     </div>
     <div v-show="type === 'default'">
       <FaForm
-        ref="formRef"
         :model="model"
         :validation-schema="validationSchema"
         @submit="onSubmit"
@@ -126,17 +120,6 @@ async function testAccount(account: string) {
           </FaButton>
         </div>
       </FaForm>
-      <div class="mt-4 text-center -mb-4">
-        <FaDivider>演示账号一键登录</FaDivider>
-        <div class="space-x-2">
-          <FaButton variant="default" size="sm" plain @click="testAccount('admin')">
-            admin
-          </FaButton>
-          <FaButton variant="outline" size="sm" plain @click="testAccount('test')">
-            test
-          </FaButton>
-        </div>
-      </div>
     </div>
     <div v-show="type === 'qrcode'">
       <div class="flex-col-center">

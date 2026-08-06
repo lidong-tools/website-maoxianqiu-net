@@ -14,6 +14,7 @@ import KeepAliveExample from './modules/keep.alive.example'
 import MultilevelMenuExample from './modules/multilevel.menu.example'
 import PluginExample from './modules/plugin.example'
 import StandardModuleExample from './modules/standard.module.example'
+import SystemModule from './modules/system'
 import TabbarExample from './modules/tabbar.example'
 import UiExample from './modules/ui.example'
 
@@ -107,6 +108,15 @@ const asyncRoutes: RouteRecordMainRaw[] = [
     },
     children: [
       ...EcologyExample,
+    ],
+  },
+  {
+    meta: {
+      title: '系统管理',
+      icon: 'i-carbon:settings',
+    },
+    children: [
+      ...SystemModule,
     ],
   },
 ]

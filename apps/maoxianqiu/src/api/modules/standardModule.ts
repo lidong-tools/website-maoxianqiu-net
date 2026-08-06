@@ -1,33 +1,58 @@
-import api from '../index'
+import { supabase } from '@/lib/supabase'
 
 export default {
-  list: (data: {
+  // 列表(直连)
+  async list(data: {
     title?: string
     from: number
     limit: number
-  }) => api.get('standard_module/list', {
-    params: data,
-    fake: true,
-  }),
+  }) {
+    let query = supabase.from('standard_module').select('*', { count: 'exact' })
+    if (data.title) {
+      query = query.ilike('title', `%${data.title}%`)
+    }
+    const { data: rows, error, count } = await query
+      .range(data.from, data.from + data.limit - 1)
+      .order('id', { ascending: true })
+    if (error) {
+      throw new Error(error.message)
+    }
+    return { status: 1, error: '', data: { list: rows ?? [], total: count ?? 0 } }
+  },
 
-  detail: (id: number | string) => api.get('standard_module/detail', {
-    params: {
-      id,
-    },
-    fake: true,
-  }),
+  // 详情(直连)
+  async detail(id: number | string) {
+    const { data, error } = await supabase.from('standard_module').select('*').eq('id', Number(id)).single()
+    if (error) {
+      throw new Error(error.message)
+    }
+    return { status: 1, error: '', data }
+  },
 
-  create: (data: any) => api.post('standard_module/create', data, {
-    fake: true,
-  }),
+  // 新增(直连)
+  async create(data: any) {
+    const { error } = await supabase.from('standard_module').insert({ title: data.title })
+    if (error) {
+      throw new Error(error.message)
+    }
+    return { status: 1, error: '', data: { isSuccess: true } }
+  },
 
-  edit: (data: any) => api.post('standard_module/edit', data, {
-    fake: true,
-  }),
+  // 编辑(直连)
+  async edit(data: any) {
+    const { error } = await supabase.from('standard_module').update({ title: data.title }).eq('id', data.id)
+    if (error) {
+      throw new Error(error.message)
+    }
+    return { status: 1, error: '', data: { isSuccess: true } }
+  },
 
-  delete: (id: number | string) => api.post('standard_module/delete', {
-    id,
-  }, {
-    fake: true,
-  }),
+  // 删除(直连)
+  async delete(id: number | string) {
+    const { error } = await supabase.from('standard_module').delete().eq('id', Number(id))
+    if (error) {
+      throw new Error(error.message)
+    }
+    return { status: 1, error: '', data: { isSuccess: true } }
+  },
 }

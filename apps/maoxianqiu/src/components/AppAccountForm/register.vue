@@ -42,7 +42,18 @@ const validationSchema = toTypedSchema(
 
 function onSubmit(values: RegisterModel) {
   loading.value = true
-  emits('onRegister', values.account)
+  useAppAccountStore().register(values).then(() => {
+    useFaToast().success('注册成功', {
+      description: '如果开启了邮箱验证，请先完成验证再登录',
+    })
+    emits('onRegister', values.account)
+  }).catch((error: Error) => {
+    useFaToast().error('注册失败', {
+      description: error.message,
+    })
+  }).finally(() => {
+    loading.value = false
+  })
 }
 </script>
 
@@ -54,7 +65,7 @@ function onSubmit(values: RegisterModel) {
           探索从这里开始 🚀
         </h3>
         <p class="text-sm text-muted-foreground lg:text-base">
-          演示系统未提供该功能
+          注册成功后请用该账号登录
         </p>
       </div>
       <FaFormItem name="account">
