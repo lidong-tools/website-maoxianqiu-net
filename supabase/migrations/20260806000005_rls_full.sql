@@ -67,7 +67,7 @@ as $$
   select public.is_system_admin()
     or exists (
       select 1 from store_members tgt
-      where tgt.user_id = public.can_manage_user.target
+      where tgt.user_id = target
         and public.can_manage_store(tgt.store_id)
     );
 $$;

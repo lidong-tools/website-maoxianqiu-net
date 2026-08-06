@@ -50,8 +50,8 @@ interface ImportMetaEnv {
   readonly VITE_LAUNCH_EDITOR: string
   readonly VITE_SUPABASE_ANON_KEY: string
   /**
-   * Supabase 直连(浏览器 anon key,需替换为真实值)
-   * Supabase direct connection (browser anon key, replace with real values)
+   * Supabase 直连(浏览器 anon key)
+   * Supabase direct connection (browser anon key)
    */
   readonly VITE_SUPABASE_URL: string
 }

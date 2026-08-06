@@ -64,6 +64,7 @@ export default function createVitePlugins(mode: string, isBuild = false) {
     components({
       globs: [
         'src/components/*/index.vue',
+        'src/components/business/*/index.vue',
       ],
       dts: './src/types/components.d.ts',
       syncMode: 'overwrite',

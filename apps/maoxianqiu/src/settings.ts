@@ -5,12 +5,17 @@ export default setSettings({
     account: {
       auth: true,
     },
+    home: {
+      enable: true,
+      title: '工作台',
+      fullPath: '/',
+    },
     dynamicTitle: true,
     copyright: {
       enable: true,
-      dates: '2020-present',
-      company: 'Fantastic-admin',
-      website: 'https://fantastic-admin.hurui.me',
+      dates: '2026-present',
+      company: '毛线球',
+      website: '',
     },
   },
   menu: {

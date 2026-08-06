@@ -2,6 +2,13 @@
 :root {
   color-scheme: light;
 
+  /* 业务语义色(毛线球设计系统,oklch;状态不单独用颜色表达,颜色为辅助) */
+  --status-success: 0.72 0.17 150;
+  --status-warning: 0.75 0.16 65;
+  --status-info: 0.7 0.14 235;
+  --status-danger: 0.577 0.245 27.325;
+  --status-neutral: 0.45 0.02 256;
+
   /* 头部宽度（默认自适应宽度，可固定宽度，固定宽度后为居中显示） */
   --g-header-width: 100%;
 
@@ -24,6 +31,12 @@
 
   &.dark {
     color-scheme: dark;
+
+    --status-success: 0.78 0.16 155;
+    --status-warning: 0.8 0.15 70;
+    --status-info: 0.75 0.13 235;
+    --status-danger: 0.704 0.191 22.216;
+    --status-neutral: 0.7 0.02 256;
   }
 }
 

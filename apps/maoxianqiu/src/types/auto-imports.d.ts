@@ -77,6 +77,7 @@ declare global {
   const useAppSettingsStore: typeof import('../store/modules/app/settings').useAppSettingsStore
   const useAppTabbar: typeof import('../composables/app/tabbar').useAppTabbar
   const useAppTabbarStore: typeof import('../store/modules/app/tabbar').useAppTabbarStore
+  const useAppTenantStore: typeof import('../store/modules/app/tenant').useAppTenantStore
   const useAttrs: typeof import('vue').useAttrs
   const useCssModule: typeof import('vue').useCssModule
   const useCssVars: typeof import('vue').useCssVars

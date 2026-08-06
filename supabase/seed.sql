@@ -10,11 +10,28 @@ insert into public.roles (code, name, description, permissions, is_system) value
     'system:user:manage',
     'system:role:manage',
     'system:store:manage',
-    'store:view'
+    'system.user.create',
+    'system.user.resetPassword',
+    'store:view',
+    'store.create',
+    'store.update',
+    'tenant.membership.create',
+    'tenant.membership.update',
+    'employee.create',
+    'employee.update',
+    'employee.assignStore',
+    'employee.changeRole',
+    'role.create',
+    'role.update'
   ], true),
   ('store_manager', '店长', '管理本店成员与日常运营', array[
     'system:user:manage',
-    'store:view'
+    'system.user.create',
+    'store:view',
+    'employee.create',
+    'employee.update',
+    'employee.assignStore',
+    'employee.changeRole'
   ], true),
   ('staff', '店员', '门店工作人员', array[
     'store:view'
@@ -27,6 +44,28 @@ on conflict (code) do update set
   description = excluded.description,
   permissions = excluded.permissions,
   is_system = excluded.is_system;
+
+-- 权限目录种子(MXQ-3004;code 唯一,幂等)
+insert into public.permissions (code, name, module) values
+  ('system:user:manage', '用户管理', 'system'),
+  ('system:role:manage', '角色管理', 'system'),
+  ('system:store:manage', '店铺管理', 'system'),
+  ('system.user.create', '创建用户', 'system'),
+  ('system.user.resetPassword', '重置用户密码', 'system'),
+  ('store:view', '查看门店', 'store'),
+  ('store.create', '创建门店', 'store'),
+  ('store.update', '编辑门店', 'store'),
+  ('tenant.membership.create', '添加租户成员', 'tenant'),
+  ('tenant.membership.update', '更新租户成员', 'tenant'),
+  ('employee.create', '创建员工', 'employee'),
+  ('employee.update', '编辑员工', 'employee'),
+  ('employee.assignStore', '分配门店', 'employee'),
+  ('employee.changeRole', '变更角色', 'employee'),
+  ('role.create', '创建角色', 'role'),
+  ('role.update', '编辑角色', 'role')
+on conflict (code) do update set
+  name = excluded.name,
+  module = excluded.module;
 
 -- 演示数据(可选):给指定账号设置演示权限(把邮箱换成你的登录账号)
 update public.profiles
