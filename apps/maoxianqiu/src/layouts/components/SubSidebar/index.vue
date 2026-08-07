@@ -48,7 +48,7 @@ watch(() => appMenuStore.actived, (val, oldVal) => {
     >
       <Component :is="useSlots('sub-sidebar-top')" />
       <Logo
-        v-if="['side', 'single'].includes(appSettingsStore.settings.menu.mode) || appSettingsStore.mode === 'mobile'" :show-logo="appSettingsStore.settings.menu.mode === 'single'" class="sidebar-logo" :class="{
+        v-if="appSettingsStore.settings.menu.mode === 'single' || appSettingsStore.mode === 'mobile'" :show-logo="appSettingsStore.settings.menu.mode === 'single'" class="sidebar-logo" :class="{
           single: appSettingsStore.settings.menu.mode === 'single',
         }"
       />

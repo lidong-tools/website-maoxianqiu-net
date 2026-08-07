@@ -63,6 +63,7 @@ defineExpose({
             'cursor-pointer text-[var(--g-sub-sidebar-menu-color)] transition-colors hover-(bg-[var(--g-sub-sidebar-menu-hover-bg)] text-[var(--g-sub-sidebar-menu-hover-color)])': true,
             'text-[var(--g-sub-sidebar-menu-active-color)]! bg-[var(--g-sub-sidebar-menu-active-bg)]!': isItemActive,
             'px-3': rootMenu.isMenuPopup && level === 0,
+            'size-10! justify-center! mx-auto! px-0! py-0!': rootMenu.isMenuPopup && level === 0 && rootMenu.props.mode === 'vertical',
             'py-3': rootMenu.isMenuPopup && level !== 0,
           })" :title="generateTitle(item.meta?.title)" v-on="{
             ...(!subMenu && {
@@ -74,7 +75,7 @@ defineExpose({
             :class="cn('inline-flex min-w-0 flex-1 items-center justify-start', {
               'gap-[12px]': true,
               'ps-[calc(var(--indent-level)*20px)]': true,
-              'flex-col': rootMenu.isMenuPopup && level === 0 && rootMenu.props.mode === 'vertical',
+              'flex-col justify-center': rootMenu.isMenuPopup && level === 0 && rootMenu.props.mode === 'vertical',
             })" :style="{
               '--indent-level': !rootMenu.isMenuPopup ? props.level ?? 0 : 0,
             }"
