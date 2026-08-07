@@ -78,6 +78,8 @@ app.route('/user', userRoutes)
 app.route('/files', fileCommandRoutes)
 // MXQ-3008/3009/3010:门店归档/恢复、员工邀请/启停/分配/改角色、角色权限替换
 app.route('/stores', storeRoutes)
+// S3.1-A:租户初始化闭环(首店/owner/仓库/支付/字典/打印)
+app.route('/tenants', tenantRoutes)
 app.route('/employees', employeeRoutes)
 app.route('/roles', roleRoutes)
 // MXQ-5001~5010:CRM 客户/宠物(合并 RPC + 导入)

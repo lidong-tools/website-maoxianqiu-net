@@ -102,6 +102,9 @@ export const SERVICE_ROLE_ONLY_RPC: readonly string[] = [
   'resolve_epidemic_event',
   'save_waste_record',
   'handover_waste',
+  // ---- tenant init(S3.1-A 租户初始化) ----
+  'initialize_tenant',
+  'get_tenant_initialization',
   // ---- 审计结论(S30-F02):仅服务端/内部辅助,无前端直连,撤销 authenticated ----
   'generate_customer_no',
   'generate_invoice_no',
