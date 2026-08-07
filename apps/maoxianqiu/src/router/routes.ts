@@ -11,6 +11,7 @@ import DiagnosticsModule from './modules/diagnostics'
 import InpatientModule from './modules/inpatient'
 import InventoryModule from './modules/inventory'
 import OperationsModule from './modules/operations'
+import RegulatoryModule from './modules/regulatory'
 import SystemModule from './modules/system'
 
 // 固定路由（默认路由）
@@ -146,6 +147,15 @@ const asyncRoutes: RouteRecordMainRaw[] = [
     },
     children: [
       ...OperationsModule,
+    ],
+  },
+  {
+    meta: {
+      title: '监管运营',
+      icon: 'i-carbon:rule',
+    },
+    children: [
+      ...RegulatoryModule,
     ],
   },
 ]
