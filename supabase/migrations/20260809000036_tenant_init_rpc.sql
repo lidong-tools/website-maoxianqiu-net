@@ -75,6 +75,13 @@ begin
     raise exception 'TENANT_NOT_FOUND' using errcode = 'P0002';
   end if;
 
+  -- 时区归一:仅在提供有效时区时更新(幂等,平台管理员新建租户时传入)
+  if p_timezone is not null and p_timezone <> '' then
+    update public.tenants
+    set timezone = p_timezone
+    where id = v_tenant_id and timezone is distinct from p_timezone;
+  end if;
+
   -- 幂等键归一
   v_key := coalesce(nullif(p_idempotency_key, ''), 'tenant-init-' || v_tenant_id::text || '-' || gen_random_uuid()::text);
 
@@ -307,7 +314,7 @@ begin
     raise exception '%', SQLERRM using errcode = 'P0003';
   end;
 
-  -- ===== 5. 成功:幂等缓存 + 返回结果 =====
+  -- ===== 5. 成功:幂等缓存(覆盖 failed 旧记录,保证同 key 最终状态一致) + 返回结果 =====
   insert into public.idempotency_records (tenant_id, idempotency_key, action, entity_type, entity_id, result_json)
   values (v_tenant_id, v_key, 'initialize_tenant', 'tenant_initialization', v_init.id,
           jsonb_build_object(
@@ -319,7 +326,11 @@ begin
             'ownerEmployeeId', v_employee_id,
             'attempts', v_attempts
           ))
-  on conflict (tenant_id, idempotency_key) do nothing;
+  on conflict (tenant_id, idempotency_key) do update set
+    action = excluded.action,
+    entity_type = excluded.entity_type,
+    entity_id = excluded.entity_id,
+    result_json = excluded.result_json;
 
   return jsonb_build_object(
     'status', 'completed',

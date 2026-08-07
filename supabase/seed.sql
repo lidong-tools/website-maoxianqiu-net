@@ -85,7 +85,12 @@ insert into public.permissions (code, name, module) values
   ('employee.assignStore', '分配门店', 'employee'),
   ('employee.changeRole', '变更角色', 'employee'),
   ('role.create', '创建角色', 'role'),
-  ('role.update', '编辑角色', 'role')
+  ('role.update', '编辑角色', 'role'),
+  -- S3.1-A:租户初始化权限
+  ('tenant.initialize', '初始化租户', 'tenant'),
+  ('tenant.initialization.read', '查看租户初始化状态', 'tenant'),
+  ('payment_context.read', '查看支付上下文', 'billing'),
+  ('print.setting.read', '查看打印设置', 'operations')
 on conflict (code) do update set
   name = excluded.name,
   module = excluded.module;
