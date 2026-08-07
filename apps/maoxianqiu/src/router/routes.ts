@@ -71,16 +71,6 @@ const systemRoutes: RouteRecordRaw[] = [
 const asyncRoutes: RouteRecordMainRaw[] = [
   {
     meta: {
-      title: '系统管理',
-      shortTitle: '系统',
-      icon: 'i-carbon:settings',
-    },
-    children: [
-      ...SystemModule,
-    ],
-  },
-  {
-    meta: {
       title: '客户宠物',
       shortTitle: '客户',
       icon: 'i-carbon:user-multiple',
@@ -177,6 +167,16 @@ const asyncRoutes: RouteRecordMainRaw[] = [
     },
     children: [
       ...ClosingModule,
+    ],
+  },
+  {
+    meta: {
+      title: '系统管理',
+      shortTitle: '系统',
+      icon: 'i-carbon:settings',
+    },
+    children: [
+      ...SystemModule,
     ],
   },
 ]
