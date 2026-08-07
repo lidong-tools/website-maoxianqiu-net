@@ -102,6 +102,12 @@ export const SERVICE_ROLE_ONLY_RPC: readonly string[] = [
   'resolve_epidemic_event',
   'save_waste_record',
   'handover_waste',
+  // ---- daily closing & reconciliation(S31-PARALLEL-B 日结与对账) ----
+  'close_daily_business',
+  'adjust_daily_closing',
+  'save_reconciliation_actual',
+  'confirm_reconciliation',
+  'get_payment_channel_summary',
   // ---- tenant init(S3.1-A 租户初始化) ----
   'initialize_tenant',
   'get_tenant_initialization',

@@ -9,6 +9,7 @@ import { requestIdMiddleware } from './middlewares/request-id'
 import billingRoutes from './routes/billing'
 import catalogRoutes from './routes/catalog'
 import clinicalRoutes from './routes/clinical'
+import closingRoutes from './routes/closing'
 import complianceRoutes from './routes/compliance'
 import customersRoutes from './routes/customers'
 import diagnosticsRoutes from './routes/diagnostics'
@@ -106,6 +107,8 @@ app.route('/diagnostics', diagnosticsRoutes)
 app.route('/compliance', complianceRoutes)
 // S3.1-PARALLEL-01:Regulatory 监管运营(许可证/年度报告/疫情台账/医疗废弃物)
 app.route('/regulatory', regulatoryRoutes)
+// S31-PARALLEL-B:日结与对账(日结/调整/渠道汇总/对账录入/差异确认)
+app.route('/closing', closingRoutes)
 
 // 统一错误处理(MXQ-2001):业务错误带明确 HTTP 状态与错误码
 app.notFound((c) => {

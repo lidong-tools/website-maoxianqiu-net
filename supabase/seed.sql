@@ -24,7 +24,14 @@ insert into public.roles (code, name, description, permissions, is_system, scope
     'employee.assignStore',
     'employee.changeRole',
     'role.create',
-    'role.update'
+    'role.update',
+    -- S31-PARALLEL-B:日结与对账权限(与 migration 39/41 保持一致)
+    'daily_closing.read',
+    'daily_closing.close',
+    'daily_closing.adjust',
+    'reconciliation.read',
+    'reconciliation.edit',
+    'reconciliation.confirm'
   ], true, 'system'),
   ('store_manager', '店长', '管理本店成员与日常运营', array[
     'system:user:manage',
@@ -33,13 +40,22 @@ insert into public.roles (code, name, description, permissions, is_system, scope
     'employee.create',
     'employee.update',
     'employee.assignStore',
-    'employee.changeRole'
+    'employee.changeRole',
+    -- S31-PARALLEL-B:日结(读+关账,不含调整)/对账全量(与 migration 39/41 保持一致)
+    'daily_closing.read',
+    'daily_closing.close',
+    'reconciliation.read',
+    'reconciliation.edit',
+    'reconciliation.confirm'
   ], true, 'store'),
   ('staff', '店员', '门店工作人员', array[
     'store:view'
   ], true, 'store'),
   ('cashier', '收银员', '负责收银', array[
-    'store:view'
+    'store:view',
+    -- S31-PARALLEL-B:日结/对账只读(与 migration 39/41 保持一致)
+    'daily_closing.read',
+    'reconciliation.read'
   ], true, 'store'),
   ('doctor', '医生', '诊疗/处方/检验报告(门店级角色)', array[
     'store:view'
@@ -59,7 +75,14 @@ insert into public.roles (code, name, description, permissions, is_system, scope
     'epidemic.report',
     'epidemic.resolve',
     'waste.read',
-    'waste.manage'
+    'waste.manage',
+    -- S31-PARALLEL-B:日结与对账全量(与 migration 39/41 保持一致)
+    'daily_closing.read',
+    'daily_closing.close',
+    'daily_closing.adjust',
+    'reconciliation.read',
+    'reconciliation.edit',
+    'reconciliation.confirm'
   ], true, 'tenant')
 on conflict (code) do update set
   name = excluded.name,
@@ -90,7 +113,14 @@ insert into public.permissions (code, name, module) values
   ('tenant.initialize', '初始化租户', 'tenant'),
   ('tenant.initialization.read', '查看租户初始化状态', 'tenant'),
   ('payment_context.read', '查看支付上下文', 'billing'),
-  ('print.setting.read', '查看打印设置', 'operations')
+  ('print.setting.read', '查看打印设置', 'operations'),
+  -- S31-PARALLEL-B:日结与对账权限码(与 migration 39/41 保持一致)
+  ('daily_closing.read', '查看日结', 'closing'),
+  ('daily_closing.close', '执行日结', 'closing'),
+  ('daily_closing.adjust', '调整日结', 'closing'),
+  ('reconciliation.read', '查看对账', 'closing'),
+  ('reconciliation.edit', '录入对账实际金额', 'closing'),
+  ('reconciliation.confirm', '确认对账差异', 'closing')
 on conflict (code) do update set
   name = excluded.name,
   module = excluded.module;

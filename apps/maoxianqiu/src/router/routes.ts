@@ -6,6 +6,7 @@ import pinia from '@/store'
 import BillingModule from './modules/billing'
 import CatalogModule from './modules/catalog'
 import ClinicalModule from './modules/clinical'
+import ClosingModule from './modules/closing'
 import CrmModule from './modules/crm'
 import DiagnosticsModule from './modules/diagnostics'
 import InpatientModule from './modules/inpatient'
@@ -156,6 +157,15 @@ const asyncRoutes: RouteRecordMainRaw[] = [
     },
     children: [
       ...RegulatoryModule,
+    ],
+  },
+  {
+    meta: {
+      title: '日结对账',
+      icon: 'i-carbon:financial',
+    },
+    children: [
+      ...ClosingModule,
     ],
   },
 ]
