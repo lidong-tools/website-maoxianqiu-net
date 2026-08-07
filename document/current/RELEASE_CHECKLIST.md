@@ -42,7 +42,7 @@
 - [ ] 无旧公共文件接口（旧 /api/upload、/api/files 已下线）
 - [ ] 无正式页面手填 UUID（业务交互均走 Picker，含打印 lab_report/vaccine_certificate 选择器、inventory receipt 商品预留、inpatient nursing/handover 员工选择）
 - [ ] 病历签署人强制为当前登录用户（无 EmployeePicker 可选任意员工）
-- [ ] 高危 Command RPC 仅 service_role 可执行（migration 27 对 58 个函数 revoke public/anon/authenticated + grant service_role，不得依赖 SECURITY DEFINER+RLS 作为权限边界；`api/routes` 中 `service.rpc()` 调用全部 ∈ service-role-only manifest）
+- [ ] 高危 Command RPC 仅 service_role 可执行（migration 27 对 55 个函数名（service-role-only manifest 全量）revoke public/anon/authenticated + grant service_role，不得依赖 SECURITY DEFINER+RLS 作为权限边界；`api/routes` 中 `service.rpc()` 调用（59 处，unique 52 个）全部 ∈ service-role-only manifest（55 个，含内部辅助 RPC 3 个））
 - [ ] 平台管理员独立模型（tenant/store employee role 绝不能产生 platform admin；`is_system_admin()` 只读 platform_user_roles；tenant invite/change-role 拒绝 system role；租户角色管理 UI 不展示 system role；legacy store_members/ERA 不自动升级）
 - [ ] 打印使用真实业务 DTO（非演示数据）
 - [ ] 报表口径明确（Hono report-data，浏览器无跨表聚合）

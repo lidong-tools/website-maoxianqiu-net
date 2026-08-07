@@ -122,6 +122,12 @@ on conflict (id) do nothing;
 
 -- P5 夹具:legacy store_members 携带 system_admin 角色(历史遗留,不应自动升级)
 -- 使用用户 bb(未在 platform_user_roles 中,避免与 P4 对 t-admin 的授权相互干扰)
+-- store_members.user_id references auth.users(id),必须先创建用户 bb 再插入 legacy store_members
+insert into auth.users (id, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, aud, role, created_at, updated_at)
+values ('99999999-0000-0000-0000-0000000000bb', 'legacy-admin@test.local', crypt('password', gen_salt('bf')), now(),
+        '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now())
+on conflict (id) do nothing;
+
 insert into public.tenants (id, slug, name)
 values ('99999999-0000-0000-0000-000000000001', 'rpc-sec-tenant', '安全测试租户')
 on conflict (slug) do nothing;

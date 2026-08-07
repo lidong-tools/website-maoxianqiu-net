@@ -21,7 +21,7 @@
 | P0-10 | 文档与命令修正 | ✅ 完成 | 根 package.json 补 test:e2e 脚本；AGENTS.md 重写；新增本组文档 |
 | S3.0 | Stage02 审计收口 | ✅ 完成 | AUD-001~011 全部落地（明细见下文「S3.0 审计收口」） |
 | S3.0-R | 定向复审收口 | ✅ 代码完成 / ⏳ 待 staging 执行 | S30-R01~R07 全部落地（明细见下文「S3.0 定向复审（S30-R01~R07）」） |
-| S3.0-F | S30-F01~F04 复审收口 | ✅ 代码完成 / ⏳ 待 staging 执行 | 平台管理员独立模型 + RPC 默认拒绝（全量 revoke + manifest CI 规则）+ rpc_security.sql 独立可执行 + 文档证据（明细见下文「S3.0 复审（S30-F01~F04）」） |
+| S3.0-F | S30-F01~F04 复审收口 | ✅ code_complete / ⏳ integration_pending（待 staging 验证） | 平台管理员独立模型 + RPC 默认拒绝（全量 revoke + manifest CI 规则）+ rpc_security.sql 独立可执行 + 文档证据（明细见下文「S3.0 复审（S30-F01~F04）」） |
 
 ## 已交付任务明细
 
@@ -196,11 +196,13 @@
 ## S3.0 复审（S30-F01~F04）
 
 > 依据：S3.0 复审结论（第二次）。剩余工作收敛为 4 项，全部落地；未验证项一律标注"待 staging 执行"，不标"✅完成"。
+>
+> **S3.0 整体状态：code_complete（runtime = integration_pending）**。S30-FINAL 修复 rpc_security.sql 源码错误（P5 legacy fixture 缺 auth.users）并完成静态校验后，代码阶段视为完成；仅当 staging 的 migration / RLS / E2E 全部真实通过后，才可将状态标记为 **verified**。
 
 | F | 内容 | 状态 | 说明 |
 | --- | --- | --- | --- |
 | S30-F01 | 平台管理员独立模型 | ✅ 代码完成 / ⏳ 待 staging 执行 | 新增 `platform_user_roles`（platform_admin/platform_support/platform_auditor）；`is_system_admin()` 只读平台授权来源；ERA 禁止 scope='system' 角色；tenant invite/change-role 拒绝 system role；角色管理 UI 不展示 system role；legacy store_members/ERA 不自动升级 |
-| S30-F02 | RPC 默认拒绝 | ✅ 代码完成 / ⏳ 待 staging 执行 | 补齐 11 个遗漏 Hono Command RPC revoke + 审计 generate_customer_no/generate_invoice_no/update_import_job；全部 Command RPC revoke public/anon/authenticated + grant service_role（migration 27，58 个函数）；新增 service-role-only manifest + CI 静态规则（`check:rpc-manifest` 已 PASS） |
+| S30-F02 | RPC 默认拒绝 | ✅ 代码完成 / ⏳ 待 staging 执行 | 补齐 11 个遗漏 Hono Command RPC revoke + 审计 generate_customer_no/generate_invoice_no/update_import_job；全部 Command RPC revoke public/anon/authenticated + grant service_role（migration 27 revoke 55 个函数名）；新增 service-role-only manifest + CI 静态规则（`check:rpc-manifest` 已 PASS） |
 | S30-F03 | rpc_security.sql 独立可执行 | ✅ 代码完成 / ⏳ 待 staging 执行 | 自建 assert_true/assert_rpc_denied/assert_rpc_authorized/assert_raises；21 个 authenticated 负向（含 11 新增 + 3 审计）+ 16 个 service_role 正向 + 平台升级负向 P1~P5 |
 | S30-F04 | 文档和证据 | ✅ 完成 | 本文件 + KNOWN_GAPS + RELEASE_CHECKLIST 同步更新；"浏览器直连高危 RPC 已关闭"仅在全量 revoke 落地后表述 |
 
@@ -215,13 +217,19 @@
 - 夹具：9 个 RLS 测试文件的 system_admin ERA 改为 `platform_user_roles(platform_admin)` 插入，与 is_system_admin() 新来源对齐。
 
 ### S30-F02 RPC 默认拒绝明细
-- migration 27 第 5 节 DO 块对 **58 个函数**执行 `revoke all from public/anon/authenticated` + `grant execute to service_role`：
+- **RPC 数量口径（统一，全部以本处为准，不再写 58）**：
+  - api/routes RPC 调用：**59 处**；
+  - Hono route unique RPC：**52 个**；
+  - service-role-only manifest：**55 个**；
+  - 内部辅助 RPC：**3 个**（generate_customer_no / generate_invoice_no / update_import_job，仅服务端/内部辅助调用，不在 routes 中）；
+  - migration 27 revoke：**55 个函数名**（即 service-role-only manifest 全量）。
+- migration 27 第 5 节 DO 块对 **55 个函数名**（service-role-only manifest 全量）执行 `revoke all from public/anon/authenticated` + `grant execute to service_role`：
   - 11 个新增遗漏：archive_file / archive_store / complete_upload / create_import_job / create_upload_intent / invite_employee / merge_customers / migrate_catalog_to_store / replace_role_permissions / restore_store / set_employee_status；
-  - 3 个审计结论：generate_customer_no / generate_invoice_no / update_import_job；
-  - 44 个原有 Command RPC（billing/clinical/crm/catalog/iam/diagnostics/files/inpatient/inventory/operations/pets）。
+  - 内部辅助 3 个（审计结论）：generate_customer_no / generate_invoice_no / update_import_job；
+  - 其余 Hono route RPC：41 个（billing/clinical/crm/catalog/iam/diagnostics/files/inpatient/inventory/operations/pets）——与 52 个 Hono route unique RPC（11 新增 + 41 原有）对应。
 - CI 静态规则（替代手工维护"高危 RPC 名单"）：
   - `api/lib/service-rpc-manifest.ts`：`SERVICE_ROLE_ONLY_RPC` 55 个函数名（service-role-only manifest）。
-  - `api/scripts/check-rpc-manifest.ts` 双规则：① `api/routes/*.ts` 中 `service.rpc()` 调用集合 ⊆ manifest；② manifest 全部函数 ∈ migration 27 revoke 清单。根 `package.json` 新增 `check:rpc-manifest`（已执行 PASS：routes 59 处调用全校验通过，manifest 55 个函数全在 migration 27）。
+  - `api/scripts/check-rpc-manifest.ts` 双规则：① `api/routes/*.ts` 中 `service.rpc()` 调用（59 处，unique 52 个）⊆ manifest（55 个）；② manifest 全部 55 个函数名 ∈ migration 27 revoke 清单。根 `package.json` 新增 `check:rpc-manifest`（已执行 PASS：routes 59 处调用全校验通过，manifest 55 个函数全在 migration 27）。
 - 原则：所有 Hono Command RPC revoke public/anon/authenticated + grant service_role；不得依赖 SECURITY DEFINER + RLS 作为权限边界。
 
 ### S30-F03 rpc_security.sql 独立可执行明细
@@ -230,6 +238,7 @@
 - Part 2：service_role 直连 **16 个 RPC** 正常进入业务函数（仅 permission denied 判失败，业务错误放行）——证明 revoke 未误伤 Hono 服务端。
 - Part 3：平台升级负向 P1~P5（见 S30-F01 明细）。
 - 每个 DO 块开头 `execute 'reset role'` 规避 SET LOCAL 跨块持久化。
+- S30-FINAL 修复：P5 legacy fixture 使用用户 `...00bb`，但 `store_members.user_id references auth.users(id)`，缺 auth.users 会致 FK 失败；现先 `insert into auth.users(...00bb)` 再插入 legacy store_members，保证 `psql "$DATABASE_URL" -f supabase/tests/rpc_security.sql` 可从空库独立运行。
 
 ## 基线 / 验证说明
 
@@ -244,6 +253,7 @@
 
 | 日期 | 更新内容 |
 | --- | --- |
+| 2026-08-08 | S30-FINAL 收口：修复 rpc_security.sql P5 legacy fixture（先建 auth.users ...00bb 再插 store_members，可独立执行）；统一 RPC 数量口径（59 处 / 52 个 / 55 个 / 3 个 / 55 个函数名，不再写 58）；S3.0 状态标注 code_complete（runtime = integration_pending），待 staging 验证后方可 verified |
 | 2026-08-08 | S3.0 复审（S30-F01~F04）：平台管理员独立模型（platform_user_roles + is_system_admin 独立来源 + ERA 禁 system role + UI 隐藏 + legacy 不升级）、RPC 默认拒绝（补齐 11 个 + 审计 3 个 + manifest CI 规则）、rpc_security.sql 独立可执行、文档证据；同步 KNOWN_GAPS / RELEASE_CHECKLIST |
 | 2026-08-07 | S3.0 定向复审：记录 S30-R01~R07 落地明细（migration 26 / permission.ts / RPC 收紧 / id 语义 / E2E UI / Picker 清场 / 文档），同步 KNOWN_GAPS / RELEASE_CHECKLIST / Stage-03 v1.1 |
 | 2026-08-07 | S3.0 审计收口：记录 AUD-001~011 落地明细，同步 KNOWN_GAPS / RELEASE_CHECKLIST |
