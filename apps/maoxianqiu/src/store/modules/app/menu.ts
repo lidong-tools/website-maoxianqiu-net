@@ -67,8 +67,12 @@ export const useAppMenuStore = defineStore(
       if (allMenus.value.length === 0) {
         return 0
       }
-      if (Number.isNaN(index) || index < 0) {
+      if (Number.isNaN(index)) {
         return 0
+      }
+      // index < 0 时保持 -1,表示当前没有选中任何主导航(如主页工作台)
+      if (index < 0) {
+        return -1
       }
       if (index >= allMenus.value.length) {
         return allMenus.value.length - 1
@@ -87,8 +91,9 @@ export const useAppMenuStore = defineStore(
 
     // 次导航数据
     const sidebarMenus = computed<MenuRecordMainRaw['children']>(() => {
-      return allMenus.value.length > 0
-        ? allMenus.value[normalizeActivedIndex(actived.value)].children
+      const index = normalizeActivedIndex(actived.value)
+      return allMenus.value.length > 0 && index >= 0
+        ? allMenus.value[index].children
         : []
     })
     // 次导航第一层最深路径
@@ -192,10 +197,9 @@ export const useAppMenuStore = defineStore(
       }
       else {
         // 如果是 string 类型，则认为是路由，需要查找对应的主导航索引
+        // 找不到(如主页工作台)时设为 -1,表示当前没有选中任何主导航
         const findIndex = allMenus.value.findIndex(item => isPathInMenus(item.children, indexOrPath))
-        if (findIndex >= 0) {
-          actived.value = findIndex
-        }
+        actived.value = findIndex
       }
     }
 

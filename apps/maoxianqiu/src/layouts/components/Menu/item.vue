@@ -46,6 +46,7 @@ defineExpose({
     ref="itemRef" :class="cn('menu-item relative', {
       'active': isItemActive,
       'py-1 px-2': (rootMenu.isMenuPopup && rootMenu.props.mode === 'vertical') || (rootMenu.isMenuPopup && level !== 0 && rootMenu.props.mode === 'horizontal') || !rootMenu.isMenuPopup,
+      'flex items-center justify-center': rootMenu.isMenuPopup && level === 0 && rootMenu.props.mode === 'vertical',
       'px-1 py-2': rootMenu.isMenuPopup && level === 0 && rootMenu.props.mode === 'horizontal',
     })"
   >

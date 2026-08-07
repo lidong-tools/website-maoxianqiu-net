@@ -74,8 +74,8 @@ watch(() => appMenuStore.actived, (val, oldVal) => {
           'justify-end': !isCollapse,
         }"
       >
-        <FaButton variant="secondary" size="icon-sm" @click="appSettingsStore.toggleSidebarCollapse()">
-          <FaIcon name="app-toolbar-collapse" class="size-4 transition" :class="{ 'rotate-z--180': appSettingsStore.settings.menu.subMenuCollapse }" />
+        <FaButton variant="secondary" size="icon-sm" class="h-12!" @click="appSettingsStore.toggleSidebarCollapse()">
+          <FaIcon name="app-toolbar-collapse" class="size-5 transition" :class="{ 'rotate-z--180': appSettingsStore.settings.menu.subMenuCollapse }" />
         </FaButton>
       </div>
       <Component :is="useSlots('sub-sidebar-after-menu')" />
