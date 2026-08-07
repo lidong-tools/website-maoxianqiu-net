@@ -300,7 +300,7 @@ onMounted(loadWarehouses)
 
 <template>
   <div>
-    <FaPageHeader title="入库" class="mb-0">
+    <FaPageHeader :show="false" title="入库" class="mb-0">
       <template #description>
         采购入库走 Hono Command + post_goods_receipt RPC,事务化创建批次/余额/流水,幂等防重复
       </template>

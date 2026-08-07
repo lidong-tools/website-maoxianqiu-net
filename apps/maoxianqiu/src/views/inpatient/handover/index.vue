@@ -175,7 +175,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <FaPageHeader title="交接班" class="mb-0">
+    <FaPageHeader :show="false" title="交接班" class="mb-0">
       <template #description>
         班次交接记录,同班次多次保存将更新 summary(便于草稿);权限:handover.manage
       </template>

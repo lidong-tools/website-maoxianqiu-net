@@ -284,7 +284,7 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
 
 <template>
   <div>
-    <FaPageHeader title="出院结算" class="mb-0">
+    <FaPageHeader :show="false" title="出院结算" class="mb-0">
       <template #description>
         S3.1 结算闭环:生成结算单→收款/减免→完成结算并出院(unsettled→prepared→settled/waived→finalized)
       </template>

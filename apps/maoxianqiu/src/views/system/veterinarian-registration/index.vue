@@ -197,7 +197,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <FaPageHeader title="执业兽医备案" class="mb-0">
+    <FaPageHeader :show="false" title="执业兽医备案" class="mb-0">
       <template #description>
         管理执业兽医备案信息(牌照/备案编号/有效期/电子签名资质)
       </template>

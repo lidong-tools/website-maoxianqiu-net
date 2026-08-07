@@ -163,7 +163,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <FaPageHeader title="到期提醒" class="mb-0">
+    <FaPageHeader :show="false" title="到期提醒" class="mb-0">
       <template #description>
         疫苗/驱虫到期提醒;扫描走 scan_diag_reminders RPC,幂等生成;支持取消待发送提醒
       </template>

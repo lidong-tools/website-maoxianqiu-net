@@ -557,7 +557,7 @@ function onPrintNow() {
 
 <template>
   <div>
-    <FaPageHeader title="打印中心" class="mb-0">
+    <FaPageHeader :show="false" title="打印中心" class="mb-0">
       <template #description>
         收据/处方/病历/标签批量打印;走 Hono Command + create_print_job RPC,审计可追溯
       </template>

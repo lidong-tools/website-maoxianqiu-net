@@ -264,7 +264,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <FaPageHeader title="入院登记" class="mb-0">
+    <FaPageHeader :show="false" title="入院登记" class="mb-0">
       <template #description>
         办理宠物入院:选择笼位 → 锁定房位 → 生成住院记录;支持出院、换房操作
       </template>

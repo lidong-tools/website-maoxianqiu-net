@@ -247,7 +247,7 @@ const tableColumns = computed<TableColumn<MedicalOrderRow>[]>(() => [
 
 <template>
   <div>
-    <FaPageHeader title="医嘱管理" class="mb-0">
+    <FaPageHeader :show="false" title="医嘱管理" class="mb-0">
       <template #description>
         S3.1 医疗闭环:医生开立医嘱自动生成护士任务,任务全部完成联动医嘱完成,可关联检验申请
       </template>

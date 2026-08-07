@@ -254,7 +254,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <FaPageHeader title="疫苗接种管理" class="mb-0">
+    <FaPageHeader :show="false" title="疫苗接种管理" class="mb-0">
       <template #description>
         疫苗接种计划 → 接种 → 签发证明;支持跳过、逾期标记;证明签发走 RPC 事务化
       </template>

@@ -328,7 +328,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <FaPageHeader title="检验管理" class="mb-0">
+    <FaPageHeader :show="false" title="检验管理" class="mb-0">
       <template #description>
         检验申请 → 采集 → 录入结果 → 审核发布;危急值自动告警;结果发布与审核走 RPC 事务化
       </template>

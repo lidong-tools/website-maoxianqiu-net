@@ -123,7 +123,7 @@ onMounted(loadWarehouses)
 
 <template>
   <div>
-    <FaPageHeader title="调拨" class="mb-0">
+    <FaPageHeader :show="false" title="调拨" class="mb-0">
       <template #description>
         调拨走 Hono Command + transfer_inventory RPC,原子扣源增目标,写两条流水,幂等防重复
       </template>

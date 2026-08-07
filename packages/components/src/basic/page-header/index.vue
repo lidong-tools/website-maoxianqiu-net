@@ -9,6 +9,12 @@ defineOptions({
 const props = defineProps<{
   title?: string
   description?: string
+  /**
+   * 是否展示页面标题栏
+   * @default true
+   * @description 设为 false 时整块标题栏不渲染,用于按页面配置隐藏 title/desc
+   */
+  show?: boolean
   class?: HTMLAttributes['class']
   mainClass?: HTMLAttributes['class']
   defaultClass?: HTMLAttributes['class']
@@ -22,7 +28,7 @@ const slots = defineSlots<{
 </script>
 
 <template>
-  <div :class="cn('mb-4 flex flex-wrap items-center justify-between gap-5 border-b bg-background px-5 py-4', props.class)">
+  <div v-if="show !== false" :class="cn('mb-4 flex flex-wrap items-center justify-between gap-5 border-b bg-background px-5 py-4', props.class)">
     <div :class="cn('flex-[1_1_70%]', props.mainClass)">
       <div class="text-2xl">
         <slot name="title">

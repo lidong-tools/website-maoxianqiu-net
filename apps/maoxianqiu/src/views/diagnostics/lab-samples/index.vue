@@ -303,7 +303,7 @@ const tableColumns = computed<TableColumn<LabSampleRow>[]>(() => [
 
 <template>
   <div>
-    <FaPageHeader title="标本流转" class="mb-0">
+    <FaPageHeader :show="false" title="标本流转" class="mb-0">
       <template #description>
         S3.1 标本闭环:planned→collected→received→testing→completed;任意非终态可拒收(须原因)
       </template>

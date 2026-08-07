@@ -219,7 +219,7 @@ onMounted(getDataList)
 
 <template>
   <div>
-    <FaPageHeader title="发票列表" class="mb-0">
+    <FaPageHeader :show="false" title="发票列表" class="mb-0">
       <template #description>
         收费收银:发票状态机 draft → confirmed → paid → refunded;大额折扣需 manager 审批
       </template>

@@ -170,7 +170,7 @@ const tableColumns = computed<TableColumn<CustomerRow>[]>(() => [
 
 <template>
   <div>
-    <FaPageHeader title="客户管理" class="mb-0">
+    <FaPageHeader :show="false" title="客户管理" class="mb-0">
       <template #description>
         管理宠物医院客户档案,支持搜索、分页、状态筛选
       </template>

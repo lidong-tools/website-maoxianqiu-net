@@ -143,7 +143,7 @@ function onRestore(row: StoreItem) {
 
 <template>
   <div>
-    <FaPageHeader title="店铺管理" class="mb-0">
+    <FaPageHeader :show="false" title="店铺管理" class="mb-0">
       <template #description>
         管理各宠物医院门店信息;归档门店不可用于业务,可恢复
       </template>

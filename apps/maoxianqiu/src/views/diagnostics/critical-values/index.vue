@@ -254,7 +254,7 @@ const tableColumns = computed<TableColumn<CriticalAlertRow>[]>(() => [
 
 <template>
   <div>
-    <FaPageHeader title="危急值管理" class="mb-0">
+    <FaPageHeader :show="false" title="危急值管理" class="mb-0">
       <template #description>
         S3.1 危急值闭环:结果发布自动告警→通知(确认前必须已通知)→确认→解决,全程审计
       </template>

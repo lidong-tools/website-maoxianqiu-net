@@ -322,7 +322,7 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
 
 <template>
   <div>
-    <FaPageHeader title="护士任务" class="mb-0">
+    <FaPageHeader :show="false" title="护士任务" class="mb-0">
       <template #description>
         管理给药/观察/护理/采样等护士任务,支持状态推进(待处理→进行中→完成/跳过)
       </template>

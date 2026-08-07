@@ -5,27 +5,23 @@ export default setSettings({
     account: {
       auth: true,
     },
-    home: {
-      enable: true,
-      title: '工作台',
-      fullPath: '/',
-    },
     dynamicTitle: true,
+    home: {
+      title: '工作台',
+    },
     copyright: {
       enable: true,
       dates: '2026-present',
       company: '毛线球',
-      website: '',
     },
   },
   menu: {
-    mainMenuClickMode: 'smart',
+    mainMenuClickMode: 'jump',
     subMenuCollapseButton: true,
     hotkeys: true,
   },
   topbar: {
     tabbar: true,
-    toolbar: true,
     mode: 'fixed',
   },
   tabbar: {
@@ -33,6 +29,9 @@ export default setSettings({
     hotkeys: true,
   },
   toolbar: {
+    menuSearch: {
+      hotkeys: false,
+    },
     fullscreen: true,
     pageReload: true,
     colorScheme: true,

@@ -177,7 +177,7 @@ onBeforeUnmount(stopPoll)
 
 <template>
   <div>
-    <FaPageHeader title="租户初始化" class="mb-0">
+    <FaPageHeader :show="false" title="租户初始化" class="mb-0">
       <template #description>
         新建医院后一键初始化:首店 / 租户所有者 / 默认仓库 / 支付上下文 / 基础字典 / 打印设置
       </template>

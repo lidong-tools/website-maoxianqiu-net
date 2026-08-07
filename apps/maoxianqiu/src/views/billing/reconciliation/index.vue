@@ -315,7 +315,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <FaPageHeader title="渠道对账" class="mb-0">
+    <FaPageHeader :show="false" title="渠道对账" class="mb-0">
       <template #description>
         系统账面金额 vs 人工录入实际金额:录入后自动比对差异,确认时差异必须填写原因(审计留痕)
       </template>

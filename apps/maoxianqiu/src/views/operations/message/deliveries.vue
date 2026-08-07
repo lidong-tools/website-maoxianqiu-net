@@ -178,7 +178,7 @@ function triggerSend(row: DeliveryRow) {
 
 <template>
   <div>
-    <FaPageHeader title="消息投递记录" class="mb-0">
+    <FaPageHeader :show="false" title="消息投递记录" class="mb-0">
       <template #description>
         消息发送投递记录{{ isDevMock ? '；当前使用 Mock Provider，仅开发环境可用' : '' }}
       </template>

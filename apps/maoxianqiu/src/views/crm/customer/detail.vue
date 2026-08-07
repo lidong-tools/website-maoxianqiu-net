@@ -185,7 +185,7 @@ onMounted(loadDetail)
 
 <template>
   <div>
-    <FaPageHeader :title="isNew ? '新增客户' : '客户详情'" class="mb-0" @back="onBack">
+    <FaPageHeader :show="false" :title="isNew ? '新增客户' : '客户详情'" class="mb-0" @back="onBack">
       <template #description>
         {{ customer?.customer_no ?? '' }}
       </template>

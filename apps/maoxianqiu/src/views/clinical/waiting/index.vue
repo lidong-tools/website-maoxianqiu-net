@@ -108,7 +108,7 @@ const waitingCount = computed(() => dataList.value.length)
 
 <template>
   <div>
-    <FaPageHeader title="候诊队列" class="mb-0">
+    <FaPageHeader :show="false" title="候诊队列" class="mb-0">
       <template #description>
         当前已报到待就诊的宠物队列(每 30 秒自动刷新),共 {{ waitingCount }} 位候诊
       </template>

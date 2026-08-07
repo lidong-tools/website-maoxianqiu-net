@@ -81,7 +81,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <FaPageHeader title="库存概览" class="mb-0">
+    <FaPageHeader :show="false" title="库存概览" class="mb-0">
       <template #description>
         查看近效期预警与库存概览,30 天内到期的批次将在此高亮显示
       </template>

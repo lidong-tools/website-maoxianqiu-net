@@ -247,7 +247,7 @@ function toggleActive(row: TemplateRow) {
 
 <template>
   <div>
-    <FaPageHeader title="消息模板管理" class="mb-0">
+    <FaPageHeader :show="false" title="消息模板管理" class="mb-0">
       <template #description>
         管理短信/邮件/微信/企业微信的消息模板；支持变量占位符(如 {'{{ '}customer_name{' }}'})
       </template>

@@ -275,7 +275,7 @@ onMounted(() => {
 
 <template>
   <div>
-    <FaPageHeader title="护理管理" class="mb-0">
+    <FaPageHeader :show="false" title="护理管理" class="mb-0">
       <template #description>
         维护住院宠物的护理计划与任务,状态机:pending → in_progress → done;pending → skipped
       </template>

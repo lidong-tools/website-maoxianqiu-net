@@ -111,7 +111,7 @@ function onDel(row: RoleItem) {
 
 <template>
   <div>
-    <FaPageHeader title="角色管理" class="mb-0">
+    <FaPageHeader :show="false" title="角色管理" class="mb-0">
       <template #description>
         配置角色与权限;内置角色(店长/店员/收银员等)不可删除
       </template>

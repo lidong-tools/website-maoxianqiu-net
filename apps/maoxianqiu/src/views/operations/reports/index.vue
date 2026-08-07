@@ -440,7 +440,7 @@ const reportOptions = computed(() => [
 
 <template>
   <div>
-    <FaPageHeader title="报表中心" class="mb-0">
+    <FaPageHeader :show="false" title="报表中心" class="mb-0">
       <template #description>
         收入/退款/库存/客户/医疗报表;快照走 Hono Command + generate_report_snapshot RPC,实时明细走统一报表真源(Hono 服务端聚合),前端只负责渲染
       </template>

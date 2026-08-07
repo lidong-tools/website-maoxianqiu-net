@@ -145,7 +145,7 @@ onMounted(loadDetail)
 
 <template>
   <div>
-    <FaPageHeader title="宠物详情" class="mb-0" @back="onBack">
+    <FaPageHeader :show="false" title="宠物详情" class="mb-0" @back="onBack">
       <template #description>
         {{ pet?.name ?? '' }}
       </template>

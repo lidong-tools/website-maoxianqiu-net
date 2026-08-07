@@ -189,7 +189,7 @@ onMounted(loadTodayAppointments)
 
 <template>
   <div>
-    <FaPageHeader title="医生工作台" class="mb-0">
+    <FaPageHeader :show="false" title="医生工作台" class="mb-0">
       <template #description>
         左侧今日预约/候诊列表,右侧就诊编辑区(集成病历编辑、签署、处方)
       </template>

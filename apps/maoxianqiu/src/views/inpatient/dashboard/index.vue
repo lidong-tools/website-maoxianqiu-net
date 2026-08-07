@@ -100,7 +100,7 @@ onMounted(loadCageStatus)
 
 <template>
   <div>
-    <FaPageHeader title="房态看板" class="mb-0">
+    <FaPageHeader :show="false" title="房态看板" class="mb-0">
       <template #description>
         按房间分组展示笼位状态,实时反映在院情况;颜色区分空闲/占用/维护/清洁
       </template>

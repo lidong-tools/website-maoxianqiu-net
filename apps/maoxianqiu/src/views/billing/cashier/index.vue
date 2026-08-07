@@ -299,7 +299,7 @@ onMounted(loadCatalog)
 
 <template>
   <div>
-    <FaPageHeader title="收银工作台" class="mb-0">
+    <FaPageHeader :show="false" title="收银工作台" class="mb-0">
       <template #description>
         选客户/宠物 → 选项目 → 计算金额 → 确认 → 支付;支付与退款走 Hono Command + RPC,幂等防重复
       </template>

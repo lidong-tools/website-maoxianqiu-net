@@ -168,7 +168,7 @@ const tableColumns = computed<TableColumn<AppointmentRow>[]>(() => [
 
 <template>
   <div>
-    <FaPageHeader title="预约管理" class="mb-0">
+    <FaPageHeader :show="false" title="预约管理" class="mb-0">
       <template #description>
         管理宠物医院预约,支持状态机推进(确认→候诊→就诊→完成)
       </template>

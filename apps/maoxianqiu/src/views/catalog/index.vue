@@ -730,7 +730,7 @@ onMounted(() => {
 
 <template>
   <div>
-    <FaPageHeader title="目录管理" class="mb-0">
+    <FaPageHeader :show="false" title="目录管理" class="mb-0">
       <template #description>
         统一目录(类目/项目/药品疫苗扩展)、门店价格覆盖、问诊问题、诊断字典、检验 panel
       </template>

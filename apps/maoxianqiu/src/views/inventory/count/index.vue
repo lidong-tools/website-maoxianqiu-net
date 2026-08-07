@@ -138,7 +138,7 @@ onMounted(loadWarehouses)
 
 <template>
   <div>
-    <FaPageHeader title="盘点" class="mb-0">
+    <FaPageHeader :show="false" title="盘点" class="mb-0">
       <template #description>
         盘点走 Hono Command + post_stock_count RPC,逐项对比余额写 adjust 流水,有差异才提交
       </template>

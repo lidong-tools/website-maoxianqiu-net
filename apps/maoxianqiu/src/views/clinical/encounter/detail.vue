@@ -524,7 +524,7 @@ onMounted(loadData)
 
 <template>
   <div v-loading="loading">
-    <FaPageHeader title="病历详情" class="mb-0">
+    <FaPageHeader :show="false" title="病历详情" class="mb-0">
       <template #description>
         病历编辑 / 签署 / 归档 / 修订 / 处方管理
       </template>
