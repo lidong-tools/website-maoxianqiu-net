@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { MenuRecordMainRaw } from '@fantastic-admin/types'
 import { useHotkeyBindings } from '@/hotkeys'
 import { useSlots } from '@/slots'
 import Logo from '../Logo/index.vue'
@@ -15,6 +16,11 @@ const appSettingsStore = useAppSettingsStore()
 const appMenuStore = useAppMenuStore()
 
 const { generateTitle, switchTo } = useAppMenu()
+
+// 窄栏场景下展示短标题，未配置时回退到完整标题
+function mainMenuTitle(item: MenuRecordMainRaw) {
+  return generateTitle(item.meta?.shortTitle) || generateTitle(item.meta?.title)
+}
 
 useHotkeyBindings({
   'menu.next': () => {
@@ -52,7 +58,7 @@ useHotkeyBindings({
                   <div class="inline-flex flex-1 flex-col gap-1 w-full items-center justify-center">
                     <FaIcon v-if="item.meta?.icon" :name="item.meta.icon" class="menu-item-container-icon transition-transform group-hover-scale-120" />
                     <span class="text-sm text-center flex-1 w-full truncate transition-height transition-opacity transition-width empty:hidden">
-                      {{ generateTitle(item.meta?.title) }}
+                      {{ mainMenuTitle(item) }}
                     </span>
                   </div>
                 </div>

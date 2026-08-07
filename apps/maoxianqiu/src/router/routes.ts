@@ -72,6 +72,7 @@ const asyncRoutes: RouteRecordMainRaw[] = [
   {
     meta: {
       title: '系统管理',
+      shortTitle: '系统',
       icon: 'i-carbon:settings',
     },
     children: [
@@ -81,6 +82,7 @@ const asyncRoutes: RouteRecordMainRaw[] = [
   {
     meta: {
       title: '客户宠物',
+      shortTitle: '客户',
       icon: 'i-carbon:user-multiple',
     },
     children: [
@@ -90,6 +92,7 @@ const asyncRoutes: RouteRecordMainRaw[] = [
   {
     meta: {
       title: '目录价目',
+      shortTitle: '目录',
       icon: 'i-carbon:catalog',
     },
     children: [
@@ -99,6 +102,7 @@ const asyncRoutes: RouteRecordMainRaw[] = [
   {
     meta: {
       title: '库存管理',
+      shortTitle: '库存',
       icon: 'i-carbon:inventory-management',
     },
     children: [
@@ -108,6 +112,7 @@ const asyncRoutes: RouteRecordMainRaw[] = [
   {
     meta: {
       title: '收费收银',
+      shortTitle: '收费',
       icon: 'i-carbon:finance',
     },
     children: [
@@ -117,6 +122,7 @@ const asyncRoutes: RouteRecordMainRaw[] = [
   {
     meta: {
       title: '诊疗核心',
+      shortTitle: '诊疗',
       icon: 'i-carbon:stethoscope',
     },
     children: [
@@ -126,6 +132,7 @@ const asyncRoutes: RouteRecordMainRaw[] = [
   {
     meta: {
       title: '住院管理',
+      shortTitle: '住院',
       icon: 'i-carbon:hotel',
     },
     children: [
@@ -135,6 +142,7 @@ const asyncRoutes: RouteRecordMainRaw[] = [
   {
     meta: {
       title: '疫苗检验',
+      shortTitle: '疫苗',
       icon: 'i-carbon:data-vis-3',
     },
     children: [
@@ -144,6 +152,7 @@ const asyncRoutes: RouteRecordMainRaw[] = [
   {
     meta: {
       title: '运营管理',
+      shortTitle: '运营',
       icon: 'i-carbon:operations-record',
     },
     children: [
@@ -153,6 +162,7 @@ const asyncRoutes: RouteRecordMainRaw[] = [
   {
     meta: {
       title: '监管运营',
+      shortTitle: '监管',
       icon: 'i-carbon:rule',
     },
     children: [
@@ -162,6 +172,7 @@ const asyncRoutes: RouteRecordMainRaw[] = [
   {
     meta: {
       title: '日结对账',
+      shortTitle: '日结',
       icon: 'i-carbon:financial',
     },
     children: [

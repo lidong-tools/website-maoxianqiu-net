@@ -25,6 +25,7 @@ export const useAppMenuStore = defineStore(
             const menuItem: MenuRecordMainRaw = {
               meta: {
                 title: item?.meta?.title,
+                shortTitle: item?.meta?.shortTitle,
                 icon: item?.meta?.icon,
                 auth: item?.meta?.auth,
               },

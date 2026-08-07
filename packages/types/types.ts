@@ -21,6 +21,15 @@ export interface RouteMetaRaw {
   title?: string | (() => string)
 
   /**
+   * 短标题
+   * @description 在侧边栏主导航等窄宽度场景下展示的简短标题，未设置时回退到标题
+   * @default undefined
+   * @example
+   * '诊疗' - 主标题为"诊疗核心"时，窄栏下展示"诊疗"
+   */
+  shortTitle?: string
+
+  /**
    * 图标
    * @description 导航菜单、标签页等展示区域使用的图标
    * @default undefined
@@ -104,7 +113,7 @@ export interface RouteMetaRaw {
 }
 
 export interface RouteRecordMainRaw {
-  meta?: Pick<RouteMetaRaw, 'auth' | 'title' | 'icon' | 'sort'>
+  meta?: Pick<RouteMetaRaw, 'auth' | 'title' | 'icon' | 'sort' | 'shortTitle'>
   children: RouteRecordRaw[]
 }
 
@@ -115,7 +124,7 @@ export interface MenuRecordRaw {
 }
 
 export interface MenuRecordMainRaw {
-  meta?: Pick<RouteMetaRaw, 'auth' | 'title' | 'icon'>
+  meta?: Pick<RouteMetaRaw, 'auth' | 'title' | 'icon' | 'shortTitle'>
   children: MenuRecordRaw[]
 }
 
