@@ -35,24 +35,89 @@
 | `apps/maoxianqiu/src/views/clinical/encounter/detail.vue` | 归档状态/归档按钮/修订管理/处方开具与延长弹窗 |
 | `apps/maoxianqiu/src/views/system/permissions.ts` | 追加 8 项权限码 |
 
-## 3. migration
+## 3. migration 总览
 
 - 新迁移：`20260808000028_compliance_base.sql`、`20260808000029_compliance_rpc.sql`
-- 旧迁移 01~27：**零改动**（已核验）
+- 旧迁移 01~27：**零改动**（已核验，S3.1 硬性约束）
 
-## 4. schema 变化
+## 4. 本 Sprint 变更说明
 
-- `encounters` / `admissions` 新增：`signed_by_employee_id`、`archive_status(draft/signed/archived)`、`archive_due_at`、`archived_at`、`archived_by_employee_id`、`retention_until`、`retention_status`、`destroy_requested_at`、`destroy_approved_at`；partial index `(tenant_id, archive_due_at) where archive_status <> 'archived'`
-- `prescriptions` 新增：`issued_at`、`valid_until`、`prescriber_employee_id`、`prescriber_user_id`、`prescriber_veterinarian_registration_id`、`signed_at`、`signature_method(manual/electronic)`、`dispensed_by_employee_id`、`dispensed_at`、`retention_until`、`retention_status`；status 约束扩为 `draft/issued/dispensed/cancelled`
-- `catalog_drug_extensions` 新增：`controlled_class(none/narcotic/psychotropic/toxic/other_controlled)`
-- 新表 `medical_record_amendments`（before/after_snapshot jsonb、状态机 pending/approved/rejected/applied）
-- 新表 `veterinarian_registrations`（tenant+license_no 唯一、电子签名字段、状态 active/inactive/expired）
-- 触发器：`prevent_archived_record_update`（P0003 ARCHIVED_RECORD_IMMUTABLE）、`set_encounter_archive_due`（signed 后 +24h）、`set_admission_archive_due`（discharged 后 +3 日）
-- 新表 RLS：仅 SELECT 策略（amend/备案按权限码），写入不开放；revoke all
+本次 Sprint 建立 S3.1 合规数据底座，覆盖第一批 8 项，按业务规则逐项说明：
 
-## 5. API
+1. **病历归档（门急诊 24h / 住院出院 3 日）**
+   - `encounters`/`admissions` 引入归档状态机 `archive_status`（`draft→signed→archived`，`archive_due` 为派生态，不落存储参与归档判定）。
+   - 归档截止触发器（`before update of status`，insert 不触发）：门诊 `signed` 后 `archive_due_at = coalesce(ended_at, now()) + 24h`；住院 `discharged` 后 `archive_due_at = coalesce(discharged_at, now()) + 3 days`。
+   - `archive_encounter`/`archive_admission` RPC：仅 `signed`/`discharged` 可归档，操作员必须是本租户在职员工，归档时写 `archived_at`/`archived_by_employee_id`。
 
-`api/routes/compliance.ts` 7 个端点（全部 service-role-only，权限码校验在 Hono 层）：
+2. **保留期（retention，≥3 年）**
+   - 归档即设定 `retention_until = now() + 3 years`（受控处方另有 5 年规则，见第 8 项）；`retention_status` 四态 `active/destroy_requested/destroy_approved`（销毁流程属 S3.1-2，字段先就位）。
+
+3. **归档后正文不可变**
+   - DB 层兜底触发器 `prevent_archived_record_update`（`P0003 ARCHIVED_RECORD_IMMUTABLE`）：归档后任何直接 UPDATE 被拦截（postgres 直连同样拦截）。
+   - 唯一放行通道：amendment apply 通过 `set_config('app.allow_archived_update','true',true)` 显式放行，保证修订必须走审批流。
+
+4. **归档后修订审批流（amendment）**
+   - 新表 `medical_record_amendments`：`requested_by`/`reason`/`before_snapshot`/`after_snapshot`（jsonb 快照）/状态机 `pending→approved→rejected→applied`。
+   - 三个 RPC：`request_record_amendment`（仅已归档可申请，同记录 pending 去重 `AMENDMENT_ALREADY_PENDING`）、`review_record_amendment`（approved/rejected + 拒绝原因，已决不可再审）、`apply_record_amendment`（仅 approved 可执行，更新正文 + 写 `encounter_revisions` 递增版本 + 记 after_snapshot，已应用不可重复执行）。
+
+5. **执业兽医备案（veterinarian registration）**
+   - 新表 `veterinarian_registrations`：`tenant_id + license_no` 唯一、证照号/主管机构/地区/有效期/状态（active/inactive/expired）、电子签名字段（provider/subject_id）。
+   - `upsert_veterinarian_registration` 幂等；**开方前置校验**：`issue_prescription` 要求开方员工持有该租户有效（active 且未过期）备案，否则 `PRESCRIBER_NOT_REGISTERED`。
+
+6. **处方有效期（默认当日结束 / 最长 3 天）**
+   - 状态机扩展 `draft→issued→dispensed/cancelled`；`issue_prescription` 生产 `issued`（`issued_at`/`signature_method='manual'`）。
+   - `valid_until` 默认 `date_trunc('day', now()) + 1 day`（当日结束）；超出 `issued_at + 3 days` 拒绝（`VALIDITY_EXCEEDS_MAX`）。
+   - `extend_prescription_validity`：仅 `issued` 可延长，新值必须晚于现值（`VALIDITY_NOT_EXTENDED`）、不得超过 3 天上限。
+   - `dispense_prescription`：`issued` 处方过期禁止发药（`PRESCRIPTION_EXPIRED`），兼容旧 `draft` 直发流程。
+
+7. **处方保留期（普通 3 年 / 受控 5 年）**
+   - `issue_prescription` 按是否含受控药设定 `retention_until`：受控 5 年、普通 3 年。
+
+8. **受控药最低全国规则（单独处方 / 麻醉一日量 / 保留 5 年）**
+   - `catalog_drug_extensions.controlled_class`（none/narcotic/psychotropic/toxic/other_controlled）。
+   - 受控药必须**单独处方**：受控与非受控混开 `CONTROLLED_MIX_REGULAR`、多受控类别混开 `CONTROLLED_MIX_CLASS`，均拒绝。
+   - 麻醉药品**每张处方不得超过一日量**：`duration_days > 1` 拒绝（`NARCOTIC_DAILY_LIMIT`）。
+   - 权限双保险：Hono 层先查明细含受控药则追加 `prescription.controlled_issue` 权限码，RPC 内再做业务规则校验。
+
+9. **兼容性处理**：`save_prescription`/`dispense_prescription` 保持原签名重定义——`save` 增加已 issued/dispensed 禁止覆盖保存（`PRESCRIPTION_ALREADY_ISSUED`）+ 归档病历禁止保存（`ARCHIVED_RECORD_IMMUTABLE`）；`dispense` 增加过期校验 + 记录 `dispensed_by_employee_id`/`dispensed_at`，不破坏既有 clinical 路由与前端。
+
+## 5. 新增 migration 列表
+
+### 20260808000028_compliance_base.sql（数据底座）
+
+| 段 | 内容 |
+|---|---|
+| 1. encounters 合规字段 | `signed_by_employee_id`、`archive_status`、`archive_due_at`、`archived_at`、`archived_by_employee_id`、`retention_until`、`retention_status`、`destroy_requested_at`、`destroy_approved_at` |
+| 2. admissions 同款字段 | 同上字段集 |
+| 3. 归档截止触发器 | `set_encounter_archive_due`（signed 后 24h）/ `set_admission_archive_due`（discharged 后 3 日），`before update of status` |
+| 4. 归档不可变触发器 | `prevent_archived_record_update`（P0003 ARCHIVED_RECORD_IMMUTABLE，`set_config('app.allow_archived_update')` 放行） |
+| 5. prescriptions 合规字段 | `issued_at`/`valid_until`/`prescriber_employee_id`/`prescriber_user_id`/`prescriber_veterinarian_registration_id`/`signed_at`/`signature_method`/`dispensed_by_employee_id`/`dispensed_at`/`retention_until`/`retention_status`；status 约束扩为 `draft/issued/dispensed/cancelled` |
+| 6. catalog_drug_extensions | `controlled_class`（none/narcotic/psychotropic/toxic/other_controlled） |
+| 7. medical_record_amendments 表 | `before_snapshot`/`after_snapshot` jsonb、状态机、审批/拒绝/应用时间戳；RLS 仅 SELECT（amend.request 或 amend.approve） |
+| 8. veterinarian_registrations 表 | `tenant_id+license_no` 唯一、有效期、状态、电子签名字段；RLS 仅 SELECT（registration.read） |
+| 9. 索引 | partial index `(tenant_id, archive_due_at) where archive_status <> 'archived'` |
+| 10. 权限与收紧 | 8 权限码 + 三角色授权 + roles.permissions 同步 + `revoke all on table` 两新表 |
+
+### 20260808000029_compliance_rpc.sql（RPC + 授权收紧）
+
+| RPC | 关键校验（错误码） |
+|---|---|
+| archive_encounter | signed 才可归档（ENCOUNTER_NOT_SIGNABLE）、重复归档（ENCOUNTER_ALREADY_ARCHIVED）、操作员归属（OPERATOR_NOT_FOUND）；retention = 3 年；audit |
+| archive_admission | discharged（ADMISSION_NOT_DISCHARGED）、重复（ADMISSION_ALREADY_ARCHIVED）、操作员（OPERATOR_NOT_FOUND） |
+| request_record_amendment | 类型校验（INVALID_RECORD_TYPE）、原因必填（AMENDMENT_REASON_REQUIRED）、仅已归档（RECORD_NOT_ARCHIVED）、pending 去重（AMENDMENT_ALREADY_PENDING）；before_snapshot |
+| review_record_amendment | 决策枚举（INVALID_DECISION）、仅 pending（AMENDMENT_NOT_PENDING）、拒绝原因落库 |
+| apply_record_amendment | 仅 approved（AMENDMENT_NOT_APPROVED）、set_config 放行触发器、写 encounter_revisions、after_snapshot |
+| upsert_veterinarian_registration | license 必填（LICENSE_NO_REQUIRED）、状态枚举（INVALID_REGISTRATION_STATUS）、员工归属（EMPLOYEE_NOT_FOUND）、幂等 |
+| issue_prescription | 仅 draft（PRESCRIPTION_NOT_DRAFT）、开方人存在（PRESCRIBER_NOT_FOUND）、有效备案（PRESCRIBER_NOT_REGISTERED）、受控混开（CONTROLLED_MIX_CLASS / CONTROLLED_MIX_REGULAR）、麻醉一日量（NARCOTIC_DAILY_LIMIT）、有效期上限（VALIDITY_EXCEEDS_MAX）；retention 受控 5 年/普通 3 年 |
+| extend_prescription_validity | 仅 issued（PRESCRIPTION_NOT_ISSUED）、只可延长（VALIDITY_NOT_EXTENDED）、3 天上限（VALIDITY_EXCEEDS_MAX） |
+| save_prescription（重定义） | 归档病历禁存（ARCHIVED_RECORD_IMMUTABLE）、已 issued 禁覆盖（PRESCRIPTION_ALREADY_ISSUED） |
+| dispense_prescription（重定义） | 仅 draft/issued 可发（PRESCRIPTION_NOT_DISPENSABLE）、issued 过期禁发（PRESCRIPTION_EXPIRED）、记录发药人/时间 |
+
+末尾 DO 块：revoke public/anon/authenticated + grant service_role（10 个函数）。
+
+## 6. 新增/修改 API
+
+### 新增 `api/routes/compliance.ts`（7 端点，全部 service-role-only）
 
 | 端点 | 方法 | 权限 | RPC |
 |---|---|---|---|
@@ -64,44 +129,93 @@
 | `/compliance/prescriptions/:id/issue` | POST | prescription.issue（受控另需 prescription.controlled_issue） | issue_prescription |
 | `/compliance/prescriptions/:id/extend-validity` | POST | prescription.extend_validity | extend_prescription_validity |
 
-- 受控药二重校验：Hono 先查明细含 `controlled_class <> 'none'` 再追加权限码；RPC 内再做业务规则校验
-- Query 类（列表）走 Supabase 直连 + RLS 兜底
+实现要点：zod schema + parseJsonBody + requireScopedPermission（scope 为唯一可信 tenantId/storeId）+ service.rpc + mapRpcError（NOT_FOUND→404、业务规则→422、兜底→500）+ writeAudit + ok；`:id` 路由先 `fetchRecordScope` 查库取归属再授权；受控药二重权限校验（先查明细含 `controlled_class <> 'none'` 再追加权限码）。Query 类（列表）走 Supabase 直连 + RLS 兜底。
 
-## 6. 页面
+### 修改
 
-- `encounter/detail.vue`：归档状态标签（含"已超时"派生）、归档按钮、修订管理区块（申请/批准/拒绝/执行 + payload 表单）、处方开具弹窗（开方人 + 有效期）、延长有效期弹窗、prescriptionLocked 只读控制
-- `system/veterinarian-registration/index.vue`：备案列表（join employees）+ 新增备案 FaDrawer
+| 文件 | 变更 |
+|---|---|
+| `api/lib/service-rpc-manifest.ts` | SERVICE_ROLE_ONLY_RPC 新增 8 函数（56 → 63） |
+| `api/index.ts` | `app.route('/compliance', complianceRoutes)` |
+| `api/scripts/check-rpc-manifest.ts` | 规则 2 从"仅 migration 27"升级为"扫描 migrations 目录全部 .sql 聚合"（S3.1 禁止改 01~27，新 revoke 在 migration 29） |
 
-## 7. permission code（8 个新增）
+## 7. 新增/修改页面
 
-`medical_record.archive`、`medical_record.amend.request`、`medical_record.amend.approve`、`veterinarian_registration.read`、`veterinarian_registration.manage`、`prescription.issue`、`prescription.extend_validity`、`prescription.controlled_issue`
+### 新增
+- `apps/maoxianqiu/src/views/system/veterinarian-registration/index.vue`：备案列表（join employees 显示姓名/工号/职称）+ 新增备案 FaDrawer（EmployeePicker×2 + 证照/有效期/状态字段）。
 
-授权：system_admin / store_manager / doctor 三角色（roles.permissions 数组同步），`veterinarian_registration.read` 授全体员工。
+### 修改
+| 文件 | 变更 |
+|---|---|
+| `apps/maoxianqiu/src/views/clinical/encounter/detail.vue` | 归档状态标签（含"已超时"红色派生）；归档按钮（signed 且 `auth('medical_record.archive')`）；修订管理区块（申请/批准/拒绝/执行 + payload 表单）；处方开具弹窗（选开方人 + 有效期）；延长有效期弹窗；`prescriptionLocked` 控制只读 |
+| `apps/maoxianqiu/src/router/modules/system.ts` | 新增 `/system/veterinarian-registration`，meta.auth='veterinarian_registration.read' |
+| `apps/maoxianqiu/src/views/system/permissions.ts` | 追加 8 项权限码 |
+| `apps/maoxianqiu/src/types/clinical.ts` / `inpatient.ts` | Encounter/Prescription/Admission 合规列 + PrescriptionStatus 增 'issued' |
 
-## 8. audit event（10 个）
+## 8. 新增 permission codes（8 个）
 
-`medical_record.archive`、`medical_record.amend.request`、`medical_record.amend.approve`、`medical_record.amend.reject`、`medical_record.amend.apply`、`veterinarian_registration.upsert`、`prescription.issue`、`prescription.extend_validity`、`prescription.save`（保留）、`prescription.dispense`（保留）。
+| code | 名称 | module | system_admin | store_manager | doctor |
+|---|---|---|---|---|---|
+| medical_record.archive | 病历归档 | compliance | ✔ | ✔ | ✔ |
+| medical_record.amend.request | 病历修订申请 | compliance | ✔ | ✔ | ✔ |
+| medical_record.amend.approve | 病历修订审批 | compliance | ✔ | ✔ | ✘ |
+| veterinarian_registration.read | 查看执业兽医备案 | compliance | ✔ | ✔ | ✔ |
+| veterinarian_registration.manage | 管理执业兽医备案 | compliance | ✔ | ✔ | ✘ |
+| prescription.issue | 开具处方 | prescription | ✔ | ✔ | ✔ |
+| prescription.extend_validity | 延长处方有效期 | prescription | ✔ | ✔ | ✘ |
+| prescription.controlled_issue | 开具受控药品处方 | prescription | ✔ | ✔ | ✔ |
 
-## 9. tests
+`roles.permissions` 数组按同矩阵同步（兼容旧代码读取）；`revoke` 收紧：新表仅 service_role 可写。
 
-- `supabase/tests/compliance_s3_1.sql`：8 个 Part（归档截止触发器 / 归档与保存期 / 归档不可变 / Amendment 全流与拒绝分支 / 兽医备案 / 有效期 / 受控药 / save-dispense 防护），自建断言、单一事务、固定 UUID fixture，结尾 COMPLIANCE_S3_1_PASSED
-- `pnpm check:rpc-manifest` PASS（routes 65 处调用 ⊆ manifest 63 个函数；63 个全部纳入 revoke）
-- `npx tsc --noEmit -p api/tsconfig.json` PASS
-- `pnpm --filter './apps/*' -r run lint`（vue-tsc）PASS
+## 9. 新增 audit events（10 个）
 
-## 10. 未完成项
+| action | 触发点 | entity_type |
+|---|---|---|
+| medical_record.archive | archive_encounter / archive_admission | encounter / admission |
+| medical_record.amend.request | request_record_amendment | medical_record_amendment |
+| medical_record.amend.approve | review_record_amendment(approved) | medical_record_amendment |
+| medical_record.amend.reject | review_record_amendment(rejected) | medical_record_amendment |
+| medical_record.amend.apply | apply_record_amendment（含 before/after 快照元数据） | medical_record_amendment |
+| veterinarian_registration.upsert | upsert（含 before/after to_jsonb） | veterinarian_registration |
+| prescription.issue | issue_prescription | prescription |
+| prescription.extend_validity | extend_prescription_validity | prescription |
+| prescription.save（保留） | save_prescription 重定义 | prescription |
+| prescription.dispense（保留） | dispense_prescription 重定义 | prescription |
+
+## 10. 新增/修改 tests
+
+### 新增 `supabase/tests/compliance_s3_1.sql`（独立可执行，待 staging）
+
+| Part | 覆盖 |
+|---|---|
+| 1 | 归档截止触发器：门诊 signed 后 archive_due_at = ended_at + 24h（±1h 断言）；住院 discharged 后 +3 日 |
+| 2 | archive_encounter 成功（retention ≥3 年）/ 重复归档拒绝 / 未签署拒绝；archive_admission 成功 / 未出院拒绝 / 越租户操作员拒绝（OPERATOR_NOT_FOUND） |
+| 3 | 归档后直接 UPDATE 被 ARCHIVED_RECORD_IMMUTABLE 拦截（postgres 直连同样拦截） |
+| 4 | Amendment 全流：request→pending+before_snapshot→重复申请拒绝→未批准 apply 拒绝→approved→apply→applied+after_snapshot+encounter_revisions+1→已应用不可重复；未归档申请拒绝；拒绝分支（INVALID_DECISION / rejected+原因 / AMENDMENT_NOT_PENDING） |
+| 5 | 兽医备案：无备案开方拒绝→upsert active→开方成功（issued/当日结束/signature manual/retention 3 年/记录备案 id）→备案过期开方拒绝→恢复 |
+| 6 | 有效期：>3 天拒绝→extend 正常/超上限/缩短拒绝→过期 dispense 拒绝+正常 issued dispense 成功 |
+| 7 | 受控药：麻醉 duration=2 拒绝（NARCOTIC_DAILY_LIMIT）→duration=1 成功且 retention 5 年；受控+普通混开拒绝；麻醉+精神混开拒绝 |
+| 8 | issued 后 save 拒绝（PRESCRIPTION_ALREADY_ISSUED）；draft 直发兼容 |
+
+实现：自建 `tests.assert_true`/`assert_raises`、单一事务 begin/rollback、固定 UUID fixture（99999999-...）、`execute 'reset role'` 规避 SET LOCAL 跨块持久化、结尾 COMPLIANCE_S3_1_PASSED。
+
+### 修改（CI 校验）
+- `api/scripts/check-rpc-manifest.ts`：规则 2 升级为 migrations 目录全 .sql 聚合扫描（新 revoke 在 migration 29）。
+- 验证结果：`pnpm check:rpc-manifest` PASS（routes 65 处调用 ⊆ manifest 63 个函数；63 个全部纳入 revoke）；`npx tsc --noEmit -p api/tsconfig.json` PASS；`pnpm --filter './apps/*' -r run lint`（vue-tsc）PASS。
+
+## 11. 未完成项
 
 - SQL 测试与 E2E 需 staging 环境真实执行（无本地数据库，未生成执行日志）
 - RLS 行为（amendment 申请以 amend.request 权限 SELECT 新表）待 staging 验证
 - S3.1-2~4（license/年报/疫情/废弃物/tenant init/日结/对账/医疗闭环补强/集成收口）未开始，按要求停止
 
-## 11. 风险
+## 12. 风险
 
 - 归档截止/保留期规则依赖触发器语义（`before update of status` 不覆盖 insert），已用测试覆盖
 - `prevent_archived_record_update` 为全局兜底，amendment apply 依赖 `set_config('app.allow_archived_update')` 显式放行，误用可能阻塞正常 update，待 staging 回归
 - 无本地数据库，migration 28/29 仅静态自检，语法/行为以 staging `supabase db reset` 为准
 
-## 12. 下一 Sprint 依赖
+## 13. 下一 Sprint 依赖
 
 - S3.1-2 经营+监管底线（license/年报/疫情/废弃物/tenant init/日结/对账）可复用本 Sprint 的权限码/审计/RPC 模式
 - staging 环境就绪后：先执行 migration + compliance_s3_1.sql + rpc_security.sql 回归，再开始 S3.1-2
