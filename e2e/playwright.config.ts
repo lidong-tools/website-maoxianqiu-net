@@ -83,13 +83,13 @@ export default defineConfig({
     baseURL,
     // 简体中文环境
     locale: 'zh-CN',
-    // 桌面端视口(管理后台按 PC 设计)
-    viewport: { width: 1440, height: 900 },
     // 会话过期或接口 4xx 时不自动重试(保持测试语义清晰)
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
     // 使用 Chromium 内核
     ...devices['Desktop Chrome'],
+    // 桌面端视口(管理后台按 PC 设计,须在 devices spread 之后声明才能生效)
+    viewport: { width: 1440, height: 900 },
     trace: 'retain-on-failure',
   },
 
@@ -104,9 +104,7 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     // vite 冷启动(含依赖预构建)可能较慢,放宽等待时间
     timeout: 180_000,
-    // 环境变量透传给 dev server 所在进程
-    env: {
-      ...process.env,
-    },
+    // 环境变量透传给 dev server 所在进程(process.env 值在运行时均非 undefined)
+    env: { ...process.env } as Record<string, string>,
   },
 })
