@@ -70,6 +70,26 @@ const routes: RouteRecordRaw[] = [
           auth: 'handover.manage',
         },
       },
+      {
+        // 病程记录(S3.1-C 住院闭环)
+        path: 'progress-notes',
+        name: 'inpatientProgressNotes',
+        component: () => import('@/views/inpatient/progress-notes/index.vue'),
+        meta: {
+          title: '病程记录',
+          auth: 'progress.view',
+        },
+      },
+      {
+        // 出院结算(S3.1-C 结算闭环)
+        path: 'settlement',
+        name: 'inpatientSettlement',
+        component: () => import('@/views/inpatient/settlement/index.vue'),
+        meta: {
+          title: '出院结算',
+          auth: 'settlement.view',
+        },
+      },
     ],
   },
 ]

@@ -428,4 +428,335 @@ inpatientRoutes.get('/cages/status', async (c) => {
   return ok(c, { list: data ?? [] })
 })
 
+// ============================================================
+// S3.1-并发任务C:住院病程(inpatient_progress_notes)(migration 47)
+// ============================================================
+
+const progressNoteListSchema = z.object({
+  tenantId: z.string().uuid().optional(),
+  storeId: z.string().uuid().optional(),
+  admissionId: z.string().uuid().optional(),
+  petId: z.string().uuid().optional(),
+  status: z.enum(['draft', 'signed']).optional(),
+  noteType: z.enum(['daily', 'critical', 'preop', 'postop', 'discharge']).optional(),
+  page: z.coerce.number().int().positive().max(1000).default(1),
+  pageSize: z.coerce.number().int().positive().max(200).default(20),
+})
+
+/**
+ * 病程记录列表(S3.1-C)
+ * - 权限:progress.view
+ */
+inpatientRoutes.get('/progress-notes', async (c) => {
+  const input = progressNoteListSchema.parse(c.req.query())
+  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无法确定租户作用域')
+  }
+  const scope = await requireScopedPermission(c, { code: 'progress.view', tenantId, storeId: input.storeId })
+
+  const service = createServiceClient()
+  let query = service
+    .from('inpatient_progress_notes')
+    .select('*', { count: 'exact' })
+    .eq('tenant_id', scope.tenantId)
+
+  if (input.storeId) {
+    query = query.eq('store_id', input.storeId)
+  }
+  if (input.admissionId) {
+    query = query.eq('admission_id', input.admissionId)
+  }
+  if (input.petId) {
+    query = query.eq('pet_id', input.petId)
+  }
+  if (input.status) {
+    query = query.eq('status', input.status)
+  }
+  if (input.noteType) {
+    query = query.eq('note_type', input.noteType)
+  }
+
+  const from = (input.page - 1) * input.pageSize
+  const { data, error, count } = await query
+    .order('recorded_at', { ascending: false })
+    .range(from, from + input.pageSize - 1)
+
+  if (error) {
+    throw err.internal(`查询病程记录失败: ${error.message}`)
+  }
+
+  return ok(c, { list: data ?? [], total: count ?? 0, page: input.page, pageSize: input.pageSize })
+})
+
+const createProgressNoteSchema = z.object({
+  admissionId: z.string().uuid('住院 id 格式错误'),
+  content: z.string().min(1, '病程内容不能为空').max(5000),
+  noteType: z.enum(['daily', 'critical', 'preop', 'postop', 'discharge']).default('daily'),
+  recordedAt: z.string().optional(),
+})
+
+/**
+ * 记录病程(S3.1-C)
+ * - 权限:progress.write
+ * - 调 create_progress_note RPC:校验住院中 + 生成编号 + 审计
+ */
+inpatientRoutes.post('/progress-notes', async (c) => {
+  const input = await parseJsonBody(c, createProgressNoteSchema)
+  const service = createServiceClient()
+
+  const { data: admission, error: admErr } = await service
+    .from('admissions')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', input.admissionId)
+    .maybeSingle()
+  if (admErr || !admission) {
+    throw err.notFound('住院记录不存在')
+  }
+  await requireScopedPermission(c, { code: 'progress.write', tenantId: admission.tenant_id, storeId: admission.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('create_progress_note', {
+    p_admission_id: input.admissionId,
+    p_content: input.content,
+    p_note_type: input.noteType,
+    p_recorded_at: input.recordedAt ?? null,
+    p_operator_id: user.id,
+  })
+
+  if (error) {
+    if (error.message.includes('ADMISSION_NOT_FOUND')) {
+      throw err.notFound('住院记录不存在')
+    }
+    if (error.message.includes('ADMISSION_NOT_ADMITTED')) {
+      throw err.conflict('仅住院中的记录可书写病程')
+    }
+    if (error.message.includes('PROGRESS_CONTENT_REQUIRED')) {
+      throw err.badRequest('病程内容不能为空')
+    }
+    throw err.internal(`记录病程失败: ${error.message}`)
+  }
+
+  return ok(c, data)
+})
+
+/**
+ * 签署病程(S3.1-C)
+ * - 权限:progress.sign
+ * - 调 sign_progress_note RPC:draft → signed + 审计
+ */
+inpatientRoutes.post('/progress-notes/:id/sign', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: note, error: noteErr } = await service
+    .from('inpatient_progress_notes')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (noteErr || !note) {
+    throw err.notFound('病程记录不存在')
+  }
+  await requireScopedPermission(c, { code: 'progress.sign', tenantId: note.tenant_id, storeId: note.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('sign_progress_note', {
+    p_note_id: id,
+    p_signed_by: user.id,
+  })
+
+  if (error) {
+    if (error.message.includes('PROGRESS_NOTE_NOT_FOUND')) {
+      throw err.notFound('病程记录不存在')
+    }
+    if (error.message.includes('PROGRESS_NOTE_ALREADY_SIGNED')) {
+      throw err.conflict('病程已签署,不可重复签署')
+    }
+    throw err.internal(`签署病程失败: ${error.message}`)
+  }
+
+  return ok(c, data)
+})
+
+// ============================================================
+// S3.1-并发任务C:出院结算(discharge settlement)(migration 48)
+// ============================================================
+
+/**
+ * 生成结算单(S3.1-C)
+ * - 权限:settlement.write
+ * - 调 prepare_settlement RPC:汇总费用生成结算单(幂等)
+ */
+inpatientRoutes.post('/admissions/:id/settlement/prepare', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: admission, error: admErr } = await service
+    .from('admissions')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (admErr || !admission) {
+    throw err.notFound('住院记录不存在')
+  }
+  await requireScopedPermission(c, { code: 'settlement.write', tenantId: admission.tenant_id, storeId: admission.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('prepare_settlement', {
+    p_admission_id: id,
+    p_operator_id: user.id,
+  })
+
+  if (error) {
+    if (error.message.includes('ADMISSION_NOT_FOUND')) {
+      throw err.notFound('住院记录不存在')
+    }
+    if (error.message.includes('ADMISSION_NOT_ADMITTED')) {
+      throw err.conflict('仅住院中的记录可生成结算单')
+    }
+    if (error.message.includes('SETTLEMENT_ALREADY_STARTED')) {
+      throw err.conflict('该住院记录已进入结算流程,不可重复生成结算单')
+    }
+    throw err.internal(`生成结算单失败: ${error.message}`)
+  }
+
+  return ok(c, data)
+})
+
+const settleSchema = z.object({
+  paidAmount: z.number().nonnegative('实收金额不能为负'),
+  paymentMethod: z.enum(['cash', 'card', 'wechat', 'alipay', 'stored_value', 'other']).default('cash'),
+})
+
+/**
+ * 收款结算(S3.1-C)
+ * - 权限:settlement.write
+ * - 调 settle_admission RPC:登记实收 + 状态 prepared → settled
+ */
+inpatientRoutes.post('/admissions/:id/settlement/settle', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, settleSchema)
+  const service = createServiceClient()
+
+  const { data: admission, error: admErr } = await service
+    .from('admissions')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (admErr || !admission) {
+    throw err.notFound('住院记录不存在')
+  }
+  await requireScopedPermission(c, { code: 'settlement.write', tenantId: admission.tenant_id, storeId: admission.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('settle_admission', {
+    p_admission_id: id,
+    p_paid_amount: input.paidAmount,
+    p_payment_method: input.paymentMethod,
+    p_operator_id: user.id,
+  })
+
+  if (error) {
+    if (error.message.includes('ADMISSION_NOT_FOUND')) {
+      throw err.notFound('住院记录不存在')
+    }
+    if (error.message.includes('SETTLEMENT_NOT_PREPARED')) {
+      throw err.conflict('请先生成结算单再收款')
+    }
+    if (error.message.includes('PAID_EXCEEDS_PAYABLE')) {
+      throw err.conflict('实收金额超过应付金额')
+    }
+    throw err.internal(`收款结算失败: ${error.message}`)
+  }
+
+  return ok(c, data)
+})
+
+const waiveSchema = z.object({
+  amount: z.number().nonnegative('减免金额不能为负'),
+  reason: z.string().max(500).optional(),
+})
+
+/**
+ * 减免/挂账(S3.1-C)
+ * - 权限:settlement.execute
+ * - 调 waive_admission_charge RPC:减免金额 + 状态 → waived
+ */
+inpatientRoutes.post('/admissions/:id/settlement/waive', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, waiveSchema)
+  const service = createServiceClient()
+
+  const { data: admission, error: admErr } = await service
+    .from('admissions')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (admErr || !admission) {
+    throw err.notFound('住院记录不存在')
+  }
+  await requireScopedPermission(c, { code: 'settlement.execute', tenantId: admission.tenant_id, storeId: admission.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('waive_admission_charge', {
+    p_admission_id: id,
+    p_amount: input.amount,
+    p_reason: input.reason ?? null,
+    p_operator_id: user.id,
+  })
+
+  if (error) {
+    if (error.message.includes('ADMISSION_NOT_FOUND')) {
+      throw err.notFound('住院记录不存在')
+    }
+    if (error.message.includes('SETTLEMENT_NOT_WAIVABLE')) {
+      throw err.conflict('仅已生成结算单的记录可减免')
+    }
+    if (error.message.includes('WAIVE_EXCEEDS_PAYABLE')) {
+      throw err.conflict('减免金额超过可减免上限')
+    }
+    throw err.internal(`减免失败: ${error.message}`)
+  }
+
+  return ok(c, data)
+})
+
+/**
+ * 完成结算并出院(S3.1-C)
+ * - 权限:settlement.execute
+ * - 调 finalize_settlement RPC:联动出院(释放笼位 + total_charge 同步)+ 状态 → finalized
+ */
+inpatientRoutes.post('/admissions/:id/settlement/finalize', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: admission, error: admErr } = await service
+    .from('admissions')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (admErr || !admission) {
+    throw err.notFound('住院记录不存在')
+  }
+  await requireScopedPermission(c, { code: 'settlement.execute', tenantId: admission.tenant_id, storeId: admission.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('finalize_settlement', {
+    p_admission_id: id,
+    p_operator_id: user.id,
+  })
+
+  if (error) {
+    if (error.message.includes('ADMISSION_NOT_FOUND')) {
+      throw err.notFound('住院记录不存在')
+    }
+    if (error.message.includes('SETTLEMENT_NOT_COMPLETED')) {
+      throw err.conflict('仅已收款或已减免的结算可完成出院')
+    }
+    throw err.internal(`完成结算失败: ${error.message}`)
+  }
+
+  return ok(c, data)
+})
+
 export default inpatientRoutes

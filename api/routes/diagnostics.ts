@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
 import { requireScopedPermission } from '../lib/permission'
-import { loadContext } from '../lib/request-context'
+import { getContext, loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { parseJsonBody } from '../lib/validation'
@@ -421,6 +421,308 @@ diagnosticsRoutes.post('/lab-orders/review', async (c) => {
   }
 
   // 审计已由 RPC 内部写入,此处补充 request_id 关联
+  return ok(c, data)
+})
+
+// ============================================================
+// S3.1-并发任务C:检验标本(lab_samples)流转闭环(migration 45)
+// ============================================================
+
+const labSampleListSchema = z.object({
+  tenantId: z.string().uuid().optional(),
+  storeId: z.string().uuid().optional(),
+  labOrderId: z.string().uuid().optional(),
+  status: z.enum(['planned', 'collected', 'received', 'testing', 'completed', 'rejected']).optional(),
+  page: z.coerce.number().int().positive().max(1000).default(1),
+  pageSize: z.coerce.number().int().positive().max(200).default(20),
+})
+
+/**
+ * 标本列表(S3.1-C)
+ * - 权限:lab_sample.read
+ */
+diagnosticsRoutes.get('/lab-samples', async (c) => {
+  const input = labSampleListSchema.parse(c.req.query())
+  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无法确定租户作用域')
+  }
+  const scope = await requireScopedPermission(c, { code: 'lab_sample.read', tenantId, storeId: input.storeId })
+
+  const service = createServiceClient()
+  let query = service
+    .from('lab_samples')
+    .select('*', { count: 'exact' })
+    .eq('tenant_id', scope.tenantId)
+
+  if (input.storeId) {
+    query = query.eq('store_id', input.storeId)
+  }
+  if (input.labOrderId) {
+    query = query.eq('lab_order_id', input.labOrderId)
+  }
+  if (input.status) {
+    query = query.eq('status', input.status)
+  }
+
+  const from = (input.page - 1) * input.pageSize
+  const { data, error, count } = await query
+    .order('created_at', { ascending: false })
+    .range(from, from + input.pageSize - 1)
+
+  if (error) {
+    throw err.internal(`查询标本列表失败: ${error.message}`)
+  }
+
+  return ok(c, { list: data ?? [], total: count ?? 0, page: input.page, pageSize: input.pageSize })
+})
+
+const createLabSampleSchema = z.object({
+  labOrderId: z.string().uuid('检验申请 id 格式错误'),
+  sampleType: z.enum(['blood', 'urine', 'feces', 'tissue', 'other']).default('blood'),
+  container: z.string().max(200).optional(),
+  storageCondition: z.string().max(200).optional(),
+  remark: z.string().max(1000).optional(),
+})
+
+/**
+ * 创建标本(S3.1-C)
+ * - 权限:lab_sample.write
+ * - 调 create_lab_sample RPC:校验检验申请状态 + 生成标本编号 + 审计
+ */
+diagnosticsRoutes.post('/lab-samples', async (c) => {
+  const input = await parseJsonBody(c, createLabSampleSchema)
+  const service = createServiceClient()
+
+  const { data: order, error: orderErr } = await service
+    .from('lab_orders')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', input.labOrderId)
+    .maybeSingle()
+  if (orderErr || !order) {
+    throw err.notFound('检验申请不存在')
+  }
+  await requireScopedPermission(c, { code: 'lab_sample.write', tenantId: order.tenant_id, storeId: order.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('create_lab_sample', {
+    p_lab_order_id: input.labOrderId,
+    p_sample_type: input.sampleType,
+    p_operator_id: user.id,
+    p_container: input.container ?? null,
+    p_storage_condition: input.storageCondition ?? null,
+    p_remark: input.remark ?? null,
+  })
+
+  if (error) {
+    if (error.message.includes('LAB_ORDER_NOT_FOUND')) {
+      throw err.notFound('检验申请不存在')
+    }
+    if (error.message.includes('LAB_ORDER_NOT_ACCEPTING_SAMPLE')) {
+      throw err.conflict('仅待采集/已采集状态的检验申请可添加标本')
+    }
+    throw err.internal(`创建标本失败: ${error.message}`)
+  }
+
+  return ok(c, data)
+})
+
+const transitionLabSampleSchema = z.object({
+  toStatus: z.enum(['planned', 'collected', 'received', 'testing', 'completed', 'rejected']),
+  reason: z.string().max(1000).optional(),
+})
+
+/**
+ * 标本状态流转(S3.1-C)
+ * - 权限:lab_sample.execute
+ * - 调 transition_lab_sample RPC:状态机校验 + 全部标本完成联动检验申请 + 审计
+ */
+diagnosticsRoutes.post('/lab-samples/:id/transition', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, transitionLabSampleSchema)
+  const service = createServiceClient()
+
+  const { data: sample, error: sampleErr } = await service
+    .from('lab_samples')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (sampleErr || !sample) {
+    throw err.notFound('标本不存在')
+  }
+  await requireScopedPermission(c, { code: 'lab_sample.execute', tenantId: sample.tenant_id, storeId: sample.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('transition_lab_sample', {
+    p_sample_id: id,
+    p_to_status: input.toStatus,
+    p_operator_id: user.id,
+    p_reason: input.reason ?? null,
+  })
+
+  if (error) {
+    if (error.message.includes('LAB_SAMPLE_NOT_FOUND')) {
+      throw err.notFound('标本不存在')
+    }
+    if (error.message.includes('INVALID_SAMPLE_TRANSITION')) {
+      throw err.conflict(`标本状态不可由 ${sample.status} 转为 ${input.toStatus}`)
+    }
+    if (error.message.includes('REJECT_REASON_REQUIRED')) {
+      throw err.badRequest('拒收须填写原因')
+    }
+    throw err.internal(`标本状态流转失败: ${error.message}`)
+  }
+
+  return ok(c, data)
+})
+
+// ============================================================
+// S3.1-并发任务C:危急值(critical value)闭环(migration 46)
+// ============================================================
+
+const criticalAlertListSchema = z.object({
+  tenantId: z.string().uuid().optional(),
+  storeId: z.string().uuid().optional(),
+  petId: z.string().uuid().optional(),
+  labOrderId: z.string().uuid().optional(),
+  status: z.enum(['pending', 'acknowledged', 'resolved']).optional(),
+  page: z.coerce.number().int().positive().max(1000).default(1),
+  pageSize: z.coerce.number().int().positive().max(200).default(20),
+})
+
+/**
+ * 危急值列表(S3.1-C)
+ * - 权限:lab_critical.read
+ */
+diagnosticsRoutes.get('/critical-values', async (c) => {
+  const input = criticalAlertListSchema.parse(c.req.query())
+  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无法确定租户作用域')
+  }
+  const scope = await requireScopedPermission(c, { code: 'lab_critical.read', tenantId, storeId: input.storeId })
+
+  const service = createServiceClient()
+  let query = service
+    .from('critical_value_alerts')
+    .select('*', { count: 'exact' })
+    .eq('tenant_id', scope.tenantId)
+
+  if (input.storeId) {
+    query = query.eq('store_id', input.storeId)
+  }
+  if (input.petId) {
+    query = query.eq('pet_id', input.petId)
+  }
+  if (input.labOrderId) {
+    query = query.eq('lab_order_id', input.labOrderId)
+  }
+  if (input.status) {
+    query = query.eq('status', input.status)
+  }
+
+  const from = (input.page - 1) * input.pageSize
+  const { data, error, count } = await query
+    .order('created_at', { ascending: false })
+    .range(from, from + input.pageSize - 1)
+
+  if (error) {
+    throw err.internal(`查询危急值列表失败: ${error.message}`)
+  }
+
+  return ok(c, { list: data ?? [], total: count ?? 0, page: input.page, pageSize: input.pageSize })
+})
+
+const notifyCriticalValueSchema = z.object({
+  channel: z.enum(['phone', 'wechat', 'inperson', 'other']).default('phone'),
+})
+
+/**
+ * 通知危急值(S3.1-C)
+ * - 权限:lab_critical.execute
+ * - 调 notify_critical_value RPC:标记已通知(不改变状态)+ 审计
+ */
+diagnosticsRoutes.post('/critical-values/:id/notify', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, notifyCriticalValueSchema)
+  const service = createServiceClient()
+
+  const { data: alert, error: alertErr } = await service
+    .from('critical_value_alerts')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (alertErr || !alert) {
+    throw err.notFound('危急值告警不存在')
+  }
+  await requireScopedPermission(c, { code: 'lab_critical.execute', tenantId: alert.tenant_id, storeId: alert.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('notify_critical_value', {
+    p_alert_id: id,
+    p_operator_id: user.id,
+    p_channel: input.channel,
+  })
+
+  if (error) {
+    if (error.message.includes('CRITICAL_ALERT_NOT_FOUND')) {
+      throw err.notFound('危急值告警不存在')
+    }
+    if (error.message.includes('CRITICAL_ALERT_RESOLVED')) {
+      throw err.conflict('已解除的危急值不可再通知')
+    }
+    throw err.internal(`通知危急值失败: ${error.message}`)
+  }
+
+  return ok(c, data)
+})
+
+const ackCriticalValueSchema = z.object({
+  toStatus: z.enum(['acknowledged', 'resolved']).default('acknowledged'),
+  note: z.string().max(1000).optional(),
+})
+
+/**
+ * 确认/解除危急值(S3.1-C)
+ * - 权限:lab_critical.execute
+ * - 调 ack_critical_value RPC:状态机校验(pending→acknowledged→resolved)+ 审计
+ */
+diagnosticsRoutes.post('/critical-values/:id/ack', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, ackCriticalValueSchema)
+  const service = createServiceClient()
+
+  const { data: alert, error: alertErr } = await service
+    .from('critical_value_alerts')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (alertErr || !alert) {
+    throw err.notFound('危急值告警不存在')
+  }
+  await requireScopedPermission(c, { code: 'lab_critical.execute', tenantId: alert.tenant_id, storeId: alert.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('ack_critical_value', {
+    p_alert_id: id,
+    p_to_status: input.toStatus,
+    p_operator_id: user.id,
+    p_note: input.note ?? null,
+  })
+
+  if (error) {
+    if (error.message.includes('CRITICAL_ALERT_NOT_FOUND')) {
+      throw err.notFound('危急值告警不存在')
+    }
+    if (error.message.includes('INVALID_CRITICAL_TRANSITION')) {
+      throw err.conflict(`危急值状态不可由 ${alert.status} 转为 ${input.toStatus}`)
+    }
+    if (error.message.includes('CRITICAL_NOT_NOTIFIED')) {
+      throw err.conflict('危急值须先通知后方可确认')
+    }
+    throw err.internal(`确认危急值失败: ${error.message}`)
+  }
+
   return ok(c, data)
 })
 

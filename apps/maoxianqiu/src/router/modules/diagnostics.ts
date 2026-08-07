@@ -59,6 +59,26 @@ const routes: RouteRecordRaw[] = [
           auth: 'diag_reminder.view',
         },
       },
+      {
+        // 标本流转(S3.1-C 标本闭环)
+        path: 'lab-samples',
+        name: 'diagnosticsLabSamples',
+        component: () => import('@/views/diagnostics/lab-samples/index.vue'),
+        meta: {
+          title: '标本流转',
+          auth: 'lab.view',
+        },
+      },
+      {
+        // 危急值管理(S3.1-C 危急值闭环)
+        path: 'critical-values',
+        name: 'diagnosticsCriticalValues',
+        component: () => import('@/views/diagnostics/critical-values/index.vue'),
+        meta: {
+          title: '危急值管理',
+          auth: 'lab.view',
+        },
+      },
     ],
   },
 ]

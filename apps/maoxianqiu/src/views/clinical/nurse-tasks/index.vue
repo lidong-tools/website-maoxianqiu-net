@@ -45,6 +45,18 @@ const createForm = reactive({
 })
 const creating = ref(false)
 
+/** 失败原因弹窗 */
+const failVisible = ref(false)
+const failTarget = ref<NurseTaskRow | null>(null)
+const failReason = ref('')
+const failing = ref(false)
+
+/** 取消原因弹窗 */
+const cancelVisible = ref(false)
+const cancelTarget = ref<NurseTaskRow | null>(null)
+const cancelReason = ref('')
+const cancelling = ref(false)
+
 /**
  * 加载门店选项
  */
@@ -166,6 +178,84 @@ async function onSkip(row: NurseTaskRow) {
 }
 
 /**
+ * 打开标记失败弹窗
+ */
+function openFail(row: NurseTaskRow) {
+  failTarget.value = row
+  failReason.value = ''
+  failVisible.value = true
+}
+
+/**
+ * 标记任务失败(S3.1-C,须填写原因)
+ */
+async function onFail() {
+  if (!failTarget.value) return
+  if (!failReason.value.trim()) {
+    useFaToast().warning('请填写失败原因')
+    return
+  }
+  failing.value = true
+  try {
+    await apiClinical.failNurseTask(failTarget.value.id, failReason.value.trim())
+    useFaToast().success('任务已标记失败')
+    failVisible.value = false
+    getDataList()
+  }
+  catch (e: any) {
+    useFaToast().error(e?.message || '操作失败')
+  }
+  finally {
+    failing.value = false
+  }
+}
+
+/**
+ * 打开取消任务弹窗
+ */
+function openCancel(row: NurseTaskRow) {
+  cancelTarget.value = row
+  cancelReason.value = ''
+  cancelVisible.value = true
+}
+
+/**
+ * 取消任务(S3.1-C,仅未执行任务可取消)
+ */
+async function onCancel() {
+  if (!cancelTarget.value) return
+  cancelling.value = true
+  try {
+    await apiClinical.cancelNurseTask(cancelTarget.value.id, cancelReason.value.trim() || undefined)
+    useFaToast().success('任务已取消')
+    cancelVisible.value = false
+    getDataList()
+  }
+  catch (e: any) {
+    useFaToast().error(e?.message || '操作失败')
+  }
+  finally {
+    cancelling.value = false
+  }
+}
+
+/**
+ * 超时/即将到期扫描(S3.1-C)
+ * 批量标记 overdue/due_soon,并提示统计
+ */
+async function onScanOverdue() {
+  try {
+    const res = await apiClinical.scanNurseTaskOverdue(tenantStore.currentTenantId || '', search.value.storeId || undefined)
+    const data = res.data
+    useFaToast().success(`扫描完成:超时 ${data?.overdueCount ?? 0} 条,即将到期 ${data?.dueSoonCount ?? 0} 条`)
+    getDataList()
+  }
+  catch (e: any) {
+    useFaToast().error(e?.message || '扫描失败')
+  }
+}
+
+/**
  * 删除任务
  */
 function onDelete(row: NurseTaskRow) {
@@ -247,8 +337,10 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
                   { label: '全部', value: '' },
                   { label: '待处理', value: 'pending' },
                   { label: '进行中', value: 'in_progress' },
-                  { label: '已完成', value: 'done' },
+                  { label: '已完成', value: 'completed' },
                   { label: '已跳过', value: 'skipped' },
+                  { label: '已失败', value: 'failed' },
+                  { label: '已取消', value: 'cancelled' },
                 ]"
                 class="w-full"
                 @change="currentChange()"
@@ -292,6 +384,10 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
         :data="dataList"
       >
         <template #toolbar>
+          <FaButton @click="onScanOverdue()">
+            <FaIcon name="i-ri:time-line" />
+            超时扫描
+          </FaButton>
           <FaButton @click="createVisible = true">
             <FaIcon name="i-ri:add-line" />
             新建任务
@@ -299,11 +395,17 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
         </template>
         <template #cell-operation="{ row }">
           <div class="flex-center gap-1">
-            <FaButton v-if="row.original.status === 'pending' || row.original.status === 'in_progress'" variant="outline" size="sm" @click="onComplete(row.original)">
+            <FaButton v-if="row.original.status === 'pending' || row.original.status === 'in_progress' || row.original.status === 'done'" variant="outline" size="sm" @click="onComplete(row.original)">
               完成
             </FaButton>
             <FaButton v-if="row.original.status === 'pending' || row.original.status === 'in_progress'" variant="outline" size="sm" @click="onSkip(row.original)">
               跳过
+            </FaButton>
+            <FaButton v-if="row.original.status === 'pending' || row.original.status === 'in_progress'" variant="outline" size="sm" @click="openFail(row.original)">
+              失败
+            </FaButton>
+            <FaButton v-if="row.original.status === 'pending' || row.original.status === 'in_progress'" variant="outline" size="sm" @click="openCancel(row.original)">
+              取消
             </FaButton>
             <FaButton variant="outline" size="icon-sm" @click="onDelete(row.original)">
               <FaIcon name="i-ri:delete-bin-line" />
@@ -337,6 +439,30 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
           </FaLabel>
           <FaLabel label="计划时间">
             <FaInput v-model="createForm.scheduledAt" type="datetime-local" class="w-full" />
+          </FaLabel>
+        </div>
+      </FaModal>
+
+      <!-- 标记失败弹窗(S3.1-C) -->
+      <FaModal v-model:visible="failVisible" title="标记任务失败" :loading="failing" @confirm="onFail">
+        <div class="space-y-3">
+          <FaAlert type="warning" :closable="false">
+            任务"{{ failTarget?.description }}"将标记为失败,且需填写失败原因
+          </FaAlert>
+          <FaLabel label="失败原因" required>
+            <FaInput v-model="failReason" placeholder="必填,说明失败原因" class="w-full" />
+          </FaLabel>
+        </div>
+      </FaModal>
+
+      <!-- 取消任务弹窗(S3.1-C) -->
+      <FaModal v-model:visible="cancelVisible" title="取消任务" :loading="cancelling" @confirm="onCancel">
+        <div class="space-y-3">
+          <FaAlert type="warning" :closable="false">
+            任务"{{ cancelTarget?.description }}"将被取消,已执行任务不可取消(永久保留)
+          </FaAlert>
+          <FaLabel label="取消原因">
+            <FaInput v-model="cancelReason" placeholder="可选" class="w-full" />
           </FaLabel>
         </div>
       </FaModal>

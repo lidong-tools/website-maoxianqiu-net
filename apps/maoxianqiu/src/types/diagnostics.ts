@@ -333,6 +333,8 @@ export interface LabOrderAnalyte {
   resulted_at: string | null
   resulted_by: string | null
   note: string | null
+  /** S3.1-C:危急值项目代码(如 'GLU-H'),可空 */
+  critical_value_code: string | null
   created_at: string
 }
 
@@ -400,6 +402,60 @@ export interface UpdateLabSpecimenInput {
   remark?: string
 }
 
+// ===== 标本流转闭环 lab_samples(S3.1-C,migration 45) =====
+
+/** 标本流转状态机:planned→collected→received→testing→completed;任意非终态→rejected */
+export type LabSampleStatus = 'planned' | 'collected' | 'received' | 'testing' | 'completed' | 'rejected'
+
+/** lab_samples 表记录(S3.1 完整标本流转闭环,与旧 lab_specimens 并存) */
+export interface LabSampleRecord {
+  id: string
+  tenant_id: string
+  store_id: string | null
+  lab_order_id: string
+  sample_no: string
+  sample_type: SpecimenType
+  status: LabSampleStatus
+  planned_at: string
+  planned_by: string | null
+  collected_at: string | null
+  collected_by: string | null
+  received_at: string | null
+  received_by: string | null
+  rejected_at: string | null
+  rejected_by: string | null
+  reject_reason: string | null
+  container: string | null
+  storage_condition: string | null
+  remark: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** 标本列表查询参数 */
+export interface LabSampleListParams {
+  storeId?: string
+  labOrderId?: string
+  status?: LabSampleStatus
+  page?: number
+  pageSize?: number
+}
+
+/** 创建标本入参(走 Hono Command + create_lab_sample RPC) */
+export interface CreateLabSampleInput {
+  labOrderId: string
+  sampleType?: SpecimenType
+  container?: string
+  storageCondition?: string
+  remark?: string
+}
+
+/** 标本状态流转入参(走 Hono Command + transition_lab_sample RPC) */
+export interface TransitionLabSampleInput {
+  toStatus: LabSampleStatus
+  reason?: string
+}
+
 // ===== 检验结果审核(MXQ-10008) =====
 
 /** 审核决定 */
@@ -444,6 +500,12 @@ export interface CriticalValueAlert {
   status: CriticalAlertStatus
   acknowledged_by: string | null
   acknowledged_at: string | null
+  /** S3.1-C:危急值项目代码(如 'GLU-H'),可空 */
+  critical_value_code: string | null
+  notified_at: string | null
+  notified_by: string | null
+  resolved_at: string | null
+  resolved_by: string | null
   created_at: string
 }
 
@@ -455,6 +517,20 @@ export interface CriticalAlertListParams {
   labOrderId?: string
   page?: number
   pageSize?: number
+}
+
+/** 通知渠道 */
+export type NotifyChannel = 'phone' | 'wechat' | 'inperson' | 'other'
+
+/** 通知危急值入参(走 Hono Command + notify_critical_value RPC,不改变状态) */
+export interface NotifyCriticalValueInput {
+  channel?: NotifyChannel
+}
+
+/** 确认/解除危急值入参(走 Hono Command + ack_critical_value RPC) */
+export interface AckCriticalValueInput {
+  toStatus?: 'acknowledged' | 'resolved'
+  note?: string
 }
 
 // ===== 状态机转换矩阵 =====
@@ -483,6 +559,16 @@ export const SPECIMEN_STATUS_TRANSITIONS: Record<SpecimenStatus, SpecimenStatus[
   discarded: [],
 }
 
+/** 标本流转状态机(S3.1-C):planned→collected→received→testing→completed;任意非终态→rejected */
+export const LAB_SAMPLE_STATUS_TRANSITIONS: Record<LabSampleStatus, LabSampleStatus[]> = {
+  planned: ['collected', 'rejected'],
+  collected: ['received', 'rejected'],
+  received: ['testing', 'rejected'],
+  testing: ['completed', 'rejected'],
+  completed: [],
+  rejected: [],
+}
+
 /** 危急值告警状态机 */
 export const CRITICAL_ALERT_STATUS_TRANSITIONS: Record<CriticalAlertStatus, CriticalAlertStatus[]> = {
   pending: ['acknowledged'],
@@ -494,6 +580,13 @@ export const CRITICAL_ALERT_STATUS_TRANSITIONS: Record<CriticalAlertStatus, Crit
 export const VACCINE_CERTIFICATE_STATUS_TRANSITIONS: Record<VaccineCertificateStatus, VaccineCertificateStatus[]> = {
   issued: ['revoked'],
   revoked: [],
+}
+
+/**
+ * 校验标本流转状态转换是否合法(S3.1-C)
+ */
+export function canTransitionLabSampleStatus(from: LabSampleStatus, to: LabSampleStatus): boolean {
+  return LAB_SAMPLE_STATUS_TRANSITIONS[from].includes(to)
 }
 
 /**
@@ -621,6 +714,34 @@ export const SPECIMEN_STATUS_COLORS: Record<SpecimenStatus, string> = {
   in_transit: 'warning',
   received: 'success',
   discarded: 'default',
+}
+
+/** 标本流转状态标签(S3.1-C) */
+export const LAB_SAMPLE_STATUS_LABELS: Record<LabSampleStatus, string> = {
+  planned: '待采集',
+  collected: '已采集',
+  received: '已签收',
+  testing: '检测中',
+  completed: '已完成',
+  rejected: '已拒收',
+}
+
+/** 标本流转状态颜色(S3.1-C) */
+export const LAB_SAMPLE_STATUS_COLORS: Record<LabSampleStatus, string> = {
+  planned: 'default',
+  collected: 'info',
+  received: 'warning',
+  testing: 'primary',
+  completed: 'success',
+  rejected: 'danger',
+}
+
+/** 通知渠道标签(S3.1-C) */
+export const NOTIFY_CHANNEL_LABELS: Record<NotifyChannel, string> = {
+  phone: '电话',
+  wechat: '微信',
+  inperson: '当面',
+  other: '其他',
 }
 
 /** 审核决定标签 */

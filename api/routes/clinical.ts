@@ -1049,7 +1049,7 @@ const nurseTaskListSchema = z.object({
   assigneeId: z.string().uuid().optional(),
   petId: z.string().uuid().optional(),
   encounterId: z.string().uuid().optional(),
-  status: z.enum(['pending', 'in_progress', 'done', 'skipped']).optional(),
+  status: z.enum(['pending', 'in_progress', 'done', 'skipped', 'completed', 'failed', 'cancelled']).optional(),
   taskType: z.enum(['medication', 'observation', 'care', 'sample_collection', 'other']).optional(),
   page: z.coerce.number().int().positive().max(1000).default(1),
   pageSize: z.coerce.number().int().positive().max(200).default(20),
@@ -1275,6 +1275,445 @@ clinicalRoutes.delete('/nurse-tasks/:id', async (c) => {
   })
 
   return ok(c, { deleted: true })
+})
+
+// ============================================================
+// S3.1-并发任务C:医嘱(medical_orders)闭环(migration 44)
+// ============================================================
+
+const medicalOrderListSchema = z.object({
+  tenantId: z.string().uuid().optional(),
+  storeId: z.string().uuid().optional(),
+  petId: z.string().uuid().optional(),
+  encounterId: z.string().uuid().optional(),
+  admissionId: z.string().uuid().optional(),
+  status: z.enum(['active', 'completed', 'cancelled', 'expired']).optional(),
+  orderType: z.enum(['injection', 'infusion', 'treatment', 'disposal', 'nursing', 'medication', 'other']).optional(),
+  page: z.coerce.number().int().positive().max(1000).default(1),
+  pageSize: z.coerce.number().int().positive().max(200).default(20),
+})
+
+/**
+ * 医嘱列表(S3.1-C)
+ * - 权限:nurse_task.view(与医疗闭环共用护士任务读权限)
+ */
+clinicalRoutes.get('/medical-orders', async (c) => {
+  const input = medicalOrderListSchema.parse(c.req.query())
+  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无法确定租户作用域')
+  }
+  const scope = await requireScopedPermission(c, { code: 'nurse_task.view', tenantId, storeId: input.storeId })
+
+  const service = createServiceClient()
+  let query = service
+    .from('medical_orders')
+    .select('*', { count: 'exact' })
+    .eq('tenant_id', scope.tenantId)
+
+  if (input.storeId) {
+    query = query.eq('store_id', input.storeId)
+  }
+  if (input.petId) {
+    query = query.eq('pet_id', input.petId)
+  }
+  if (input.encounterId) {
+    query = query.eq('encounter_id', input.encounterId)
+  }
+  if (input.admissionId) {
+    query = query.eq('admission_id', input.admissionId)
+  }
+  if (input.status) {
+    query = query.eq('status', input.status)
+  }
+  if (input.orderType) {
+    query = query.eq('order_type', input.orderType)
+  }
+
+  const from = (input.page - 1) * input.pageSize
+  const { data, error, count } = await query
+    .order('created_at', { ascending: false })
+    .range(from, from + input.pageSize - 1)
+
+  if (error) {
+    throw err.internal(`查询医嘱列表失败: ${error.message}`)
+  }
+
+  return ok(c, { list: data ?? [], total: count ?? 0, page: input.page, pageSize: input.pageSize })
+})
+
+/**
+ * 医嘱详情(含关联护士任务与检验申请)(S3.1-C)
+ * - 权限:nurse_task.view
+ */
+clinicalRoutes.get('/medical-orders/:id', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: order, error } = await service
+    .from('medical_orders')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (error || !order) {
+    throw err.notFound('医嘱不存在')
+  }
+  // P0-02 scoped:实体租户/门店作用域授权
+  await requireScopedPermission(c, { code: 'nurse_task.view', tenantId: order.tenant_id, storeId: order.store_id ?? undefined })
+
+  // 关联护士任务
+  const { data: tasks, error: taskErr } = await service
+    .from('nurse_tasks')
+    .select('*')
+    .eq('source_type', 'medical_order')
+    .eq('source_id', id)
+    .order('created_at', { ascending: true })
+  if (taskErr) {
+    throw err.internal(`查询医嘱关联任务失败: ${taskErr.message}`)
+  }
+
+  // 关联检验申请
+  const { data: labRefs, error: refErr } = await service
+    .from('medical_lab_refs')
+    .select('*, lab_orders(*)')
+    .eq('medical_order_id', id)
+  if (refErr) {
+    throw err.internal(`查询医嘱关联检验失败: ${refErr.message}`)
+  }
+
+  return ok(c, { order, tasks: tasks ?? [], labRefs: labRefs ?? [] })
+})
+
+const createMedicalOrderSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid().optional(),
+  petId: z.string().uuid('宠物 id 格式错误'),
+  customerId: z.string().uuid().optional(),
+  encounterId: z.string().uuid().optional(),
+  admissionId: z.string().uuid().optional(),
+  orderType: z.enum(['injection', 'infusion', 'treatment', 'disposal', 'nursing', 'medication', 'other']).default('treatment'),
+  itemName: z.string().min(1, '医嘱项目不能为空').max(200),
+  dosage: z.string().max(200).optional(),
+  frequency: z.string().max(50).optional(),
+  quantity: z.number().nonnegative().optional(),
+  unit: z.string().max(50).optional(),
+  instructions: z.string().max(1000).optional(),
+  scheduledAt: z.string().optional(),
+  assigneeId: z.string().uuid().optional(),
+  idempotencyKey: z.string().max(200).optional(),
+})
+
+/**
+ * 开立医嘱(S3.1-C,自动生成护士任务)
+ * - 权限:nurse_task.manage
+ * - 调 create_medical_order RPC:单事务创建医嘱 + 护士任务 + 幂等 + 审计
+ */
+clinicalRoutes.post('/medical-orders', async (c) => {
+  const input = await parseJsonBody(c, createMedicalOrderSchema)
+  // P0-02 scoped:租户/门店作用域授权
+  const scope = await requireScopedPermission(c, { code: 'nurse_task.manage', tenantId: input.tenantId, storeId: input.storeId })
+
+  const service = createServiceClient()
+  const user = c.get('user')
+  const { data, error } = await service.rpc('create_medical_order', {
+    p_tenant_id: scope.tenantId,
+    p_store_id: scope.storeId ?? null,
+    p_pet_id: input.petId,
+    p_customer_id: input.customerId ?? null,
+    p_encounter_id: input.encounterId ?? null,
+    p_admission_id: input.admissionId ?? null,
+    p_order_type: input.orderType,
+    p_item_name: input.itemName,
+    p_dosage: input.dosage ?? null,
+    p_frequency: input.frequency ?? null,
+    p_quantity: input.quantity ?? 1,
+    p_unit: input.unit ?? null,
+    p_instructions: input.instructions ?? null,
+    p_scheduled_at: input.scheduledAt ?? null,
+    p_assignee_id: input.assigneeId ?? null,
+    p_operator_id: user.id,
+    p_idempotency_key: input.idempotencyKey ?? null,
+  })
+
+  if (error) {
+    if (error.message.includes('INVALID_ORDER_TYPE')) {
+      throw err.badRequest('医嘱类型无效')
+    }
+    throw err.internal(`开立医嘱失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'medical_order.create',
+    entityType: 'medical_order',
+    entityId: (data as { orderId?: string })?.orderId,
+    tenantId: scope.tenantId,
+    storeId: scope.storeId,
+    metadata: { petId: input.petId, orderType: input.orderType, itemName: input.itemName, encounterId: input.encounterId },
+  })
+
+  return ok(c, data)
+})
+
+const cancelMedicalOrderSchema = z.object({
+  reason: z.string().max(500).optional(),
+})
+
+/**
+ * 取消医嘱(S3.1-C)
+ * - 权限:nurse_task.manage
+ * - 调 cancel_medical_order RPC:未执行任务 → cancelled,已执行任务永久保留
+ */
+clinicalRoutes.post('/medical-orders/:id/cancel', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, cancelMedicalOrderSchema)
+  const service = createServiceClient()
+
+  const { data: existing, error: fetchError } = await service
+    .from('medical_orders')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchError || !existing) {
+    throw err.notFound('医嘱不存在')
+  }
+  await requireScopedPermission(c, { code: 'nurse_task.manage', tenantId: existing.tenant_id, storeId: existing.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('cancel_medical_order', {
+    p_order_id: id,
+    p_operator_id: user.id,
+    p_reason: input.reason ?? null,
+  })
+
+  if (error) {
+    if (error.message.includes('MEDICAL_ORDER_NOT_FOUND')) {
+      throw err.notFound('医嘱不存在')
+    }
+    if (error.message.includes('MEDICAL_ORDER_NOT_ACTIVE')) {
+      throw err.conflict('仅进行中医嘱可取消')
+    }
+    throw err.internal(`取消医嘱失败: ${error.message}`)
+  }
+
+  return ok(c, data)
+})
+
+const linkLabRefSchema = z.object({
+  labOrderId: z.string().uuid('检验申请 id 格式错误'),
+  linkType: z.enum(['order_request', 'result_followup']).default('order_request'),
+})
+
+/**
+ * 医嘱关联检验申请(S3.1-C)
+ * - 权限:nurse_task.manage
+ * - 调 link_medical_lab_ref RPC:校验同租户 + 幂等关联
+ */
+clinicalRoutes.post('/medical-orders/:id/link-lab', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, linkLabRefSchema)
+  const service = createServiceClient()
+
+  const { data: existing, error: fetchError } = await service
+    .from('medical_orders')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchError || !existing) {
+    throw err.notFound('医嘱不存在')
+  }
+  await requireScopedPermission(c, { code: 'nurse_task.manage', tenantId: existing.tenant_id, storeId: existing.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('link_medical_lab_ref', {
+    p_medical_order_id: id,
+    p_lab_order_id: input.labOrderId,
+    p_link_type: input.linkType,
+    p_operator_id: user.id,
+  })
+
+  if (error) {
+    if (error.message.includes('MEDICAL_ORDER_NOT_FOUND')) {
+      throw err.notFound('医嘱不存在')
+    }
+    if (error.message.includes('LAB_ORDER_NOT_FOUND')) {
+      throw err.notFound('检验申请不存在')
+    }
+    if (error.message.includes('CROSS_TENANT_REF')) {
+      throw err.forbidden('医嘱与检验申请不属于同一租户')
+    }
+    throw err.internal(`关联检验失败: ${error.message}`)
+  }
+
+  return ok(c, data)
+})
+
+// ============================================================
+// S3.1-并发任务C:护士任务命令增强(complete/cancel/fail/scan)
+// ============================================================
+
+const completeNurseTaskSchema = z.object({
+  note: z.string().max(1000).optional(),
+})
+
+/**
+ * 完成任务(S3.1-C)
+ * - 权限:nurse_task.manage
+ * - 调 complete_nurse_task RPC:校验状态 + 联动医嘱 completed + 审计
+ */
+clinicalRoutes.post('/nurse-tasks/:id/complete', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, completeNurseTaskSchema)
+  const service = createServiceClient()
+
+  const { data: existing, error: fetchError } = await service
+    .from('nurse_tasks')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchError || !existing) {
+    throw err.notFound('护士任务不存在')
+  }
+  await requireScopedPermission(c, { code: 'nurse_task.manage', tenantId: existing.tenant_id, storeId: existing.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('complete_nurse_task', {
+    p_task_id: id,
+    p_operator_id: user.id,
+    p_note: input.note ?? null,
+  })
+
+  if (error) {
+    if (error.message.includes('NURSE_TASK_NOT_FOUND')) {
+      throw err.notFound('护士任务不存在')
+    }
+    if (error.message.includes('NURSE_TASK_NOT_RUNNABLE')) {
+      throw err.conflict('仅待处理/进行中任务可完成')
+    }
+    throw err.internal(`完成任务失败: ${error.message}`)
+  }
+
+  return ok(c, data)
+})
+
+const cancelNurseTaskSchema = z.object({
+  reason: z.string().max(500).optional(),
+})
+
+/**
+ * 取消任务(S3.1-C)
+ * - 权限:nurse_task.manage
+ * - 调 cancel_nurse_task RPC:仅未执行任务可取消,已执行任务永久保留
+ */
+clinicalRoutes.post('/nurse-tasks/:id/cancel', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, cancelNurseTaskSchema)
+  const service = createServiceClient()
+
+  const { data: existing, error: fetchError } = await service
+    .from('nurse_tasks')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchError || !existing) {
+    throw err.notFound('护士任务不存在')
+  }
+  await requireScopedPermission(c, { code: 'nurse_task.manage', tenantId: existing.tenant_id, storeId: existing.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('cancel_nurse_task', {
+    p_task_id: id,
+    p_operator_id: user.id,
+    p_reason: input.reason ?? null,
+  })
+
+  if (error) {
+    if (error.message.includes('NURSE_TASK_NOT_FOUND')) {
+      throw err.notFound('护士任务不存在')
+    }
+    if (error.message.includes('NURSE_TASK_ALREADY_EXECUTED')) {
+      throw err.conflict('已执行任务不可取消(永久保留)')
+    }
+    throw err.internal(`取消任务失败: ${error.message}`)
+  }
+
+  return ok(c, data)
+})
+
+const failNurseTaskSchema = z.object({
+  reason: z.string().min(1, '失败原因不能为空').max(500),
+})
+
+/**
+ * 标记任务失败(S3.1-C)
+ * - 权限:nurse_task.manage
+ * - 调 fail_nurse_task RPC:仅未执行任务可标记失败,须填写原因
+ */
+clinicalRoutes.post('/nurse-tasks/:id/fail', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, failNurseTaskSchema)
+  const service = createServiceClient()
+
+  const { data: existing, error: fetchError } = await service
+    .from('nurse_tasks')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchError || !existing) {
+    throw err.notFound('护士任务不存在')
+  }
+  await requireScopedPermission(c, { code: 'nurse_task.manage', tenantId: existing.tenant_id, storeId: existing.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('fail_nurse_task', {
+    p_task_id: id,
+    p_reason: input.reason,
+    p_operator_id: user.id,
+  })
+
+  if (error) {
+    if (error.message.includes('NURSE_TASK_NOT_FOUND')) {
+      throw err.notFound('护士任务不存在')
+    }
+    if (error.message.includes('NURSE_TASK_NOT_RUNNABLE')) {
+      throw err.conflict('仅待处理/进行中任务可标记失败')
+    }
+    if (error.message.includes('FAIL_REASON_REQUIRED')) {
+      throw err.badRequest('失败原因不能为空')
+    }
+    throw err.internal(`标记任务失败失败: ${error.message}`)
+  }
+
+  return ok(c, data)
+})
+
+const scanOverdueSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid().optional(),
+  dueSoonMinutes: z.number().int().positive().max(1440).default(120),
+})
+
+/**
+ * 护士任务超时/即将到期扫描(S3.1-C)
+ * - 权限:nurse_task.manage
+ * - 调 scan_nurse_task_overdue RPC:批量标记 overdue/due_soon(幂等)
+ */
+clinicalRoutes.post('/nurse-tasks/scan-overdue', async (c) => {
+  const input = await parseJsonBody(c, scanOverdueSchema)
+  const scope = await requireScopedPermission(c, { code: 'nurse_task.manage', tenantId: input.tenantId, storeId: input.storeId })
+
+  const service = createServiceClient()
+  const { data, error } = await service.rpc('scan_nurse_task_overdue', {
+    p_tenant_id: scope.tenantId,
+    p_store_id: scope.storeId ?? null,
+    p_due_soon_minutes: input.dueSoonMinutes,
+  })
+
+  if (error) {
+    throw err.internal(`扫描超时任务失败: ${error.message}`)
+  }
+
+  return ok(c, data)
 })
 
 export default clinicalRoutes

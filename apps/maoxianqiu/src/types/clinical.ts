@@ -261,8 +261,11 @@ export interface PrescriptionDetailResult {
 /** 护士任务类型 */
 export type NurseTaskType = 'medication' | 'observation' | 'care' | 'sample_collection' | 'other'
 
-/** 护士任务状态机:pending→in_progress→done/skipped */
-export type NurseTaskStatus = 'pending' | 'in_progress' | 'done' | 'skipped'
+/** 护士任务状态机(S3.1-C 扩展):pending→in_progress→completed/failed/cancelled;兼容旧 done/skipped */
+export type NurseTaskStatus = 'pending' | 'in_progress' | 'done' | 'skipped' | 'completed' | 'failed' | 'cancelled'
+
+/** 护士任务来源类型(medical_order 为医嘱自动生成,手动创建为空) */
+export type NurseTaskSourceType = 'medical_order' | 'manual'
 
 /** nurse_tasks 表记录 */
 export interface NurseTaskRecord {
@@ -279,6 +282,17 @@ export interface NurseTaskRecord {
   completed_at: string | null
   completed_by: string | null
   note: string | null
+  // S3.1-C 源增强(医嘱闭环)
+  source_type: NurseTaskSourceType | null
+  source_id: string | null
+  started_at: string | null
+  failed_reason: string | null
+  exception_note: string | null
+  overdue_at: string | null
+  due_soon_at: string | null
+  cancelled_at: string | null
+  cancelled_by: string | null
+  cancel_reason: string | null
   created_at: string
   updated_at: string
 }
@@ -325,6 +339,117 @@ export interface UpdateNurseTaskInput {
   note?: string
 }
 
+// ===== 医嘱(S3.1-C,migration 44) =====
+
+/** 医嘱类型 */
+export type MedicalOrderType = 'injection' | 'infusion' | 'treatment' | 'disposal' | 'nursing' | 'medication' | 'other'
+
+/** 医嘱状态机:active→completed/cancelled/expired */
+export type MedicalOrderStatus = 'active' | 'completed' | 'cancelled' | 'expired'
+
+/** medical_orders 表记录 */
+export interface MedicalOrderRecord {
+  id: string
+  tenant_id: string
+  store_id: string | null
+  encounter_id: string | null
+  admission_id: string | null
+  pet_id: string
+  customer_id: string | null
+  order_no: string
+  order_type: MedicalOrderType
+  item_name: string
+  dosage: string | null
+  frequency: string | null
+  quantity: number
+  unit: string | null
+  instructions: string | null
+  scheduled_at: string | null
+  assignee_id: string | null
+  status: MedicalOrderStatus
+  created_by: string | null
+  completed_at: string | null
+  completed_by: string | null
+  cancelled_at: string | null
+  cancelled_by: string | null
+  cancel_reason: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** 医嘱列表查询参数 */
+export interface MedicalOrderListParams {
+  storeId?: string
+  petId?: string
+  encounterId?: string
+  admissionId?: string
+  status?: MedicalOrderStatus
+  orderType?: MedicalOrderType
+  page?: number
+  pageSize?: number
+}
+
+/** 开立医嘱入参(走 Hono Command + create_medical_order RPC) */
+export interface CreateMedicalOrderInput {
+  tenantId: string
+  storeId?: string
+  petId: string
+  customerId?: string
+  encounterId?: string
+  admissionId?: string
+  orderType?: MedicalOrderType
+  itemName: string
+  dosage?: string
+  frequency?: string
+  quantity?: number
+  unit?: string
+  instructions?: string
+  scheduledAt?: string
+  assigneeId?: string
+  idempotencyKey?: string
+}
+
+/** 开立医嘱结果(含自动生成的护士任务 id) */
+export interface CreateMedicalOrderResult {
+  orderId: string
+  taskId: string
+  orderNo: string
+  status: MedicalOrderStatus
+}
+
+/** 取消医嘱结果(未执行任务 → cancelled,已执行任务永久保留) */
+export interface CancelMedicalOrderResult {
+  orderId: string
+  status: MedicalOrderStatus
+  cancelledTasks: number
+  keptExecutedTasks: number
+}
+
+/** medical_lab_refs 表记录(医嘱-检验申请关联) */
+export interface MedicalLabRef {
+  id: string
+  tenant_id: string
+  store_id: string | null
+  medical_order_id: string
+  lab_order_id: string
+  link_type: 'order_request' | 'result_followup'
+  created_by: string | null
+  created_at: string
+}
+
+/** 医嘱详情(含关联护士任务与检验申请) */
+export interface MedicalOrderDetailResult {
+  order: MedicalOrderRecord
+  tasks: NurseTaskRecord[]
+  labRefs: MedicalLabRef[]
+}
+
+/** 护士任务超时扫描结果 */
+export interface ScanNurseTaskOverdueResult {
+  overdueCount: number
+  dueSoonCount: number
+}
+
 // ===== 状态机转换矩阵 =====
 
 /** 预约状态机转换矩阵 */
@@ -353,12 +478,15 @@ export const PRESCRIPTION_STATUS_TRANSITIONS: Record<PrescriptionStatus, Prescri
   cancelled: [],
 }
 
-/** 护士任务状态机转换矩阵 */
+/** 护士任务状态机转换矩阵(S3.1-C:completed/failed/cancelled 为终态) */
 export const NURSE_TASK_STATUS_TRANSITIONS: Record<NurseTaskStatus, NurseTaskStatus[]> = {
-  pending: ['in_progress', 'skipped'],
-  in_progress: ['done', 'skipped'],
-  done: [],
-  skipped: [],
+  pending: ['in_progress', 'skipped', 'completed', 'failed', 'cancelled'],
+  in_progress: ['done', 'skipped', 'completed', 'failed', 'cancelled'],
+  done: ['completed'],
+  skipped: ['completed'],
+  completed: [],
+  failed: [],
+  cancelled: [],
 }
 
 /**
@@ -463,8 +591,11 @@ export const NURSE_TASK_TYPE_LABELS: Record<NurseTaskType, string> = {
 export const NURSE_TASK_STATUS_LABELS: Record<NurseTaskStatus, string> = {
   pending: '待处理',
   in_progress: '进行中',
-  done: '已完成',
+  done: '已完成(旧)',
   skipped: '已跳过',
+  completed: '已完成',
+  failed: '已失败',
+  cancelled: '已取消',
 }
 
 /** 护士任务状态颜色映射 */
@@ -473,4 +604,36 @@ export const NURSE_TASK_STATUS_COLORS: Record<NurseTaskStatus, string> = {
   in_progress: 'primary',
   done: 'success',
   skipped: 'warning',
+  completed: 'success',
+  failed: 'danger',
+  cancelled: 'default',
+}
+
+// ===== 医嘱 UI 映射(S3.1-C) =====
+
+/** 医嘱类型标签映射 */
+export const MEDICAL_ORDER_TYPE_LABELS: Record<MedicalOrderType, string> = {
+  injection: '注射',
+  infusion: '输液',
+  treatment: '治疗',
+  disposal: '处置',
+  nursing: '护理',
+  medication: '用药',
+  other: '其他',
+}
+
+/** 医嘱状态标签映射 */
+export const MEDICAL_ORDER_STATUS_LABELS: Record<MedicalOrderStatus, string> = {
+  active: '执行中',
+  completed: '已完成',
+  cancelled: '已取消',
+  expired: '已过期',
+}
+
+/** 医嘱状态颜色映射 */
+export const MEDICAL_ORDER_STATUS_COLORS: Record<MedicalOrderStatus, string> = {
+  active: 'primary',
+  completed: 'success',
+  cancelled: 'default',
+  expired: 'warning',
 }

@@ -1,6 +1,7 @@
 import type {
   CreateDewormingInput,
   CreateLabOrderInput,
+  CreateLabSampleInput,
   CreateLabSpecimenInput,
   CreateVaccinationInput,
   CreateVaccineProtocolInput,
@@ -15,10 +16,14 @@ import type {
   LabOrderListParams,
   LabOrderRecord,
   LabResultReview,
+  LabSampleListParams,
+  LabSampleRecord,
   LabSpecimen,
+  NotifyChannel,
   PublishLabResultsInput,
   ReviewLabResultsInput,
   ScanRemindersResult,
+  TransitionLabSampleInput,
   UpdateDewormingInput,
   UpdateLabSpecimenInput,
   UpdateVaccinationInput,
@@ -836,91 +841,103 @@ export default {
   },
 
   // ============================================================
+  // 标本流转闭环 lab_samples S3.1-C(migration 45,走 Hono Command + RPC)
+  // ============================================================
+
+  /**
+   * 标本列表(走 Hono Command,权限:lab_sample.read)
+   * 支持 storeId/labOrderId/status 筛选 + 分页
+   */
+  async listLabSamples(params?: LabSampleListParams) {
+    const query: Record<string, unknown> = {}
+    if (params?.storeId) query.storeId = params.storeId
+    if (params?.labOrderId) query.labOrderId = params.labOrderId
+    if (params?.status) query.status = params.status
+    query.page = params?.page ?? 1
+    query.pageSize = params?.pageSize ?? 20
+    const res = await api.get('diagnostics/lab-samples', { params: query })
+    const data = (res as any).data
+    return { status: 1, error: '', data }
+  },
+
+  /**
+   * 创建标本(S3.1-C,走 Hono Command + create_lab_sample RPC)
+   * 校验检验申请状态(requested/collected)+ 生成标本编号 + 审计
+   */
+  async createLabSample(input: CreateLabSampleInput) {
+    const res = await api.post('diagnostics/lab-samples', {
+      labOrderId: input.labOrderId,
+      sampleType: input.sampleType ?? 'blood',
+      container: input.container ?? undefined,
+      storageCondition: input.storageCondition ?? undefined,
+      remark: input.remark ?? undefined,
+    })
+    return { status: 1, error: '', data: (res as any).data as LabSampleRecord }
+  },
+
+  /**
+   * 标本状态流转(S3.1-C,走 Hono Command + transition_lab_sample RPC)
+   * 状态机:planned→collected→received→testing→completed;任意非终态→rejected(须 reason)
+   */
+  async transitionLabSample(id: string, input: TransitionLabSampleInput) {
+    const res = await api.post(`diagnostics/lab-samples/${id}/transition`, {
+      toStatus: input.toStatus,
+      reason: input.reason ?? undefined,
+    })
+    return { status: 1, error: '', data: (res as any).data as LabSampleRecord }
+  },
+
+  // ============================================================
   // 危急值告警 MXQ-10009
   // ============================================================
 
   /**
-   * 危急值告警列表(浏览器直连,RLS 兜底)
+   * 危急值告警列表(S3.1-C,走 Hono Command,权限:lab_critical.read)
+   * 支持 storeId/petId/labOrderId/status 筛选 + 分页
    */
   async listCriticalAlerts(params?: CriticalAlertListParams) {
-    let query = supabase
-      .from('critical_value_alerts')
-      .select('*', { count: 'exact' })
-
-    if (params?.storeId) {
-      query = query.eq('store_id', params.storeId)
-    }
-    if (params?.petId) {
-      query = query.eq('pet_id', params.petId)
-    }
-    if (params?.status) {
-      query = query.eq('status', params.status)
-    }
-    if (params?.labOrderId) {
-      query = query.eq('lab_order_id', params.labOrderId)
-    }
-
-    const page = params?.page ?? 1
-    const pageSize = params?.pageSize ?? 20
-    const from = (page - 1) * pageSize
-    query = query.range(from, from + pageSize - 1)
-
-    const { data, error, count } = await query.order('created_at', { ascending: false })
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return {
-      status: 1,
-      error: '',
-      data: {
-        list: (data ?? []) as CriticalValueAlert[],
-        total: count ?? 0,
-        page,
-        pageSize,
-      },
-    }
+    const query: Record<string, unknown> = {}
+    if (params?.storeId) query.storeId = params.storeId
+    if (params?.petId) query.petId = params.petId
+    if (params?.labOrderId) query.labOrderId = params.labOrderId
+    if (params?.status) query.status = params.status
+    query.page = params?.page ?? 1
+    query.pageSize = params?.pageSize ?? 20
+    const res = await api.get('diagnostics/critical-values', { params: query })
+    const data = (res as any).data
+    return { status: 1, error: '', data }
   },
 
   /**
-   * 确认危急值(pending→acknowledged)(浏览器直连,RLS 须 lab.critical.acknowledge 权限)
+   * 通知危急值(S3.1-C,走 Hono Command + notify_critical_value RPC)
+   * 仅 pending/acknowledged 可通知,不改变状态;确认前必须已通知(闭环强制)
    */
-  async acknowledgeCriticalAlert(id: string) {
-    const { data, error } = await supabase
-      .from('critical_value_alerts')
-      .update({
-        status: 'acknowledged',
-        acknowledged_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .eq('status', 'pending')
-      .select('*')
-      .single()
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return { status: 1, error: '', data: data as CriticalValueAlert }
+  async notifyCriticalAlert(id: string, channel: NotifyChannel = 'phone') {
+    const res = await api.post(`diagnostics/critical-values/${id}/notify`, { channel })
+    return { status: 1, error: '', data: (res as any).data as CriticalValueAlert }
   },
 
   /**
-   * 解决危急值(acknowledged→resolved)(浏览器直连,RLS 须 lab.critical.acknowledge 权限)
+   * 确认危急值(S3.1-C,走 Hono Command + ack_critical_value RPC)
+   * pending→acknowledged(须已通知,否则后端 CRITICAL_NOT_NOTIFIED 拦截)
    */
-  async resolveCriticalAlert(id: string) {
-    const { data, error } = await supabase
-      .from('critical_value_alerts')
-      .update({ status: 'resolved' })
-      .eq('id', id)
-      .eq('status', 'acknowledged')
-      .select('*')
-      .single()
+  async acknowledgeCriticalAlert(id: string, note?: string) {
+    const res = await api.post(`diagnostics/critical-values/${id}/ack`, {
+      toStatus: 'acknowledged',
+      note: note ?? undefined,
+    })
+    return { status: 1, error: '', data: (res as any).data as CriticalValueAlert }
+  },
 
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return { status: 1, error: '', data: data as CriticalValueAlert }
+  /**
+   * 解决危急值(S3.1-C,走 Hono Command + ack_critical_value RPC)
+   * acknowledged→resolved(禁止跳级)
+   */
+  async resolveCriticalAlert(id: string, note?: string) {
+    const res = await api.post(`diagnostics/critical-values/${id}/ack`, {
+      toStatus: 'resolved',
+      note: note ?? undefined,
+    })
+    return { status: 1, error: '', data: (res as any).data as CriticalValueAlert }
   },
 }

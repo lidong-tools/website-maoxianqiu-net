@@ -2,19 +2,26 @@ import type {
   AppointmentListParams,
   AppointmentRecord,
   AppointmentStatus,
+  CancelMedicalOrderResult,
   CreateAppointmentInput,
   CreateEncounterInput,
+  CreateMedicalOrderInput,
   CreateNurseTaskInput,
   EncounterListParams,
   EncounterRecord,
   EncounterRevisionRecord,
   EncounterStatus,
+  MedicalLabRef,
+  MedicalOrderDetailResult,
+  MedicalOrderListParams,
+  MedicalOrderRecord,
   NurseTaskListParams,
   NurseTaskRecord,
   NurseTaskStatus,
   PrescriptionDetailResult,
   PrescriptionRecord,
   SavePrescriptionInput,
+  ScanNurseTaskOverdueResult,
   UpdateAppointmentInput,
   UpdateEncounterInput,
   UpdateNurseTaskInput,
@@ -451,6 +458,114 @@ export default {
   },
 
   // ============================================================
+  // 医嘱 S3.1-C(medical_orders,走 Hono Command + RPC)
+  // ============================================================
+
+  /**
+   * 医嘱列表(走 Hono Command,权限:nurse_task.view)
+   * 支持 storeId/petId/encounterId/admissionId/status/orderType 筛选 + 分页
+   */
+  async listMedicalOrders(params?: MedicalOrderListParams) {
+    const query: Record<string, unknown> = {}
+    if (params?.storeId) query.storeId = params.storeId
+    if (params?.petId) query.petId = params.petId
+    if (params?.encounterId) query.encounterId = params.encounterId
+    if (params?.admissionId) query.admissionId = params.admissionId
+    if (params?.status) query.status = params.status
+    if (params?.orderType) query.orderType = params.orderType
+    query.page = params?.page ?? 1
+    query.pageSize = params?.pageSize ?? 20
+    const res = await api.get('clinical/medical-orders', { params: query })
+    const data = (res as any).data
+    return { status: 1, error: '', data }
+  },
+
+  /**
+   * 医嘱详情(含关联护士任务与检验申请,走 Hono Command)
+   */
+  async getMedicalOrder(id: string) {
+    const res = await api.get(`clinical/medical-orders/${id}`)
+    return { status: 1, error: '', data: (res as any).data as MedicalOrderDetailResult }
+  },
+
+  /**
+   * 开立医嘱(S3.1-C,自动生成护士任务)
+   * 走 Hono Command + create_medical_order RPC:单事务创建医嘱+任务+幂等+审计
+   * @param input 医嘱入参(含幂等键,同一 key 重复请求返回原结果)
+   */
+  async createMedicalOrder(input: CreateMedicalOrderInput) {
+    const res = await api.post('clinical/medical-orders', {
+      ...input,
+      idempotencyKey: input.idempotencyKey ?? undefined,
+    })
+    return { status: 1, error: '', data: (res as any).data }
+  },
+
+  /**
+   * 取消医嘱(S3.1-C,未执行任务→cancelled,已执行任务永久保留)
+   */
+  async cancelMedicalOrder(id: string, reason?: string) {
+    const res = await api.post(`clinical/medical-orders/${id}/cancel`, { reason: reason ?? undefined })
+    return { status: 1, error: '', data: (res as any).data as CancelMedicalOrderResult }
+  },
+
+  /**
+   * 医嘱关联检验申请(S3.1-C,校验同租户 + 幂等)
+   */
+  async linkMedicalLabRef(medicalOrderId: string, labOrderId: string, linkType: 'order_request' | 'result_followup' = 'order_request') {
+    const res = await api.post(`clinical/medical-orders/${medicalOrderId}/link-lab`, { labOrderId, linkType })
+    return { status: 1, error: '', data: (res as any).data as MedicalLabRef }
+  },
+
+  // ============================================================
+  // 护士任务命令增强 S3.1-C(complete/cancel/fail/scan 走 RPC)
+  // ============================================================
+
+  /**
+   * 完成任务(S3.1-C)
+   * 走 Hono Command + complete_nurse_task RPC:校验状态 + 联动医嘱 completed + 审计
+   * 旧 done 状态任务同样可经 RPC 转 completed(状态机兼容)
+   */
+  async completeNurseTask(id: string, note?: string) {
+    const res = await api.post(`clinical/nurse-tasks/${id}/complete`, { note: note ?? undefined })
+    return { status: 1, error: '', data: (res as any).data as NurseTaskRecord }
+  },
+
+  /**
+   * 取消任务(S3.1-C)
+   * 走 Hono Command + cancel_nurse_task RPC:仅未执行任务可取消,已执行任务永久保留
+   */
+  async cancelNurseTask(id: string, reason?: string) {
+    const res = await api.post(`clinical/nurse-tasks/${id}/cancel`, { reason: reason ?? undefined })
+    return { status: 1, error: '', data: (res as any).data as NurseTaskRecord }
+  },
+
+  /**
+   * 标记任务失败(S3.1-C)
+   * 走 Hono Command + fail_nurse_task RPC:仅未执行任务可标记失败,须填写原因
+   */
+  async failNurseTask(id: string, reason: string) {
+    const res = await api.post(`clinical/nurse-tasks/${id}/fail`, { reason })
+    return { status: 1, error: '', data: (res as any).data as NurseTaskRecord }
+  },
+
+  /**
+   * 护士任务超时/即将到期扫描(S3.1-C)
+   * 走 Hono Command + scan_nurse_task_overdue RPC:批量标记 overdue/due_soon(幂等)
+   * @param tenantId 租户 id
+   * @param storeId 门店 id(可选,为空扫全租户)
+   * @param dueSoonMinutes 即将到期提前分钟数(默认 120)
+   */
+  async scanNurseTaskOverdue(tenantId: string, storeId?: string, dueSoonMinutes = 120) {
+    const res = await api.post('clinical/nurse-tasks/scan-overdue', {
+      tenantId,
+      storeId: storeId ?? undefined,
+      dueSoonMinutes,
+    })
+    return { status: 1, error: '', data: (res as any).data as ScanNurseTaskOverdueResult }
+  },
+
+  // ============================================================
   // 便捷状态转换方法
   // ============================================================
 
@@ -501,13 +616,6 @@ export default {
    */
   completeEncounter(id: string) {
     return this.updateEncounter(id, { status: 'completed' as EncounterStatus })
-  },
-
-  /**
-   * 完成护士任务(pending/in_progress→done)
-   */
-  completeNurseTask(id: string) {
-    return this.updateNurseTask(id, { status: 'done' as NurseTaskStatus })
   },
 
   /**

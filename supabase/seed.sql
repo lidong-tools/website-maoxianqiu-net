@@ -31,7 +31,20 @@ insert into public.roles (code, name, description, permissions, is_system, scope
     'daily_closing.adjust',
     'reconciliation.read',
     'reconciliation.edit',
-    'reconciliation.confirm'
+    'reconciliation.confirm',
+    -- S31-C:医疗闭环增强权限(与 migration 49 保持一致)
+    'lab_sample.read',
+    'lab_sample.write',
+    'lab_sample.execute',
+    'lab_critical.read',
+    'lab_critical.write',
+    'lab_critical.execute',
+    'progress.view',
+    'progress.write',
+    'progress.sign',
+    'settlement.view',
+    'settlement.write',
+    'settlement.execute'
   ], true, 'system'),
   ('store_manager', '店长', '管理本店成员与日常运营', array[
     'system:user:manage',
@@ -46,7 +59,20 @@ insert into public.roles (code, name, description, permissions, is_system, scope
     'daily_closing.close',
     'reconciliation.read',
     'reconciliation.edit',
-    'reconciliation.confirm'
+    'reconciliation.confirm',
+    -- S31-C:医疗闭环增强权限(与 migration 49 保持一致)
+    'lab_sample.read',
+    'lab_sample.write',
+    'lab_sample.execute',
+    'lab_critical.read',
+    'lab_critical.write',
+    'lab_critical.execute',
+    'progress.view',
+    'progress.write',
+    'progress.sign',
+    'settlement.view',
+    'settlement.write',
+    'settlement.execute'
   ], true, 'store'),
   ('staff', '店员', '门店工作人员', array[
     'store:view'
@@ -55,10 +81,23 @@ insert into public.roles (code, name, description, permissions, is_system, scope
     'store:view',
     -- S31-PARALLEL-B:日结/对账只读(与 migration 39/41 保持一致)
     'daily_closing.read',
-    'reconciliation.read'
+    'reconciliation.read',
+    -- S31-C:出院结算(只读 + 收款)
+    'settlement.view',
+    'settlement.write'
   ], true, 'store'),
   ('doctor', '医生', '诊疗/处方/检验报告(门店级角色)', array[
-    'store:view'
+    'store:view',
+    -- S31-C:标本/危急值/病程/结算(与 migration 49 保持一致)
+    'lab_sample.read',
+    'lab_sample.write',
+    'lab_critical.read',
+    'lab_critical.write',
+    'lab_critical.execute',
+    'progress.view',
+    'progress.write',
+    'progress.sign',
+    'settlement.view'
   ], true, 'store'),
   -- FINAL-01(第三轮审计):租户级默认角色 tenant_owner(scope=tenant,store_id IS NULL 分配)
   -- 真实医院租户自管执业兽医备案等 tenant-level 数据;与 migration 28 幂等一致。
@@ -120,7 +159,20 @@ insert into public.permissions (code, name, module) values
   ('daily_closing.adjust', '调整日结', 'closing'),
   ('reconciliation.read', '查看对账', 'closing'),
   ('reconciliation.edit', '录入对账实际金额', 'closing'),
-  ('reconciliation.confirm', '确认对账差异', 'closing')
+  ('reconciliation.confirm', '确认对账差异', 'closing'),
+  -- S31-C:医疗闭环增强权限码(与 migration 45~49 保持一致)
+  ('lab_sample.read', '查看检验标本', 'lab'),
+  ('lab_sample.write', '管理检验标本', 'lab'),
+  ('lab_sample.execute', '执行标本流转', 'lab'),
+  ('lab_critical.read', '查看危急值', 'lab'),
+  ('lab_critical.write', '管理危急值', 'lab'),
+  ('lab_critical.execute', '通知/确认危急值', 'lab'),
+  ('progress.view', '查看住院病程', 'inpatient'),
+  ('progress.write', '记录住院病程', 'inpatient'),
+  ('progress.sign', '签署住院病程', 'inpatient'),
+  ('settlement.view', '查看出院结算', 'inpatient'),
+  ('settlement.write', '结算收款', 'inpatient'),
+  ('settlement.execute', '减免/完成结算', 'inpatient')
 on conflict (code) do update set
   name = excluded.name,
   module = excluded.module;

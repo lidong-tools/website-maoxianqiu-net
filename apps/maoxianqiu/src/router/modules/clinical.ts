@@ -113,6 +113,27 @@ const routes: RouteRecordRaw[] = [
       },
     ],
   },
+  {
+    // 医嘱管理(S3.1-C 医疗闭环,开立医嘱自动生成护士任务)
+    path: '/clinical/medical-orders',
+    component: Layout,
+    name: 'clinicalMedicalOrders',
+    meta: {
+      title: '医嘱管理',
+      icon: 'i-ri:file-list-3-line',
+      auth: 'nurse_task.view',
+    },
+    children: [
+      {
+        path: '',
+        component: () => import('@/views/clinical/medical-orders/index.vue'),
+        meta: {
+          title: '医嘱管理',
+          breadcrumb: false,
+        },
+      },
+    ],
+  },
 ]
 
 export default routes

@@ -6,16 +6,24 @@ import type {
   CageTransfer,
   CageUpsertInput,
   CreateHandoverInput,
+  CreateProgressNoteInput,
   DischargePatientInput,
+  FinalizeSettlementResult,
   InpatientCharge,
   NursingPlan,
   NursingPlanInput,
   NursingTask,
   NursingTaskInput,
+  PaymentMethod,
+  PrepareSettlementResult,
+  ProgressNoteListParams,
+  ProgressNoteRecord,
   Room,
   RoomUpsertInput,
+  SettleSettlementResult,
   ShiftHandover,
   TransferCageInput,
+  WaiveSettlementResult,
 } from '@/types/inpatient'
 import { supabase } from '@/lib/supabase'
 import api from '../index'
@@ -418,6 +426,97 @@ export default {
    */
   generateDailyCharges(targetDate?: string) {
     return api.post('inpatient/charges/generate', { targetDate: targetDate ?? null })
+  },
+
+  // ============================================================
+  // 住院病程记录 S3.1-C(migration 47,走 Hono Command + RPC)
+  // ============================================================
+
+  /**
+   * 病程记录列表(走 Hono Command,权限:progress.view)
+   * 支持 storeId/admissionId/petId/status/noteType 筛选 + 分页
+   */
+  async listProgressNotes(params?: ProgressNoteListParams) {
+    const query: Record<string, unknown> = {}
+    if (params?.storeId) query.storeId = params.storeId
+    if (params?.admissionId) query.admissionId = params.admissionId
+    if (params?.petId) query.petId = params.petId
+    if (params?.status) query.status = params.status
+    if (params?.noteType) query.noteType = params.noteType
+    query.page = params?.page ?? 1
+    query.pageSize = params?.pageSize ?? 20
+    const res = await api.get('inpatient/progress-notes', { params: query })
+    const data = (res as any).data
+    return { status: 1, error: '', data }
+  },
+
+  /**
+   * 记录病程(S3.1-C,走 Hono Command + create_progress_note RPC)
+   * 校验住院中(admitted)+ 生成编号 + 审计;记录后 status=draft
+   */
+  async createProgressNote(input: CreateProgressNoteInput) {
+    const res = await api.post('inpatient/progress-notes', {
+      admissionId: input.admissionId,
+      content: input.content,
+      noteType: input.noteType ?? 'daily',
+      recordedAt: input.recordedAt ?? undefined,
+    })
+    return { status: 1, error: '', data: (res as any).data as ProgressNoteRecord }
+  },
+
+  /**
+   * 签署病程(S3.1-C,走 Hono Command + sign_progress_note RPC)
+   * draft→signed(终态,签署后内容不可再改)
+   */
+  async signProgressNote(id: string) {
+    const res = await api.post(`inpatient/progress-notes/${id}/sign`, {})
+    return { status: 1, error: '', data: (res as any).data as ProgressNoteRecord }
+  },
+
+  // ============================================================
+  // 出院结算 S3.1-C(migration 48,走 Hono Command + RPC)
+  // ============================================================
+
+  /**
+   * 生成结算单(S3.1-C,走 Hono Command + prepare_settlement RPC)
+   * 汇总 inpatient_charges 生成应收 + 结算单号(幂等:已准备重复调用返回原结算信息)
+   */
+  async prepareSettlement(admissionId: string) {
+    const res = await api.post(`inpatient/admissions/${admissionId}/settlement/prepare`, {})
+    return { status: 1, error: '', data: (res as any).data as PrepareSettlementResult }
+  },
+
+  /**
+   * 收款结算(S3.1-C,走 Hono Command + settle_admission RPC)
+   * 校验 prepared;实收不可超过应付(应收-押金-减免);状态 prepared→settled
+   */
+  async settleAdmission(admissionId: string, paidAmount: number, paymentMethod: PaymentMethod = 'cash') {
+    const res = await api.post(`inpatient/admissions/${admissionId}/settlement/settle`, {
+      paidAmount,
+      paymentMethod,
+    })
+    return { status: 1, error: '', data: (res as any).data as SettleSettlementResult }
+  },
+
+  /**
+   * 减免/挂账(S3.1-C,走 Hono Command + waive_admission_charge RPC)
+   * 校验 prepared/settled;减免金额须在可减免上限内;状态 → waived
+   */
+  async waiveAdmissionCharge(admissionId: string, amount: number, reason?: string) {
+    const res = await api.post(`inpatient/admissions/${admissionId}/settlement/waive`, {
+      amount,
+      reason: reason ?? undefined,
+    })
+    return { status: 1, error: '', data: (res as any).data as WaiveSettlementResult }
+  },
+
+  /**
+   * 完成结算并出院(S3.1-C,走 Hono Command + finalize_settlement RPC)
+   * 校验 settled/waived;联动出院(释放笼位 + total_charge 同步);状态 → finalized
+   */
+  async finalizeSettlement(admissionId: string) {
+    const res = await api.post(`inpatient/admissions/${admissionId}/settlement/finalize`, {})
+    return { status: 1, error: '', data: (res as any).data as FinalizeSettlementResult }
   },
 }
 

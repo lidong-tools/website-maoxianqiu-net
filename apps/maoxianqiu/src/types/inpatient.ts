@@ -84,9 +84,119 @@ export interface Admission {
   archive_status: ArchiveStatus | null
   archive_due_at: string | null
   archived_at: string | null
+  // S3.1-C 出院结算字段(migration 48)
+  settlement_status: SettlementStatus
+  settlement_no: string | null
+  deposit_amount: number
+  receivable_amount: number
+  paid_amount: number
+  waived_amount: number
+  payment_method: PaymentMethod | null
+  prepared_at: string | null
+  prepared_by: string | null
+  settled_at: string | null
+  settled_by: string | null
+  waived_at: string | null
+  waived_by: string | null
+  waived_reason: string | null
+  finalized_at: string | null
+  finalized_by: string | null
   total_charge: number
   created_at: string
   updated_at: string
+}
+
+// ===== 出院结算(S3.1-C,migration 48) =====
+
+/** 结算状态机:unsettled→prepared→settled→finalized;prepared→waived→finalized */
+export type SettlementStatus = 'unsettled' | 'prepared' | 'settled' | 'waived' | 'finalized'
+
+/** 支付方式 */
+export type PaymentMethod = 'cash' | 'card' | 'wechat' | 'alipay' | 'stored_value' | 'other'
+
+/** 生成结算单结果(prepare_settlement RPC) */
+export interface PrepareSettlementResult {
+  admissionId: string
+  settlementNo: string
+  receivableAmount: number
+  depositAmount: number
+  chargeCount: number
+  settlementStatus: SettlementStatus
+}
+
+/** 收款结算结果(settle_admission RPC) */
+export interface SettleSettlementResult {
+  admissionId: string
+  settlementNo: string
+  paidAmount: number
+  paymentMethod: PaymentMethod
+  payable: number
+  settlementStatus: SettlementStatus
+}
+
+/** 减免/挂账结果(waive_admission_charge RPC) */
+export interface WaiveSettlementResult {
+  admissionId: string
+  settlementNo: string
+  waiveAmount: number
+  totalWaived: number
+  settlementStatus: SettlementStatus
+}
+
+/** 完成结算并出院结果(finalize_settlement RPC) */
+export interface FinalizeSettlementResult {
+  admissionId: string
+  settlementNo: string
+  status: AdmissionStatus
+  totalCharge: number
+  settlementStatus: SettlementStatus
+  dischargedAt: string
+}
+
+// ===== 住院病程记录(S3.1-C,migration 47) =====
+
+/** 病程类型 */
+export type ProgressNoteType = 'daily' | 'critical' | 'preop' | 'postop' | 'discharge'
+
+/** 病程状态机:draft→signed(终态,签署后内容不可再改) */
+export type ProgressNoteStatus = 'draft' | 'signed'
+
+/** inpatient_progress_notes 表记录 */
+export interface ProgressNoteRecord {
+  id: string
+  tenant_id: string
+  store_id: string | null
+  admission_id: string
+  pet_id: string
+  note_no: string
+  note_type: ProgressNoteType
+  content: string
+  status: ProgressNoteStatus
+  recorded_at: string
+  recorded_by: string | null
+  signed_at: string | null
+  signed_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** 病程列表查询参数 */
+export interface ProgressNoteListParams {
+  storeId?: string
+  admissionId?: string
+  petId?: string
+  status?: ProgressNoteStatus
+  noteType?: ProgressNoteType
+  page?: number
+  pageSize?: number
+}
+
+/** 记录病程入参(走 Hono Command + create_progress_note RPC) */
+export interface CreateProgressNoteInput {
+  admissionId: string
+  content: string
+  noteType?: ProgressNoteType
+  recordedAt?: string
 }
 
 /** nursing_plans 表记录(护理计划) */
@@ -474,3 +584,54 @@ export const INPATIENT_PERMISSIONS = {
   nursingManage: 'nursing.manage',
   handoverManage: 'handover.manage',
 } as const
+
+// ===== 出院结算/病程 UI 映射(S3.1-C) =====
+
+/** 结算状态标签映射(UI 显示用) */
+export const SETTLEMENT_STATUS_LABELS: Record<SettlementStatus, string> = {
+  unsettled: '未结算',
+  prepared: '已生成结算单',
+  settled: '已收款',
+  waived: '已减免',
+  finalized: '已完成出院',
+}
+
+/** 结算状态对应的 UI 颜色 */
+export const SETTLEMENT_STATUS_COLORS: Record<SettlementStatus, string> = {
+  unsettled: 'default',
+  prepared: 'warning',
+  settled: 'info',
+  waived: 'warning',
+  finalized: 'success',
+}
+
+/** 支付方式标签映射(UI 显示用) */
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  cash: '现金',
+  card: '刷卡',
+  wechat: '微信',
+  alipay: '支付宝',
+  stored_value: '储值',
+  other: '其他',
+}
+
+/** 病程类型标签映射(UI 显示用) */
+export const PROGRESS_NOTE_TYPE_LABELS: Record<ProgressNoteType, string> = {
+  daily: '日常病程',
+  critical: '危重病程',
+  preop: '术前病程',
+  postop: '术后病程',
+  discharge: '出院病程',
+}
+
+/** 病程状态标签映射(UI 显示用) */
+export const PROGRESS_NOTE_STATUS_LABELS: Record<ProgressNoteStatus, string> = {
+  draft: '草稿',
+  signed: '已签署',
+}
+
+/** 病程状态对应的 UI 颜色 */
+export const PROGRESS_NOTE_STATUS_COLORS: Record<ProgressNoteStatus, string> = {
+  draft: 'warning',
+  signed: 'success',
+}
