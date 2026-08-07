@@ -1,0 +1,18 @@
+{
+  // E2E 测试专用 TypeScript 配置:仅供 Playwright 测试脚本与 IDE 提示使用,
+  // 与 apps/* 下各应用自身的 tsconfig 相互独立,不影响现有业务代码
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["node_modules", "test-results", "playwright-report"]
+}

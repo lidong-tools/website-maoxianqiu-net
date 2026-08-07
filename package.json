@@ -34,6 +34,7 @@
     "@clack/prompts": "catalog:",
     "@fantastic-admin/themes": "workspace:*",
     "@iconify/json": "catalog:",
+    "@playwright/test": "catalog:",
     "@stylistic/stylelint-config": "catalog:",
     "@types/node": "catalog:",
     "@unocss/core": "catalog:",

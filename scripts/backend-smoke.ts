@@ -52,6 +52,35 @@ async function main() {
     body: '{}',
   })
   console.log(`[files/delete 无 token] HTTP ${del.status}`, await del.json())
+
+  // MXQ-4003~4006:文件 Command 路由无 token 应返回 401
+  const intent = await app.request('/api/files/upload-intents', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  })
+  console.log(`[files/upload-intents 无 token] HTTP ${intent.status}`, await intent.json())
+
+  const complete = await app.request('/api/files/00000000-0000-0000-0000-000000000000/complete', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  })
+  console.log(`[files/:id/complete 无 token] HTTP ${complete.status}`, await complete.json())
+
+  const download = await app.request('/api/files/00000000-0000-0000-0000-000000000000/download-url', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  })
+  console.log(`[files/:id/download-url 无 token] HTTP ${download.status}`, await download.json())
+
+  const archive = await app.request('/api/files/00000000-0000-0000-0000-000000000000/archive', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  })
+  console.log(`[files/:id/archive 无 token] HTTP ${archive.status}`, await archive.json())
 }
 
 main().catch((error) => {

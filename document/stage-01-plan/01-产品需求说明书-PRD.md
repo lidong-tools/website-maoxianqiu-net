@@ -246,8 +246,8 @@ medical_record.read.tenant
 medical_record.sign
 prescription.create
 prescription.void
-payment.refund.request
-payment.refund.approve
+billing.refund.request
+billing.refund.approve
 inventory.transfer.create
 inventory.transfer.approve
 report.finance.view
@@ -747,6 +747,27 @@ planned -> admitted -> in_care -> discharge_pending -> discharged
 - 默认仓库
 - 服务时长
 - 提成规则（后续）
+
+### 14.1.1 类型码与业务分类映射
+
+第 28 节目录类型能力矩阵中使用的业务分类与 `catalog_items` 类型码对应关系如下：
+
+| 业务分类 | 类型码 | 说明 |
+|---|---|---|
+| 药品 | `drug` | 处方药/非处方药，管库存+批次+效期 |
+| 疫苗 | `vaccine` | 接种用生物制品，管库存+批次+效期 |
+| 驱虫产品 | `retail_product` | 驱虫药归类为商品，通过类目区分 |
+| 商品 | `retail_product` | 日用品、食品、驱虫药等零售商品 |
+| 消耗品 | `consumable` | 医用耗材，可选管库存 |
+| 试纸 | `consumable` | 检验用试纸，归类为消耗品 |
+| 处置服务 | `procedure` | 医疗操作与处置项目 |
+| 化验收费项目 | `lab_test` | 实验室检验项目 |
+| 影像收费项目 | `imaging` | 影像检查项目 |
+| 美容服务 | `grooming` | 宠物美容与护理服务 |
+| 住院/寄养项目 | `hospitalization` / `boarding` | 分别对应住院床位费和寄养服务费 |
+| 套餐 | `package` | 组合项目套餐 |
+
+> 注意：`驱虫产品`和`试纸`未在 11 种基础类型码中独立出现，而是作为 `retail_product` 和 `consumable` 的子类通过类目层级区分。后续如需独立驱动驱虫记录或检验结果，可按需扩展新类型码。
 
 ### 14.2 类目
 
@@ -1645,11 +1666,15 @@ administered -> adverse_event_recorded
 ### 30.5 导入状态机
 
 ```text
-uploaded -> parsing -> validation_failed
-                    -> ready -> importing -> completed
-                                      \-> partially_completed
-                                      \-> failed
+uploaded -> parsing -> validating -> ready -> importing -> completed
 ```
+
+失败分支：
+
+- `validation_failed`（从 parsing / validating 进入）
+- `partially_completed`（从 importing 进入）
+- `failed`（从 importing 进入）
+- `cancelled`（从 validating / ready / importing 进入）
 
 每个任务包含：
 

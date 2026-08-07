@@ -428,7 +428,29 @@ GET    /api/permissions
 
 ---
 
-## 11. 客户与宠物 API
+## 11. 工作台聚合 API
+
+```text
+GET    /api/workbench
+```
+
+工作台使用聚合端点，按角色返回不同数据：
+
+- 前台：预约、候诊、收费
+- 医生：我的候诊、未完成病历、检验结果
+- 护士：待执行、超时、住院任务
+- 店长：收入、客流、退款、库存预警
+
+查询参数：
+
+- `storeId`：门店 ID（必填）
+- `role`：可选角色覆盖
+
+前端不应为工作台并发请求十几个独立列表 API。
+
+---
+
+## 12. 客户与宠物 API
 
 ```text
 GET    /api/customers
@@ -451,7 +473,7 @@ GET    /api/pets/:id/timeline
 
 ---
 
-## 12. 预约和候诊 API
+## 13. 预约和候诊 API
 
 ```text
 GET    /api/appointments
@@ -473,9 +495,10 @@ POST   /api/queues/:id/start
 
 ---
 
-## 13. 就诊、病历和处方 API
+## 14. 就诊、病历和处方 API
 
 ```text
+GET    /api/encounters
 GET    /api/encounters/:id
 POST   /api/encounters/:id/start
 POST   /api/encounters/:id/complete
@@ -503,7 +526,7 @@ POST   /api/prescriptions/:id/dispense
 
 ---
 
-## 14. 收费和退款 API
+## 15. 收费和退款 API
 
 ```text
 POST   /api/invoices
@@ -526,7 +549,7 @@ Idempotency-Key
 
 ---
 
-## 15. 库存 API
+## 16. 库存 API
 
 ```text
 GET    /api/inventory/balances
@@ -553,7 +576,7 @@ POST   /api/transfers/:id/receive
 
 ---
 
-## 16. 检验 API
+## 17. 检验 API
 
 ```text
 POST   /api/diagnostic-orders
@@ -569,10 +592,11 @@ POST   /api/diagnostic-orders/:id/revise
 
 ---
 
-## 17. 住院 API
+## 18. 住院 API
 
 ```text
 GET    /api/inpatient/board
+GET    /api/admissions
 POST   /api/admissions
 POST   /api/admissions/:id/change-unit
 POST   /api/admissions/:id/discharge-request
@@ -588,7 +612,7 @@ POST   /api/care-tasks/:id/skip
 
 ---
 
-## 18. 导入 API
+## 19. 导入 API
 
 ```text
 POST   /api/imports/upload
@@ -603,7 +627,7 @@ GET    /api/imports/:id/errors
 
 ---
 
-## 19. API 实现模板
+## 20. API 实现模板
 
 Hono route：
 
@@ -628,7 +652,7 @@ route.post('/:id/approve', requireAuth(), async (c) => {
 
 ---
 
-## 20. API 测试要求
+## 21. API 测试要求
 
 每个 Command 至少测试：
 
@@ -645,7 +669,7 @@ route.post('/:id/approve', requireAuth(), async (c) => {
 
 ---
 
-## 21. API 开发顺序
+## 22. API 开发顺序
 
 1. 统一 Result/Error
 2. request ID
