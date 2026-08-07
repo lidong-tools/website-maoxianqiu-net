@@ -365,23 +365,48 @@ export async function resolveScopedAccess(
     throw err.internal(`查询角色分配失败: ${assignError.message}`)
   }
   const assignRows = ((assignments as EmployeeRoleAssignmentRow[] | null) ?? [])
-  const tenantWideAssigns = assignRows.filter(a => a.store_id === null)
-  const storeAssigns = assignRows.filter(a => a.store_id !== null)
 
-  // 2c) 角色分配必须区分 tenant-wide role 与 store-scoped role(P0-01 修复):
-  // - 传了 storeId(门店命令):匹配 store_id = 目标门店 或 tenant-wide role(store_id is null);
+  // 2c) 先加载全部候选角色并建立 role.scope 索引(S30-R02):
+  //     在计算 permission union 之前校验 role.scope,禁止把 scope='store' 的角色
+  //     当作 tenant role(即使其分配 store_id 为 NULL 的非法数据)。
+  const assignRoleIds = [...new Set(assignRows.map(a => a.role_id))]
+  const { data: roleRows, error: roleError } = await service
+    .from('roles')
+    .select('id, code, scope, is_system, permissions')
+    .in('id', assignRoleIds)
+  if (roleError) {
+    throw err.internal(`查询角色失败: ${roleError.message}`)
+  }
+  const allRoles = (roleRows as RoleRow[] | null) ?? []
+  const roleScope = new Map(allRoles.map(r => [r.id, r.scope]))
+  // 租户级角色:scope ∈ (system, tenant);门店级角色:scope = 'store'
+  const isTenantWideRole = (roleId: string): boolean => {
+    const scope = roleScope.get(roleId)
+    return scope === 'system' || scope === 'tenant'
+  }
+  const isStoreRole = (roleId: string): boolean => roleScope.get(roleId) === 'store'
+
+  // 2c-1) 按 role.scope + assignment.store_id 双重校验分类(S30-R01/R02):
+  // - tenant-wide 分配:assignment.store_id IS NULL 且角色 scope ∈ (system, tenant)
+  // - store 分配:assignment.store_id 非空 且角色 scope = 'store'
+  // 两者交叉的非法分配(scope=store+store_id NULL / scope=tenant+store_id 非空)一律不参与授权
+  const tenantWideAssigns = assignRows.filter(a => a.store_id === null && isTenantWideRole(a.role_id))
+  const storeAssigns = assignRows.filter(a => a.store_id !== null && isStoreRole(a.role_id))
+
+  // 2c-2) 匹配规则:
+  // - 传了 storeId(门店命令):目标门店的 store 角色分配 或 tenant-wide 角色分配;
   // - 未传 storeId:
-  //     command 模式:只允许明确 tenant-wide assignment(store_id is null),
-  //       禁止把某门店的 store role 提升为 tenant-wide 权限(审计 4.2);
+  //     command 模式:只允许 tenant-wide 角色分配,禁止 store role 提升为租户级权限(审计 4.2);
   //     dataScope 模式(报表):允许门店级角色参与授权,数据范围由 allowedStoreIds 收敛(审计 5.2)。
   const matched = assignRows.filter((a) => {
     if (requirement.storeId) {
-      return a.store_id === requirement.storeId || a.store_id === null
+      return (a.store_id === requirement.storeId && isStoreRole(a.role_id))
+        || (a.store_id === null && isTenantWideRole(a.role_id))
     }
     if (requirement.dataScope) {
-      return true
+      return isStoreRole(a.role_id) || isTenantWideRole(a.role_id)
     }
-    return a.store_id === null
+    return a.store_id === null && isTenantWideRole(a.role_id)
   })
   if (matched.length === 0) {
     throw err.forbidden('无权访问该门店的数据')
@@ -406,14 +431,7 @@ export async function resolveScopedAccess(
   }
 
   // 2e) 只加载匹配 role IDs 的 permissions
-  const { data: roleRows, error: roleError } = await service
-    .from('roles')
-    .select('id, code, scope, is_system, permissions')
-    .in('id', roleIds)
-  if (roleError) {
-    throw err.internal(`查询角色失败: ${roleError.message}`)
-  }
-  const roles = (roleRows as RoleRow[] | null) ?? []
+  const roles = allRoles.filter(r => roleIds.includes(r.id))
 
   // 2e-1) 新模型 role_permissions 关联表 + 旧模型 roles.permissions 数组
   const permissions = await collectRolePermissions(service, roleIds, roles)
@@ -428,11 +446,8 @@ export async function resolveScopedAccess(
   //    → 授予全租户数据范围;
   // b) 否则 → 只包含"被分配了含该权限码角色"的门店集合(store-scoped 收敛)。
   let allowedStoreIds: string[] = []
-  // 仅 scope ∈ (system, tenant) 的角色可作为 tenant-wide(审计 4.2:校验角色 scope)
-  const validTenantWideRoleIds = tenantWideRoleIds.filter((id) => {
-    const r = roles.find(x => x.id === id)
-    return !!r && (r.scope === 'system' || r.scope === 'tenant')
-  })
+  // 仅 scope ∈ (system, tenant) 的角色可作为 tenant-wide(S30-R02:计算 union 前已校验 role.scope)
+  const validTenantWideRoleIds = tenantWideRoleIds.filter(id => isTenantWideRole(id))
   if (validTenantWideRoleIds.length > 0) {
     const twPerms = await collectRolePermissions(service, validTenantWideRoleIds, roles)
     if (twPerms.includes(requirement.code)) {

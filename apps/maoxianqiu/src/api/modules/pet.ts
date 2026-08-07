@@ -7,13 +7,16 @@ import type {
   UpdatePetInput,
 } from '@/types/customer'
 import { supabase } from '@/lib/supabase'
+import api from '../index'
 
 /**
  * 宠物 API 模块(MXQ-5006~5008)
  *
  * 分层策略:
  *   - Query(list/detail/weights):浏览器直连 Supabase,RLS 兜底
- *   - Command(create/update/archive):浏览器直连 Supabase RPC,RLS 兜底
+ *   - Command(create/update/archive):走 Hono Command(api/routes/pets.ts),
+ *     Hono 以 service role 调 create_pet/update_pet/archive_pet RPC,
+ *     浏览器(anon/authenticated)无权限直连 RPC(S30-R03)
  *
  * 状态机:
  *   active → deceased(去世) / lost(走失) / archived(归档)
@@ -98,81 +101,66 @@ export default {
   },
 
   /**
-   * 创建宠物(浏览器直连 RPC,RLS 兜底)
-   * 调用 create_pet RPC,若提供初始体重会同步落体重记录
+   * 创建宠物(走 Hono Command:POST /pets)
+   * Hono 以 service role 调 create_pet RPC,若提供初始体重会同步落体重记录
    */
   async create(input: CreatePetInput) {
-    const { data, error } = await supabase.rpc('create_pet', {
-      p_tenant_id: input.tenantId,
-      p_customer_id: input.customerId,
-      p_name: input.name,
-      p_species: input.species ?? null,
-      p_breed: input.breed ?? null,
-      p_gender: input.gender ?? null,
-      p_birth_date: input.birthDate ?? null,
-      p_weight: input.weight ?? null,
-      p_is_neutered: input.isNeutered ?? false,
-      p_microchip: input.microchip ?? null,
-      p_color: input.color ?? null,
-      p_photo_file_id: input.photoFileId ?? null,
-      p_risk_tags: input.riskTags ?? [],
-      p_temperament: input.temperament ?? null,
-      p_medical_notes: input.medicalNotes ?? null,
+    const res = await api.post('pets', {
+      tenantId: input.tenantId,
+      customerId: input.customerId,
+      name: input.name,
+      species: input.species ?? undefined,
+      breed: input.breed ?? undefined,
+      gender: input.gender ?? undefined,
+      birthDate: input.birthDate ?? undefined,
+      weight: input.weight ?? undefined,
+      isNeutered: input.isNeutered ?? undefined,
+      microchip: input.microchip ?? undefined,
+      color: input.color ?? undefined,
+      photoFileId: input.photoFileId ?? undefined,
+      riskTags: input.riskTags ?? undefined,
+      temperament: input.temperament ?? undefined,
+      medicalNotes: input.medicalNotes ?? undefined,
     })
 
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return { status: 1, error: '', data: data as PetRecord }
+    return { status: 1, error: '', data: (res as any).data as PetRecord }
   },
 
   /**
-   * 更新宠物(浏览器直连 RPC,RLS 兜底)
-   * 调用 update_pet RPC,体重变化时自动落体重记录
+   * 更新宠物(走 Hono Command:PATCH /pets/:id)
+   * Hono 以 service role 调 update_pet RPC,体重变化时自动落体重记录
    */
   async update(id: string, input: UpdatePetInput) {
-    const { data, error } = await supabase.rpc('update_pet', {
-      p_pet_id: id,
-      p_name: input.name ?? null,
-      p_species: input.species ?? null,
-      p_breed: input.breed ?? null,
-      p_gender: input.gender ?? null,
-      p_birth_date: input.birthDate ?? null,
-      p_weight: input.weight ?? null,
-      p_is_neutered: input.isNeutered ?? null,
-      p_microchip: input.microchip ?? null,
-      p_color: input.color ?? null,
-      p_photo_file_id: input.photoFileId ?? null,
-      p_risk_tags: input.riskTags ?? null,
-      p_temperament: input.temperament ?? null,
-      p_medical_notes: input.medicalNotes ?? null,
-      p_status: input.status ?? null,
+    const res = await api.patch(`pets/${id}`, {
+      name: input.name ?? undefined,
+      species: input.species ?? undefined,
+      breed: input.breed ?? undefined,
+      gender: input.gender ?? undefined,
+      birthDate: input.birthDate ?? undefined,
+      weight: input.weight ?? undefined,
+      isNeutered: input.isNeutered ?? undefined,
+      microchip: input.microchip ?? undefined,
+      color: input.color ?? undefined,
+      photoFileId: input.photoFileId ?? undefined,
+      riskTags: input.riskTags ?? undefined,
+      temperament: input.temperament ?? undefined,
+      medicalNotes: input.medicalNotes ?? undefined,
+      status: input.status ?? undefined,
     })
 
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return { status: 1, error: '', data: data as PetRecord }
+    return { status: 1, error: '', data: (res as any).data as PetRecord }
   },
 
   /**
-   * 归档宠物(浏览器直连 RPC,RLS 兜底)
-   * 调用 archive_pet RPC,active/deceased/lost → archived
+   * 归档宠物(走 Hono Command:POST /pets/:id/archive)
+   * Hono 以 service role 调 archive_pet RPC,active/deceased/lost → archived
    */
   async archive(id: string, reason?: string) {
-    const { data, error } = await supabase.rpc('archive_pet', {
-      p_pet_id: id,
-      p_archived_by: null,
-      p_reason: reason ?? null,
+    const res = await api.post(`pets/${id}/archive`, {
+      reason: reason ?? undefined,
     })
 
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return { status: 1, error: '', data: data as PetRecord }
+    return { status: 1, error: '', data: (res as any).data as PetRecord }
   },
 
   /**

@@ -66,24 +66,27 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
     const tenantId = customerRes.data.customer.tenant_id
     const storeId = customerRes.data.customer.store_id ?? (await resolveStoreId(page, api, tenantId))
 
-    /* ========== 2. 宠物:API 创建(前端暂无宠物新增 UI)+ 断言归属 ========== */
-    console.log('[闭环A] 步骤2 创建宠物')
-    const petRes = (await api.post('/pets', {
-      tenantId,
-      customerId,
-      name: petName,
-      species: '犬',
-      gender: 'female',
-    })) as { data: { id: string } }
-    const petId = petRes.data.id
-    const pets = (await supabaseSelect<{ id: string, customer_id: string, tenant_id: string }[]>(
+    /* ========== 2. 宠物:UI 创建(客户详情页「新增宠物」)+ 断言归属 ========== */
+    console.log('[闭环A] 步骤2 创建宠物(UI)')
+    await page.goto(`/#/crm/customer/${customerId}`, { waitUntil: 'domcontentloaded' })
+    await expect(page.getByRole('button', { name: '新增宠物' }).first()).toBeVisible({ timeout: 15_000 })
+    await page.getByRole('button', { name: '新增宠物' }).first().click()
+    await expect(page.getByPlaceholder('请输入宠物名字').first()).toBeVisible({ timeout: 10_000 })
+    await page.getByPlaceholder('请输入宠物名字').fill(petName)
+    // 物种:从下拉选择「犬」(禁止手填枚举)
+    await page.getByPlaceholder('如:金毛 / 英短').fill('田园犬')
+    await page.getByRole('button', { name: '保存' }).last().click()
+    await expect(page.getByText('宠物建档成功').first()).toBeVisible({ timeout: 15_000 })
+    // 数据库断言:UI 创建的宠物归属正确
+    const petRows = (await supabaseSelect<{ id: string, customer_id: string, tenant_id: string }[]>(
       page,
       'pets',
-      `select=id,customer_id,tenant_id&id=eq.${petId}`,
+      `select=id,customer_id,tenant_id&name=eq.${encodeURIComponent(petName)}&order=created_at.desc&limit=1`,
     ))
-    expect(pets.length).toBe(1)
-    expect(pets[0].customer_id).toBe(customerId)
-    expect(pets[0].tenant_id).toBe(tenantId)
+    expect(petRows.length).toBe(1)
+    expect(petRows[0].customer_id).toBe(customerId)
+    expect(petRows[0].tenant_id).toBe(tenantId)
+    const petId = petRows[0].id
 
     /* ========== 3. 预约:API 创建(今天)+ 流转到候诊 ========== */
     console.log('[闭环A] 步骤3 创建预约并候诊')
@@ -251,16 +254,25 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
     ))
     expect(movements.length).toBeGreaterThan(0)
 
-    /* ========== 10. 病历签署 + 只读断言 ========== */
-    console.log('[闭环A] 步骤10 签署病历')
-    await api.post(`/clinical/encounters/${encounterId}/sign`, {})
-    const encSigned = (await supabaseSelect<{ status: string, signed_at: string | null }[]>(
+    /* ========== 10. 病历签署:UI 操作(真实通过)+ 只读断言 ========== */
+    console.log('[闭环A] 步骤10 签署病历(UI)')
+    await page.goto(`/#/clinical/encounter/${encounterId}`, { waitUntil: 'domcontentloaded' })
+    // S30-R04:签署人强制为当前登录用户,弹窗无医生选择器,点击「签署」直接确认
+    await expect(page.getByRole('button', { name: '签署' }).first()).toBeVisible({ timeout: 15_000 })
+    await page.getByRole('button', { name: '签署' }).first().click()
+    // 弹窗内展示当前登录账号(只读),点击确认完成签署
+    await expect(page.getByText('签署人').first()).toBeVisible({ timeout: 10_000 })
+    await page.locator('.fa-modal, [role="dialog"]').last().getByRole('button', { name: '确认' }).click()
+    await expect(page.getByText('病历已签署').first()).toBeVisible({ timeout: 15_000 })
+    // 数据库断言:签署完成 + 签署人=当前登录用户(auth.users.id)
+    const encSigned = (await supabaseSelect<{ status: string, signed_at: string | null, signed_by: string | null }[]>(
       page,
       'encounters',
-      `select=status,signed_at&id=eq.${encounterId}`,
+      `select=status,signed_at,signed_by&id=eq.${encounterId}`,
     ))
     expect(encSigned[0].status).toBe('signed')
     expect(encSigned[0].signed_at).toBeTruthy()
+    expect(encSigned[0].signed_by).toBeTruthy()
     // 只读断言:已签署病历直接修改应被拒绝(409)
     const patchRes = await request.patch(`${api.base}/clinical/encounters/${encounterId}`, {
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },

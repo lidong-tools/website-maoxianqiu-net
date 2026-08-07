@@ -383,11 +383,7 @@ onMounted(loadWarehouses)
         </div>
         <div class="gap-x-8 gap-y-3 grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
           <FaLabel label="商品" class="col-span-1">
-            <FaInput
-              v-model="reserveForm.catalogItemId"
-              placeholder="点击余额表「预留」自动填充"
-              class="w-full"
-            />
+            <BusinessCatalogItemPicker v-model="reserveForm.catalogItemId" placeholder="点击余额表「预留」自动填充" />
           </FaLabel>
           <FaLabel label="数量" class="col-span-1">
             <FaInputNumber

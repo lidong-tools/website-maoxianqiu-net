@@ -74,7 +74,8 @@ where not exists (select 1 from public.roles where code = 'tenant_manager');
 
 insert into public.employee_role_assignments (tenant_id, employee_id, role_id, store_id)
 values
-  ('aaaaaaaa-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-A1'), (select id from public.roles where code = 'tenant_manager'), 'aaaaaaaa-0000-0000-0000-0000000000f1'),
+  -- tenant_manager 是 scope='tenant' 的租户级角色,必须租户级分配(store_id IS NULL)(S30-R01/R02)
+  ('aaaaaaaa-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-A1'), (select id from public.roles where code = 'tenant_manager'), null),
   ('bbbbbbbb-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-B1'), (select id from public.roles where code = 'system_admin'), null),
   ('aaaaaaaa-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-ADMIN'), (select id from public.roles where code = 'system_admin'), null);
 

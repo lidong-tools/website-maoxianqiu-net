@@ -186,6 +186,9 @@ function onCreate() {
   printVisible.value = true
 }
 
+/** 支持通过选择器选取业务单据的模板类型(S30-R06:禁止手填 UUID) */
+const PICKABLE_ENTITY_TYPES: PrintTemplateType[] = ['invoice', 'medical_record', 'prescription', 'lab_report', 'vaccine_certificate']
+
 /**
  * 提交创建打印任务(走 Hono Command + create_print_job RPC)
  */
@@ -195,6 +198,10 @@ function onSubmitPrint() {
   }
   if (!printForm.value.templateId) {
     useFaToast().warning('请选择打印模板')
+    return
+  }
+  if (!PICKABLE_ENTITY_TYPES.includes(printForm.value.entityType as PrintTemplateType)) {
+    useFaToast().warning('该业务类型暂不支持打印')
     return
   }
   if (!printForm.value.entityId.trim()) {
@@ -640,7 +647,8 @@ function onPrintNow() {
             <BusinessEncounterPicker v-else-if="printForm.entityType === 'medical_record' || printForm.entityType === 'prescription'" v-model="printForm.entityId" placeholder="搜索选择就诊记录" />
             <BusinessDiagnosticOrderPicker v-else-if="printForm.entityType === 'lab_report'" v-model="printForm.entityId" order-type="lab" placeholder="搜索选择检验申请" />
             <BusinessDiagnosticOrderPicker v-else-if="printForm.entityType === 'vaccine_certificate'" v-model="printForm.entityId" order-type="vaccination" placeholder="搜索选择疫苗记录" />
-            <FaInput v-else v-model="printForm.entityId" placeholder="输入实体 ID" />
+            <!-- S30-R06:禁止手填 UUID;label/other 无业务单据选择器,禁用输入 -->
+            <FaInput v-else v-model="printForm.entityId" placeholder="该类型暂不支持选择业务单据" disabled class="w-full" />
           </FaLabel>
         </div>
       </FaModal>

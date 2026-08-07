@@ -4,8 +4,10 @@
 -- 权限码与前端 views 的 meta.auth 对应;角色可配置,可在此追加
 -- ============================================================
 
--- 内置角色:运维管理员 / 店长 / 店员 / 收银员
-insert into public.roles (code, name, description, permissions, is_system) values
+-- 内置角色:运维管理员 / 店长 / 店员 / 收银员 / 医生
+-- scope 语义(S30-R01):system=平台级;tenant=租户级(须租户级分配 store_id IS NULL);
+-- store=门店级(须带 store_id 分配,禁止提升为租户级权限)
+insert into public.roles (code, name, description, permissions, is_system, scope) values
   ('system_admin', '运维管理员', '平台运维方,管理所有店铺/角色/用户', array[
     'system:user:manage',
     'system:role:manage',
@@ -23,7 +25,7 @@ insert into public.roles (code, name, description, permissions, is_system) value
     'employee.changeRole',
     'role.create',
     'role.update'
-  ], true),
+  ], true, 'system'),
   ('store_manager', '店长', '管理本店成员与日常运营', array[
     'system:user:manage',
     'system.user.create',
@@ -32,18 +34,22 @@ insert into public.roles (code, name, description, permissions, is_system) value
     'employee.update',
     'employee.assignStore',
     'employee.changeRole'
-  ], true),
+  ], true, 'store'),
   ('staff', '店员', '门店工作人员', array[
     'store:view'
-  ], true),
+  ], true, 'store'),
   ('cashier', '收银员', '负责收银', array[
     'store:view'
-  ], true)
+  ], true, 'store'),
+  ('doctor', '医生', '诊疗/处方/检验报告(门店级角色)', array[
+    'store:view'
+  ], true, 'store')
 on conflict (code) do update set
   name = excluded.name,
   description = excluded.description,
   permissions = excluded.permissions,
-  is_system = excluded.is_system;
+  is_system = excluded.is_system,
+  scope = excluded.scope;
 
 -- 权限目录种子(MXQ-3004;code 唯一,幂等)
 insert into public.permissions (code, name, module) values

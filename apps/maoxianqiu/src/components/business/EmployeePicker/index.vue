@@ -2,6 +2,11 @@
 /**
  * EmployeePicker — 员工搜索选择器
  * 替代手动输入员工 UUID,支持按姓名模糊搜索
+ *
+ * S30-R04:valueKey 控制返回值语义,杜绝 employees.id / auth.users.id 混用:
+ *   - 'id'     (默认):返回 employees.id(员工档案 id)—— 用于 admissions.doctor_id 等存 employees.id 的字段
+ *   - 'user_id':返回 employees.user_id(auth.users.id 登录用户 id)—— 用于 nurse_tasks.assigned_to、
+ *     shift_handovers.outgoing_user/incoming_user、encounters.doctor_id 等存 auth.users.id 的字段
  */
 import type { AcceptableValue } from 'reka-ui'
 import { supabase } from '@/lib/supabase'
@@ -10,12 +15,15 @@ defineOptions({
   name: 'BusinessEmployeePicker',
 })
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   placeholder?: string
   disabled?: boolean
+  /** 返回值语义:'id'=employees.id(默认);'user_id'=employees.user_id(auth.users.id) */
+  valueKey?: 'id' | 'user_id'
 }>(), {
   placeholder: '搜索选择员工',
   disabled: false,
+  valueKey: 'id',
 })
 
 const emit = defineEmits<{
@@ -34,6 +42,7 @@ const searchKeyword = ref('')
 
 /**
  * 搜索员工(按姓名模糊匹配)
+ * 按 valueKey 返回 employees.id 或 employees.user_id(auth.users.id)
  */
 async function searchEmployees(keyword: string) {
   if (!keyword.trim()) {
@@ -44,7 +53,7 @@ async function searchEmployees(keyword: string) {
   try {
     const { data, error } = await supabase
       .from('employees')
-      .select('id, name, role')
+      .select('id, user_id, name, role')
       .ilike('name', `%${keyword.trim()}%`)
       .limit(20)
 
@@ -53,7 +62,7 @@ async function searchEmployees(keyword: string) {
     }
     options.value = (data ?? []).map((emp: any) => ({
       label: `${emp.name}${emp.role ? ` (${emp.role})` : ''}`,
-      value: emp.id,
+      value: props.valueKey === 'user_id' ? emp.user_id : emp.id,
     }))
   }
   finally {

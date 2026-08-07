@@ -203,10 +203,10 @@ onMounted(async () => {
             />
           </FaLabel>
           <FaLabel label="交班人">
-            <BusinessEmployeePicker v-model="form.outgoingUser" placeholder="搜索选择交班员工" />
+            <BusinessEmployeePicker v-model="form.outgoingUser" value-key="user_id" placeholder="搜索选择交班员工" />
           </FaLabel>
           <FaLabel label="接班人">
-            <BusinessEmployeePicker v-model="form.incomingUser" placeholder="搜索选择接班员工" />
+            <BusinessEmployeePicker v-model="form.incomingUser" value-key="user_id" placeholder="搜索选择接班员工" />
           </FaLabel>
           <FaLabel label="交接内容(JSON 或文本)" class="md:col-span-3">
             <FaTextarea

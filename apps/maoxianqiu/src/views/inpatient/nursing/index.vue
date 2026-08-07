@@ -357,8 +357,8 @@ onMounted(() => {
             <FaLabel label="计划时间">
               <FaInput v-model="newTask.scheduledAt" type="datetime-local" class="w-full" />
             </FaLabel>
-            <FaLabel label="负责人 ID(可选)">
-              <BusinessEmployeePicker v-model="newTask.assignedTo" placeholder="搜索选择员工" />
+            <FaLabel label="负责人(可选)">
+              <BusinessEmployeePicker v-model="newTask.assignedTo" value-key="user_id" placeholder="搜索选择员工" />
             </FaLabel>
             <FaLabel label="描述">
               <FaInput v-model="newTask.description" placeholder="任务描述" class="w-full" />

@@ -268,9 +268,11 @@ export default {
 
   /**
    * 签署病历(走 Hono Command,服务端调 sign_encounter RPC 校验主治医生 + 状态)
+   * S30-R04:签署人强制为当前登录用户(Hono 侧 doctorId ?? user.id 且拒绝代签),
+   * 前端不再传 doctorId,禁止 EmployeePicker 手选非本人签署。
    */
-  signEncounter(encounterId: string, doctorId: string) {
-    return api.post(`clinical/encounters/${encounterId}/sign`, { doctorId }) as Promise<{ data: EncounterRecord }>
+  signEncounter(encounterId: string) {
+    return api.post(`clinical/encounters/${encounterId}/sign`, {}) as Promise<{ data: EncounterRecord }>
   },
 
   /**

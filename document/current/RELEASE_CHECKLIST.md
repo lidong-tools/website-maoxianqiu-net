@@ -5,7 +5,7 @@
 
 ## 0. 文档一致性
 
-- [ ] `document/current/IMPLEMENTATION_STATUS.md` 与当前代码对齐（含 S3.0 审计收口记录）
+- [ ] `document/current/IMPLEMENTATION_STATUS.md` 与当前代码对齐（含 S3.0 审计收口 + S3.0 定向复审 S30-R01~R07 记录）
 - [ ] `document/current/KNOWN_GAPS.md` 缺口已确认无阻断项
 - [ ] 本次发布对应的 commit 已记录（health commit 对齐）
 
@@ -23,24 +23,28 @@
 
 ## 2. 数据库验证
 
-- [ ] migration 空库从 0 升级到最新（含 P0-08 migration 25）
-- [ ] migration 旧库升级（fix-forward 说明完整，不修改已应用历史 migration）
-- [ ] RLS 全量通过（supabase/tests）
-- [ ] RPC 直接调用安全（service role 仅授权路由可用，禁止客户端自由指定 tenant 直查）
+- [ ] migration 空库从 0 升级到最新（含 P0-08 migration 25、S30 migration 26）
+- [ ] migration 旧库升级（fix-forward 说明完整，不修改已应用历史 migration；验证 migration 26 角色 scope 归一 + 触发器 + 存量修复幂等）
+- [ ] RLS 全量通过（supabase/tests，含新增 rls_scoped_permission.sql S1~S11）
+- [ ] RPC 直接调用安全（service role 仅授权路由可用，禁止客户端自由指定 tenant 直查；rpc_security.sql R1~R8：authenticated 直调高危 Command RPC 必须失败）
+- [ ] scoped permission 验证（tenant 上下文仅 tenant/system role；store 上下文仅目标 store role 或 tenant-wide role；store→tenant 提升被拒绝）
 - [ ] 并发 / 幂等 / 回滚通过（reserve/confirm、admit/transfer/discharge、goods-receipt 等）
 
 ## 3. 代码完成定义检查（v0.5 第 23 节）
 
 - [ ] P0 代码任务全部完成（P0-01 ~ P0-10）
 - [ ] S3.0 审计收口全部完成（AUD-001 ~ AUD-011，见 IMPLEMENTATION_STATUS「S3.0 审计收口」）
-- [ ] `pnpm lint` / typecheck / build 通过（前端 vue-tsc、api tsc、e2e tsc、ESLint、vite build 全绿，S3.0 AUD-010 确认）
+- [ ] S3.0 定向复审全部完成（S30-R01 ~ S30-R07，见 IMPLEMENTATION_STATUS「S3.0 定向复审」）
+- [ ] `pnpm lint` / typecheck / build 通过（前端 vue-tsc、api tsc、e2e tsc、ESLint、vite build 全绿，S3.0 AUD-010 / S30-R07 确认）
 - [ ] 无已知跨租户授权缺陷（service role 路由均 scoped authorization，含报表 allowedStoreIds 数据范围）
 - [ ] 无旧公共文件接口（旧 /api/upload、/api/files 已下线）
-- [ ] 无正式页面手填 UUID（业务交互均走 Picker，含打印 lab_report/vaccine_certificate 选择器）
+- [ ] 无正式页面手填 UUID（业务交互均走 Picker，含打印 lab_report/vaccine_certificate 选择器、inventory receipt 商品预留、inpatient nursing/handover 员工选择）
+- [ ] 病历签署人强制为当前登录用户（无 EmployeePicker 可选任意员工）
+- [ ] 高危 Command RPC 仅 service_role 可执行（revoke public/anon/authenticated，不得依赖 SECURITY DEFINER+RLS 作为权限边界）
 - [ ] 打印使用真实业务 DTO（非演示数据）
 - [ ] 报表口径明确（Hono report-data，浏览器无跨表聚合）
 - [ ] 生产消息策略明确（方案 A：消息退出 MVP，无 Mock sent）
-- [ ] 核心闭环 E2E 缺 seed 时失败而非跳过（AUD-008）
+- [ ] 核心闭环 E2E 缺 seed 时失败而非跳过（AUD-008）；闭环 A 使用 UI 建宠物 + UI 签署（S30-R05）
 
 ## 4. 集成验证（v0.5 第 24 节）
 

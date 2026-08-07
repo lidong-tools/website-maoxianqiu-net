@@ -181,16 +181,20 @@ begin
 end;
 $$;
 
--- ---------- O4 store_manager 可写会员等级 ----------
+-- ---------- O4 store_manager(门店级角色)不可写租户级会员等级 ----------
+-- S30-R01:store 角色(scope='store')在租户上下文(has_permission(tenant_id, null, ...))无权限,
+-- 禁止 store → tenant 权限提升;租户级写必须由 tenant/system scope 的租户级分配或 Hono(service role)执行
 do $$
 begin
   set local role authenticated;
   perform set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-0000-0000-0000000000a1","role":"authenticated"}', true);
-  insert into public.membership_tiers (tenant_id, code, name, discount_percent, points_multiplier, is_active, sort_order)
-  values ('aaaaaaaa-0000-0000-0000-000000000001', 'test-tier-o4', 'O4 测试等级', 88.00, 1.50, true, 99);
-  perform tests.assert_true(
-    (select count(*) from public.membership_tiers where tenant_id = 'aaaaaaaa-0000-0000-0000-000000000001' and code = 'test-tier-o4') = 1,
-    'O4: store_manager 应能写入会员等级');
+  begin
+    insert into public.membership_tiers (tenant_id, code, name, discount_percent, points_multiplier, is_active, sort_order)
+    values ('aaaaaaaa-0000-0000-0000-000000000001', 'test-tier-o4', 'O4 测试等级', 88.00, 1.50, true, 99);
+    raise exception 'RLS_TEST_FAILED: O4 store_manager 不应能写入租户级会员等级(store→tenant 提升)';
+  exception when insufficient_privilege then
+    null;
+  end;
 end;
 $$;
 
@@ -377,7 +381,7 @@ begin
 end;
 $$;
 
--- ---------- O13 store_manager 无 security.view 权限 ----------
+-- ---------- O13 store_manager 无 security.view 权限 + 无租户级 membership.manage ----------
 do $$
 begin
   set local role authenticated;
@@ -385,9 +389,10 @@ begin
   perform tests.assert_true(
     not public.has_permission('aaaaaaaa-0000-0000-0000-000000000001', null, 'security.view'),
     'O13: store_manager 不应持有 security.view 权限');
+  -- S30-R01:store 角色(scope='store')在租户上下文无任何权限(store→tenant 提升被禁止)
   perform tests.assert_true(
-    public.has_permission('aaaaaaaa-0000-0000-0000-000000000001', null, 'membership.manage'),
-    'O13: store_manager 应持有 membership.manage 权限');
+    not public.has_permission('aaaaaaaa-0000-0000-0000-000000000001', null, 'membership.manage'),
+    'O13: store_manager 不应在租户级持有 membership.manage(store→tenant 提升禁止)');
 end;
 $$;
 

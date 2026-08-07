@@ -114,75 +114,60 @@ export default {
   },
 
   /**
-   * 创建客户(浏览器直连 RPC,RLS 兜底)
-   * 调用 create_customer RPC,自动生成 customer_no
+   * 创建客户(走 Hono Command:POST /customers)
+   * Hono 以 service role 调 create_customer RPC,自动生成 customer_no
    */
   async create(input: CreateCustomerInput) {
-    const { data, error } = await supabase.rpc('create_customer', {
-      p_tenant_id: input.tenantId,
-      p_store_id: input.storeId ?? null,
-      p_name: input.name,
-      p_gender: input.gender ?? null,
-      p_phone: input.phone ?? null,
-      p_email: input.email || null,
-      p_address: input.address ?? null,
-      p_birthday: input.birthday ?? null,
-      p_source: input.source ?? null,
-      p_member_level: input.memberLevel ?? 'normal',
-      p_remark: input.remark ?? null,
-      p_customer_no: input.customerNo ?? null,
+    const res = await api.post('customers', {
+      tenantId: input.tenantId,
+      storeId: input.storeId ?? undefined,
+      name: input.name,
+      gender: input.gender ?? undefined,
+      phone: input.phone ?? undefined,
+      email: input.email || undefined,
+      address: input.address ?? undefined,
+      birthday: input.birthday ?? undefined,
+      source: input.source ?? undefined,
+      memberLevel: input.memberLevel ?? undefined,
+      remark: input.remark ?? undefined,
+      customerNo: input.customerNo ?? undefined,
     })
 
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return { status: 1, error: '', data: data as CustomerRecord }
+    return { status: 1, error: '', data: (res as any).data as CustomerRecord }
   },
 
   /**
-   * 更新客户(浏览器直连 RPC,RLS 兜底)
-   * 调用 update_customer RPC,仅 active 客户可改
+   * 更新客户(走 Hono Command:PATCH /customers/:id)
+   * Hono 以 service role 调 update_customer RPC,仅 active 客户可改
    */
   async update(id: string, input: UpdateCustomerInput) {
-    const { data, error } = await supabase.rpc('update_customer', {
-      p_customer_id: id,
-      p_name: input.name ?? null,
-      p_gender: input.gender ?? null,
-      p_phone: input.phone ?? null,
-      p_email: input.email || null,
-      p_address: input.address ?? null,
-      p_birthday: input.birthday ?? null,
-      p_source: input.source ?? null,
-      p_member_level: input.memberLevel ?? null,
-      p_member_points: input.memberPoints ?? null,
-      p_balance: input.balance ?? null,
-      p_remark: input.remark ?? null,
+    const res = await api.patch(`customers/${id}`, {
+      name: input.name ?? undefined,
+      gender: input.gender ?? undefined,
+      phone: input.phone ?? undefined,
+      email: input.email || undefined,
+      address: input.address ?? undefined,
+      birthday: input.birthday ?? undefined,
+      source: input.source ?? undefined,
+      memberLevel: input.memberLevel ?? undefined,
+      memberPoints: input.memberPoints ?? undefined,
+      balance: input.balance ?? undefined,
+      remark: input.remark ?? undefined,
     })
 
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return { status: 1, error: '', data: data as CustomerRecord }
+    return { status: 1, error: '', data: (res as any).data as CustomerRecord }
   },
 
   /**
-   * 归档客户(浏览器直连 RPC,RLS 兜底)
-   * 调用 archive_customer RPC,active → archived
+   * 归档客户(走 Hono Command:POST /customers/:id/archive)
+   * Hono 以 service role 调 archive_customer RPC,active → archived
    */
   async archive(id: string, reason?: string) {
-    const { data, error } = await supabase.rpc('archive_customer', {
-      p_customer_id: id,
-      p_archived_by: null,
-      p_reason: reason ?? null,
+    const res = await api.post(`customers/${id}/archive`, {
+      reason: reason ?? undefined,
     })
 
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return { status: 1, error: '', data: data as CustomerRecord }
+    return { status: 1, error: '', data: (res as any).data as CustomerRecord }
   },
 
   /**

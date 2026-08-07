@@ -25,11 +25,11 @@
 
 | 项目 | 说明 | 关联 |
 | --- | --- | --- |
-| migration 空库/旧库升级 | 仅本地开发库验证，未做空库从 0 到 25 及旧库升级演练 | P0-08 migration 25 |
-| RLS / RPC 全量验证 | supabase/tests 未在 staging 执行（含新增 rls_inventory_reserve.sql） | DEV-000 / AUD-007 |
+| migration 空库/旧库升级 | 仅本地开发库验证，未做空库从 0 到 26 及旧库升级演练（含 migration 26 scope 归一/触发器/存量修复） | S30-R01/R02 |
+| RLS / RPC 全量验证 | supabase/tests 未在 staging 执行（含新增 rls_inventory_reserve.sql、rls_scoped_permission.sql、rpc_security.sql） | DEV-000 / S30-R01~R03 |
 | 并发 / 幂等 / 回滚 | reserve/confirm、admit/transfer/discharge 等并发场景未实测 | P0-08 / inpatient |
-| 闭环 A/B/C 真实执行 | 代码与 tsc 通过，未在真实环境跑通 | P0-09 |
-| 多角色授权矩阵 | 仅 system_admin 实测，store_manager / doctor / nurse 未逐角色验证 | P0-01/P0-02 |
+| 闭环 A/B/C 真实执行 | 代码与 tsc 通过，未在真实环境跑通（closed-loop-a 已改 UI 建宠物 + UI 签署） | P0-09 / S30-R05 |
+| 多角色授权矩阵 | 仅 system_admin 实测，store_manager / doctor / nurse 未逐角色验证；scoped permission（store→tenant 禁止）未在 staging 执行 | P0-01/P0-02 / S30-R01 |
 | R2 文件签名下载 | 新文件模型仅在开发环境验证 | P0-03 |
 | 报表口径核对 | report-data 聚合结果与账目核对未做 | P0-06 |
 
@@ -51,3 +51,9 @@
 | 打印实体 ID 手填（lab_report/vaccine_certificate） | ✅ 已关闭 | S3.0 AUD-006：DiagnosticOrderPicker 收口 |
 | 核心 E2E 缺 seed 静默 skip | ✅ 已关闭 | S3.0 AUD-008：缺 seed = FAIL |
 | 闭环 A 先发药后收费（测试擅自决定） | ✅ 已关闭 | S3.0 AUD-009：按默认建议 prescription → invoice → payment → dispense |
+| store role → tenant 权限提升 | ✅ 已关闭 | S30-R01：has_permission() v3 scope 感知 + rls_scoped_permission.sql S3 负向测试 |
+| 非法 role assignment（scope=store+store_id NULL 等） | ✅ 已关闭 | S30-R02：validate_era_scope() 触发器（STORE_ROLE_REQUIRES_STORE / TENANT_ROLE_FORBIDS_STORE / ROLE_TENANT_MISMATCH）+ 存量修复 |
+| 浏览器直连高危 Command RPC | ✅ 已关闭 | S30-R03：migration 26 revoke public/anon/authenticated + grant service_role；前端改走 Hono；rpc_security.sql R1~R8 |
+| 病历签署可选任意员工（EmployeePicker） | ✅ 已关闭 | S30-R04：签署强制当前登录 user.id；EmployeePicker value-key 区分 employees.id / auth.users.id；字段语义 COMMENT 固化 |
+| E2E 宠物用 API 绕过 UI | ✅ 已关闭 | S30-R05：closed-loop-a 步骤 2 改 UI「新增宠物」建档 |
+| inventory receipt 预留手填商品、nursing/print 手填实体 | ✅ 已关闭 | S30-R06：BusinessCatalogItemPicker + value-key="user_id" + print 非可选取类型禁用 |

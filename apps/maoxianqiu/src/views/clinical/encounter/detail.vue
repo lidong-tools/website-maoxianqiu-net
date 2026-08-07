@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { EncounterRecord, EncounterRevisionRecord, PrescriptionItemInput, PrescriptionRecord } from '@/types/clinical'
 import apiClinical from '@/api/modules/clinical'
-import BusinessEmployeePicker from '@/components/business/EmployeePicker/index.vue'
+import { supabase } from '@/lib/supabase'
 import { ENCOUNTER_STATUS_COLORS, ENCOUNTER_STATUS_LABELS, PRESCRIPTION_STATUS_LABELS } from '@/types/clinical'
 
 defineOptions({
@@ -26,9 +26,9 @@ const form = reactive({
   followUpDate: '',
 })
 
-/** 签署弹窗 */
+/** 签署弹窗(S30-R04:签署人强制为当前登录用户,无手选) */
 const signVisible = ref(false)
-const signDoctorId = ref('')
+const signDoctorName = ref('')
 
 /** 修订弹窗 */
 const reviseVisible = ref(false)
@@ -100,18 +100,16 @@ async function onSave() {
 }
 
 /**
- * 签署病历(RPC,需主治医生 id)
+ * 签署病历(S30-R04:走 Hono Command,签署人强制为当前登录用户)
+ * 打开弹窗时展示当前登录账号;签署时后端以 user.id 作为 doctor_id,
+ * 拒绝代签(doctorId !== user.id → 403)。
  */
 async function onSign() {
   if (!encounter.value) {
     return
   }
-  if (!signDoctorId.value) {
-    useFaToast().warning('请选择医生')
-    return
-  }
   try {
-    const res: any = await apiClinical.signEncounter(encounter.value.id, signDoctorId.value)
+    const res: any = await apiClinical.signEncounter(encounter.value.id)
     encounter.value = res.data
     signVisible.value = false
     useFaToast().success('病历已签署')
@@ -119,6 +117,13 @@ async function onSign() {
   catch (e: any) {
     useFaToast().error(e?.message || '签署失败')
   }
+}
+
+/** 打开签署弹窗:获取当前登录账号用于展示(签署本身不依赖前端传 id) */
+async function openSign() {
+  const { data: userData } = await supabase.auth.getUser()
+  signDoctorName.value = userData.user?.email ?? ''
+  signVisible.value = true
 }
 
 /**
@@ -247,7 +252,7 @@ onMounted(loadData)
               <FaIcon name="i-ri:save-line" />
               保存
             </FaButton>
-            <FaButton v-if="isEditable" type="primary" size="sm" @click="signVisible = true">
+            <FaButton v-if="isEditable" type="primary" size="sm" @click="openSign">
               <FaIcon name="i-ri:pen-nib-line" />
               签署
             </FaButton>
@@ -337,14 +342,14 @@ onMounted(loadData)
       </div>
     </FaPageMain>
 
-    <!-- 签署弹窗 -->
+    <!-- 签署弹窗(S30-R04:签署人固定为当前登录用户,无手选) -->
     <FaModal v-model:visible="signVisible" title="签署病历" @confirm="onSign">
       <div class="space-y-3">
         <p class="text-sm text-gray-600">
           签署后病历将变为终态,不可直接修改,如需修改请使用修订功能。
         </p>
-        <FaLabel label="医生">
-          <BusinessEmployeePicker v-model="signDoctorId" placeholder="选择主治医生" />
+        <FaLabel label="签署人">
+          <FaInput :model-value="signDoctorName" placeholder="当前登录账号" readonly class="w-full" />
         </FaLabel>
       </div>
     </FaModal>

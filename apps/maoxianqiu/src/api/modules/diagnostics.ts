@@ -14,7 +14,6 @@ import type {
   LabOrderAnalyte,
   LabOrderListParams,
   LabOrderRecord,
-  LabResultInput,
   LabResultReview,
   LabSpecimen,
   PublishLabResultsInput,
@@ -31,6 +30,7 @@ import type {
   VaccineProtocolWithItems,
 } from '@/types/diagnostics'
 import { supabase } from '@/lib/supabase'
+import api from '../index'
 
 /**
  * Diagnostics 疫苗与检验领域 API 模块(MXQ-10001~10011)
@@ -38,8 +38,9 @@ import { supabase } from '@/lib/supabase'
  * 分层策略:
  *   - Query(list/detail):浏览器直连 Supabase,RLS 兜底
  *   - Command(create/update):浏览器直连 Supabase,RLS 兜底
- *   - 跨表事务(证书签发 / 结果发布 / 结果审核 / 提醒扫描):浏览器直连 Supabase RPC,
- *     RPC 内置权限校验 + 事务化审计写入(security definer + grant execute to authenticated)
+ *   - 跨表事务(证书签发 / 结果发布 / 结果审核 / 提醒扫描):走 Hono Command
+ *     (api/routes/diagnostics.ts),由 Hono 以 service role 调用 RPC,
+ *     浏览器(anon/authenticated)无权限直连 RPC(S30-R03)
  *
  * 状态机:
  *   疫苗接种:scheduled→administered; scheduled→overdue; scheduled→skipped
@@ -426,23 +427,20 @@ export default {
 
   /**
    * 扫描到期提醒(MXQ-10004,跨表事务 RPC)
-   * 调 scan_diag_reminders RPC:扫描到期疫苗/驱虫记录,生成提醒(幂等)
+   * 走 Hono Command(api/routes/diagnostics.ts#/reminders/scan):
+   * Hono 以 service role 调 scan_diag_reminders RPC,扫描到期疫苗/驱虫记录,生成提醒(幂等)
    * @param tenantId 租户 id
    * @param storeId 门店 id(可选,为空则扫描全租户)
    * @param lookaheadDays 提前多少天扫描(默认 7)
    */
   async scanReminders(tenantId: string, storeId?: string, lookaheadDays = 7) {
-    const { data, error } = await supabase.rpc('scan_diag_reminders', {
-      p_tenant_id: tenantId,
-      p_store_id: storeId ?? null,
-      p_lookahead_days: lookaheadDays,
+    const res = await api.post('diagnostics/reminders/scan', {
+      tenantId,
+      storeId: storeId ?? undefined,
+      lookaheadDays,
     })
 
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return { status: 1, error: '', data: data as ScanRemindersResult }
+    return { status: 1, error: '', data: (res as any).data as ScanRemindersResult }
   },
 
   /**
@@ -498,20 +496,16 @@ export default {
 
   /**
    * 签发疫苗证明(MXQ-10005,跨表事务 RPC)
-   * 调 issue_vaccine_certificate RPC:校验已接种 + 生成唯一证书编号 + 落库 + 审计
+   * 走 Hono Command(api/routes/diagnostics.ts#/certificates/issue):
+   * Hono 以 service role 调 issue_vaccine_certificate RPC:校验已接种 + 生成唯一证书编号 + 落库 + 审计
    */
   async issueCertificate(input: IssueCertificateInput) {
-    const { data, error } = await supabase.rpc('issue_vaccine_certificate', {
-      p_vaccination_id: input.vaccinationId,
-      p_operator_id: null,
-      p_pdf_file_id: input.pdfFileId ?? null,
+    const res = await api.post('diagnostics/certificates/issue', {
+      vaccinationId: input.vaccinationId,
+      pdfFileId: input.pdfFileId ?? undefined,
     })
 
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return { status: 1, error: '', data: data as VaccineCertificate }
+    return { status: 1, error: '', data: (res as any).data as VaccineCertificate }
   },
 
   /**
@@ -701,31 +695,18 @@ export default {
 
   /**
    * 发布检验结果(MXQ-10008,跨表事务 RPC)
-   * 调 publish_lab_results RPC:批量更新结果 + 自动危急值告警 + 状态推进 + 审计
+   * 走 Hono Command(api/routes/diagnostics.ts#/lab-orders/publish):
+   * Hono 以 service role 调 publish_lab_results RPC:批量更新结果 + 自动危急值告警 + 状态推进 + 审计
    * @param input 发布入参(含 labOrderId 与结果项数组)
    */
   async publishLabResults(input: PublishLabResultsInput) {
-    const resultsJson = input.results.map((r: LabResultInput) => ({
-      id: r.id,
-      result_value: r.result_value ?? '',
-      result_numeric: r.result_numeric != null ? String(r.result_numeric) : '',
-      is_abnormal: r.is_abnormal ?? false,
-      is_critical: r.is_critical ?? false,
-      flag: r.flag ?? '',
-      note: r.note ?? '',
-    }))
-
-    const { data, error } = await supabase.rpc('publish_lab_results', {
-      p_lab_order_id: input.labOrderId,
-      p_results_json: resultsJson,
-      p_operator_id: null,
+    // Hono 端 publishResultsSchema 直接接收 snake_case 结果项(LabResultInput 字段即 snake_case)
+    const res = await api.post('diagnostics/lab-orders/publish', {
+      labOrderId: input.labOrderId,
+      results: input.results,
     })
 
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return { status: 1, error: '', data: data as LabOrderRecord }
+    return { status: 1, error: '', data: (res as any).data as LabOrderRecord }
   },
 
   // ============================================================
@@ -841,21 +822,17 @@ export default {
 
   /**
    * 审核检验结果(MXQ-10008,跨表事务 RPC,双签)
-   * 调 review_lab_results RPC:校验已录入 + 双签(审核人≠录入人)+ 写审核记录 + 状态推进 + 审计
+   * 走 Hono Command(api/routes/diagnostics.ts#/lab-orders/review):
+   * Hono 以 service role 调 review_lab_results RPC:校验已录入 + 双签(审核人≠录入人)+ 写审核记录 + 状态推进 + 审计
    */
   async reviewLabResults(input: ReviewLabResultsInput) {
-    const { data, error } = await supabase.rpc('review_lab_results', {
-      p_lab_order_id: input.labOrderId,
-      p_decision: input.decision,
-      p_comment: input.comment ?? null,
-      p_reviewer_id: null,
+    const res = await api.post('diagnostics/lab-orders/review', {
+      labOrderId: input.labOrderId,
+      decision: input.decision,
+      comment: input.comment ?? undefined,
     })
 
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return { status: 1, error: '', data: data as LabResultReview }
+    return { status: 1, error: '', data: (res as any).data as LabResultReview }
   },
 
   // ============================================================
