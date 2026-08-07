@@ -310,7 +310,9 @@ where r.code = 'system_admin'
     select 1 from public.role_permissions rp where rp.role_id = r.id and rp.permission_id = p.id
   );
 
--- store_manager(店长):归档/修订/备案/开方全权
+-- store_manager(店长):归档/修订/开方全权;备案为 tenant-level 权限(F05),
+-- 店长 role.scope=store 无法满足 tenant 上下文 has_permission(..., NULL, ...),
+-- 故不再声明 veterinarian_registration.read/manage,避免"声明了但实际被拒"
 insert into public.role_permissions (role_id, permission_id)
 select r.id, p.id
 from public.roles r
@@ -318,14 +320,21 @@ cross join public.permissions p
 where r.code = 'store_manager'
   and p.code in (
     'medical_record.archive', 'medical_record.amend.request', 'medical_record.amend.approve',
-    'veterinarian_registration.read', 'veterinarian_registration.manage',
     'prescription.issue', 'prescription.extend_validity', 'prescription.controlled_issue'
   )
   and not exists (
     select 1 from public.role_permissions rp where rp.role_id = r.id and rp.permission_id = p.id
   );
 
--- doctor(医生):归档/修订申请/开方/受控开方;不授审批与备案管理
+-- 存量数据幂等回退:若旧 seed 已给 store_manager 写入备案权限,删除之(F05)
+delete from public.role_permissions rp
+using public.roles r, public.permissions p
+where rp.role_id = r.id and rp.permission_id = p.id
+  and r.code = 'store_manager'
+  and p.code in ('veterinarian_registration.read', 'veterinarian_registration.manage');
+
+-- doctor(医生):归档/修订申请/开方/受控开方;不授审批与备案权限
+-- F05:备案为 tenant-level,doctor(scope=store)不声明 read/manage,与 store_manager 一致
 insert into public.role_permissions (role_id, permission_id)
 select r.id, p.id
 from public.roles r
@@ -333,29 +342,42 @@ cross join public.permissions p
 where r.code = 'doctor'
   and p.code in (
     'medical_record.archive', 'medical_record.amend.request',
-    'veterinarian_registration.read',
     'prescription.issue', 'prescription.controlled_issue'
   )
   and not exists (
     select 1 from public.role_permissions rp where rp.role_id = r.id and rp.permission_id = p.id
   );
 
--- 同步 roles.permissions 数组(兼容旧代码读取)
+-- F05:存量幂等回退(若旧 seed 已把备案权限写入 doctor role_permissions)
+delete from public.role_permissions rp
+using public.roles r, public.permissions p
+where rp.role_id = r.id and rp.permission_id = p.id
+  and r.code = 'doctor'
+  and p.code in ('veterinarian_registration.read', 'veterinarian_registration.manage');
+
+-- 同步 roles.permissions 数组(兼容旧代码读取);F05:store_manager 数组不含备案权限
 update public.roles
 set permissions = array(
   select distinct unnest(permissions || array[
     'medical_record.archive', 'medical_record.amend.request', 'medical_record.amend.approve',
-    'veterinarian_registration.read', 'veterinarian_registration.manage',
     'prescription.issue', 'prescription.extend_validity', 'prescription.controlled_issue'
   ])
 )
 where code in ('system_admin', 'store_manager') and is_system = true;
 
+-- F05:存量数组幂等回退(doctor 数组也不含备案权限)
+update public.roles
+set permissions = array(
+  select perm from unnest(permissions) as perm
+  where perm not in ('veterinarian_registration.read', 'veterinarian_registration.manage')
+)
+where code in ('store_manager', 'doctor') and is_system = true
+  and permissions && array['veterinarian_registration.read', 'veterinarian_registration.manage'];
+
 update public.roles
 set permissions = array(
   select distinct unnest(permissions || array[
     'medical_record.archive', 'medical_record.amend.request',
-    'veterinarian_registration.read',
     'prescription.issue', 'prescription.controlled_issue'
   ])
 )

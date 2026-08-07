@@ -1,8 +1,9 @@
 # Sprint S3.1-1 交付说明（合规数据底座）
 
 > 交付范围：todo.md 第十六节"第一批只开发"8 项全部完成。
-> 状态：**code_complete（静态验证通过）/ integration_pending**，SQL 测试待 staging 真实执行后方可 `verified`。
-> 审计反馈：R01-R08 已全部修复并补充回归测试/文档（详见第 4 节"审计反馈修复"小节）。
+> 状态：**in_development / 静态修复收口（F01-F05 已完成，待第二轮定向复审）**。
+> 不得写 `code_complete`：SQL 测试与 E2E 待 staging 真实执行后方可升级状态。
+> 审计反馈：R01-R08 已全部修复；第二轮定向复审 F01-F05（多租户 operator / 无仓库发药 / 有效期 / 原子库存测试 / 权限文档基线）已全部完成，详见第 4 节"第二轮定向复审修复（F01-F05）"。
 
 ## 1. commit SHA
 
@@ -40,14 +41,15 @@
 
 | 文件 | 变更 |
 |---|---|
-| `supabase/migrations/20260808000028_compliance_base.sql` | R01：`veterinarian_registrations` RLS 改租户上下文权限（去 store_id 引用） |
-| `supabase/migrations/20260808000029_compliance_rpc.sql` | R02/R04/R05/R06/R07：v_archived 类型修正、draft 禁直发、单事务发药、触发器/签名同步、有效期时区口径 |
-| `api/routes/compliance.ts` | R03：新增 `resolveOperator` 服务端推导操作人，7 路由 schema 移除操作人/租户字段 |
+| `supabase/migrations/20260808000028_compliance_base.sql` | R01：`veterinarian_registrations` RLS 改租户上下文权限（去 store_id 引用）；**F05：权限 seed 修正（store_manager/doctor 移除备案 read/manage + 存量幂等回退）** |
+| `supabase/migrations/20260808000029_compliance_rpc.sql` | R02/R04/R05/R06/R07 + **F02/F03**：v_archived 类型修正、draft 禁直发、单事务发药、触发器/签名同步、有效期 72h 硬上限与过去拒绝、无仓库发药失败 |
+| `api/routes/compliance.ts` | R03/F01：`resolveCurrentEmployee(service, c, tenantId)` 服务端推导操作人（先定租户再解员工），7 路由 schema 移除操作人/租户字段 |
 | `apps/maoxianqiu/src/api/modules/compliance.ts` | R03：移除 `getCurrentEmployeeId`，调用不再传 employee id |
 | `apps/maoxianqiu/src/types/compliance.ts` | R03：入参类型移除 employeeId/tenantId 字段 |
 | `apps/maoxianqiu/src/views/clinical/encounter/detail.vue` | R03：去开方人选择/操作人传参 |
 | `apps/maoxianqiu/src/views/system/veterinarian-registration/index.vue` | R03：去操作人/租户传参 |
-| `supabase/tests/compliance_s3_1.sql` | R01-R08：回归断言（详见第 10 节） |
+| `api/routes/clinical.ts` | **F02：发药错误映射新增 DISPENSE_WAREHOUSE_NOT_FOUND** |
+| `supabase/tests/compliance_s3_1.sql` | R01-R08 + **F02-F04：无仓库/库存不足/二次发药原子断言、有效期期界断言**（详见第 10 节） |
 
 ## 3. migration 总览
 
@@ -97,21 +99,38 @@
 
 ### 审计反馈修复（R01-R08）
 
-审计反馈 8 项全部修复。全部基于既有 migration 28/29 `create or replace`（含触发器/函数重定义），**未新增 migration 30**，遵守"01~29 不做结构性改动"约束：
+审计反馈 8 项全部修复。全部基于既有 migration 28/29 `create or replace`（含触发器/函数重定义），**未新增 migration 30**，遵守"01~29 不做结构性改动"约束。第二轮复审 F01-F05 亦就地回改 28/29（**28/29 从未应用于任何共享/staging/production 数据库，基线声明见第 12 节，符合"可回改"豁免条件**）：
 
 - **R01 修 veterinarian RLS**：`veterinarian_registrations` 表**无 `store_id` 列**，原策略引用 `store_id` 会导致建策略即报错。修复：改为租户上下文权限 `public.has_permission(tenant_id, null, 'veterinarian_registration.read')`（`has_permission` 的 `store_id = null` 语义即 tenant 上下文，仅匹配 tenant/system scope 的 tenant-wide 分配）。RLS 整体仍为"租户成员 + 备案读权限"两条件。
 - **R02 修 Amendment 类型错误**：`request_record_amendment` 声明区 `v_archived boolean` 却 `select ... archive_status into ...`（`archive_status` 为 text），PL/pgSQL 类型不匹配。修复：`v_archived text`。
-- **R03 操作人全部服务端推导**：所有 Command RPC 的操作人（归档人/申请人/审批人/执行人/开方人/延长期操作人/备案操作人）一律由登录用户（`c.get('user').id`）反查 `employees`（`user_id` + `status='active'`）得到；租户 id 同样由员工档案推导（`upsert_vet_reg` 用 `operator.tenantId` 作为可信 scope）。前端 7 个路由 schema 全部移除 `operatorEmployeeId`/`requestedByEmployeeId`/`reviewerEmployeeId`/`appliedByEmployeeId`/`prescriberEmployeeId`/`tenantId` 字段，页面同步移除开方人/操作人选择器与 `getCurrentEmployeeId`。
+- **R03 操作人全部服务端推导**：所有 Command RPC 的操作人（归档人/申请人/审批人/执行人/开方人/延长期操作人/备案操作人）一律由登录用户（`c.get('user').id`）反查 `employees`（`user_id` + `status='active'`）得到；租户 id 由实体归属/目标员工档案确定（F01 收口为 `resolveCurrentEmployee`，见下）。前端 7 个路由 schema 全部移除 `operatorEmployeeId`/`requestedByEmployeeId`/`reviewerEmployeeId`/`appliedByEmployeeId`/`prescriberEmployeeId`/`tenantId` 字段，页面同步移除开方人/操作人选择器与 `getCurrentEmployeeId`。
 - **R04 禁止 draft 直接发药**：`dispense_prescription` 仅接受 `status = 'issued'` 处方，draft 必须先 `issue`（`PRESCRIPTION_NOT_DISPENSABLE`）。
 - **R05 发药改为单事务 RPC**：状态转换（issued→dispensed）+ 逐项库存扣减（优先 `confirm_inventory_reservation` 确认预留，否则 `dispense_inventory` 即时 FEFO 扣减）在同一个 plpgsql 事务内原子提交/回滚，消除 API 层"先扣库存后转状态"两步编排的非原子窗口；`dispensed_items`/`skipped_items` 计数写入审计。
 - **R06 同步 archive_status / signed_by_employee_id**：
   - 归档截止触发器 `set_encounter_archive_due`/`set_admission_archive_due`（create or replace 覆盖 migration 28 定义）：签署/出院时同步 `archive_status = 'signed'`（未 archived 时），保证归档状态机（draft→signed→archived）与状态转移同源。
   - `sign_encounter`（create or replace 覆盖 migration 19 定义）：增加归档后不可签（`ARCHIVED_RECORD_IMMUTABLE`）；`signed_by_employee_id` 由签署人（`p_doctor_id` = 登录用户 id）反查在职员工得到；同步 `archive_status = 'signed'`；审计含 `signed_by_employee_id`。
-- **R07 修处方有效期时区和边界**：统一 Asia/Shanghai 自然日口径（timestamptz 比较先换算业务时区再比）：
+- **R07 修处方有效期时区和边界**：统一 Asia/Shanghai 为业务时区（产品决策：毛线球当前仅服务中国大陆，见 F03）。有效期为 `timestamptz` 绝对时刻，比较前换算业务时区再比（口径在第二轮复审 F03 收口）：
   - 默认 `valid_until` = 开具日（上海）23:59:59（当日结束）：`(date_trunc('day', now() at time zone 'Asia/Shanghai') + interval '1 day' - interval '1 second') at time zone 'Asia/Shanghai'`；
-  - 上限 = 开具日（上海）23:59:59 + 3 天：`(date_trunc('day', now() at time zone 'Asia/Shanghai') + interval '4 days' - interval '1 second') at time zone 'Asia/Shanghai'`；
-  - `extend_prescription_validity` 上限同样基于 `issued_at` 的上海自然日换算，与 issue 口径一致。
+  - 硬上限 = `issued_at + interval '3 days'`（72 小时，绝对时刻，符合 todo.md A5 规则 4：`valid_until > issued_at + 3 days 必须拒绝`）；
+  - 新增过去时间拒绝：`p_valid_until <= now()` → `PRESCRIPTION_VALIDITY_IN_PAST`（禁止"开方即过期"）；
+  - `extend_prescription_validity` 上限 = `issued_at + interval '3 days'`，与 issue 口径一致。
 - **R08 补测试和文档**：见第 10 节 tests 更新与本说明。
+
+### 第二轮定向复审修复（F01-F05）
+
+第二轮定向复审报告（`毛线球-S3.1-Sprint1第二轮定向复审报告.md`）共 3 阻塞 + 2 收尾，全部完成。修复继续基于 migration 28/29 就地修正（28/29 从未应用于任何共享/staging/production 数据库，见第 12 节基线声明，允许回改而非新建 migration 30）：
+
+- **F01 多租户 operator（P0）**：`api/routes/compliance.ts` 删除全局 `resolveOperator()`（对 `user_id` 做 `.maybeSingle()`，多租户账号会因多行失败且取错作用域），改为 `resolveCurrentEmployee(service, c, tenantId)`——按目标租户显式限定查询 `employees`（`user_id + tenant_id + status='active'`）。7 个 Command 全部按"先定租户 → 再授权 → 再解操作人"顺序：
+  - 实体类（归档/修订申请/审批/执行/开方/延长）：先按 `:id` 查记录/申请归属租户；
+  - 备案 upsert：先由**目标备案员工**查 `employees` 确定可信租户，再 `requireScopedPermission(veterinarian_registration.manage, tenantId)`，再解操作人（不再"随便取当前用户一个 employee 的 tenant 当目标"）。
+- **F02 无仓库发药必须失败（P0）**：`dispense_prescription` 拆分 skip 条件——纯手工药名条目（`catalog_item_id is null`）允许不扣库存；**库存商品无可用仓库（`catalog_item_id` 非空但仓库未命中）必须 `DISPENSE_WAREHOUSE_NOT_FOUND`**，整事务回滚，处方保持 `issued`，库存不变化，禁止"无出库但标记 dispensed"。`api/routes/clinical.ts` 同步错误映射（422 冲突）。
+- **F03 处方有效期收口（P0 Gate）**：issue/extend 均按 `issued_at + 3 days` 硬上限 + 过去时间拒绝（`PRESCRIPTION_VALIDITY_IN_PAST`），见 R07 更新；时区正式声明 Asia/Shanghai 为业务时区（产品决策，非 tenant/store 配置解析），不在文档中宣称"tenant/store timezone 已实现"。
+- **F04 真实库存原子测试**：`compliance_s3_1.sql` 新增库存 fixture（warehouse + `inventory_balances` + `inventory_batches`，100 基线），覆盖 6 场景真实库存断言：draft 发药失败库存不变/状态 draft；过期 issued 发药失败库存不变/状态 issued；无仓库失败（DISPENSE_WAREHOUSE_NOT_FOUND）库存不变/状态 issued；库存不足（INSUFFICIENT_STOCK）库存不变/状态 issued；成功发药库存精确 -9/状态 dispensed；二次发药失败库存不二次减少/状态 dispensed。另覆盖 F03 期界：`now() + 3 days + 1s` → VALIDITY_EXCEEDS_MAX、`now() - 1h` → PRESCRIPTION_VALIDITY_IN_PAST、extend 72h 口径。
+- **F05 权限/文档/migration 基线**：
+  - 备案权限模型收口为 **tenant-level**：`store_manager`（`scope='store'`）不再声明 `veterinarian_registration.read/manage`（tenant 上下文 `has_permission(..., NULL, ...)` 仅匹配 system/tenant scope 的 tenant-wide 分配，store 角色声明了也会被拒）；migration 28 权限 seed 与 `roles.permissions` 数组同步修正，并加存量幂等回退 delete/update；备案 manage 仅 `system_admin`（平台场景）持有。
+  - 时区产品决策声明见上（F03）。
+  - 28/29 从未应用于共享数据库的基线声明见第 12 节。
+  - 本说明状态保持 `in_development`，不写 `code_complete`。
 
 ## 5. 新增 migration 列表
 
@@ -128,7 +147,7 @@
 | 7. medical_record_amendments 表 | `before_snapshot`/`after_snapshot` jsonb、状态机、审批/拒绝/应用时间戳；RLS 仅 SELECT（amend.request 或 amend.approve） |
 | 8. veterinarian_registrations 表 | `tenant_id+license_no` 唯一、有效期、状态、电子签名字段；RLS 仅 SELECT（registration.read） |
 | 9. 索引 | partial index `(tenant_id, archive_due_at) where archive_status <> 'archived'` |
-| 10. 权限与收紧 | 8 权限码 + 三角色授权 + roles.permissions 同步 + `revoke all on table` 两新表 |
+| 10. 权限与收紧 | 8 权限码 + 三角色授权（**F05：store_manager/doctor 移除备案 read/manage，仅 system_admin 持 tenant-level 备案权限**）+ roles.permissions 同步 + `revoke all on table` 两新表 |
 
 ### 20260808000029_compliance_rpc.sql（RPC + 授权收紧）
 
@@ -140,10 +159,10 @@
 | review_record_amendment | 决策枚举（INVALID_DECISION）、仅 pending（AMENDMENT_NOT_PENDING）、拒绝原因落库 |
 | apply_record_amendment | 仅 approved（AMENDMENT_NOT_APPROVED）、set_config 放行触发器、写 encounter_revisions、after_snapshot |
 | upsert_veterinarian_registration | license 必填（LICENSE_NO_REQUIRED）、状态枚举（INVALID_REGISTRATION_STATUS）、员工归属（EMPLOYEE_NOT_FOUND）、幂等 |
-| issue_prescription | 仅 draft（PRESCRIPTION_NOT_DRAFT）、开方人存在（PRESCRIBER_NOT_FOUND）、有效备案（PRESCRIBER_NOT_REGISTERED）、受控混开（CONTROLLED_MIX_CLASS / CONTROLLED_MIX_REGULAR）、麻醉一日量（NARCOTIC_DAILY_LIMIT）、有效期上限（VALIDITY_EXCEEDS_MAX）；retention 受控 5 年/普通 3 年 |
-| extend_prescription_validity | 仅 issued（PRESCRIPTION_NOT_ISSUED）、只可延长（VALIDITY_NOT_EXTENDED）、3 天上限（VALIDITY_EXCEEDS_MAX） |
+| issue_prescription | 仅 draft（PRESCRIPTION_NOT_DRAFT）、开方人存在（PRESCRIBER_NOT_FOUND）、有效备案（PRESCRIBER_NOT_REGISTERED）、受控混开（CONTROLLED_MIX_CLASS / CONTROLLED_MIX_REGULAR）、麻醉一日量（NARCOTIC_DAILY_LIMIT）、**F03：过去时间拒绝（PRESCRIPTION_VALIDITY_IN_PAST）、72h 硬上限（VALIDITY_EXCEEDS_MAX）**；retention 受控 5 年/普通 3 年 |
+| extend_prescription_validity | 仅 issued（PRESCRIPTION_NOT_ISSUED）、只可延长（VALIDITY_NOT_EXTENDED）、**F03：issued_at + 3 days 上限（VALIDITY_EXCEEDS_MAX）** |
 | save_prescription（重定义） | 归档病历禁存（ARCHIVED_RECORD_IMMUTABLE）、已 issued 禁覆盖（PRESCRIPTION_ALREADY_ISSUED） |
-| dispense_prescription（重定义） | 仅 draft/issued 可发（PRESCRIPTION_NOT_DISPENSABLE）、issued 过期禁发（PRESCRIPTION_EXPIRED）、记录发药人/时间 |
+| dispense_prescription（重定义） | 仅 draft/issued 可发（PRESCRIPTION_NOT_DISPENSABLE）、issued 过期禁发（PRESCRIPTION_EXPIRED）、**F02：库存商品无可用仓库（DISPENSE_WAREHOUSE_NOT_FOUND）整事务回滚**、记录发药人/时间 |
 
 末尾 DO 块：revoke public/anon/authenticated + grant service_role（10 个函数）。
 
@@ -161,7 +180,7 @@
 | `/compliance/prescriptions/:id/issue` | POST | prescription.issue（受控另需 prescription.controlled_issue） | issue_prescription |
 | `/compliance/prescriptions/:id/extend-validity` | POST | prescription.extend_validity | extend_prescription_validity |
 
-实现要点：zod schema + parseJsonBody + requireScopedPermission（scope 为唯一可信 tenantId/storeId）+ service.rpc + mapRpcError（NOT_FOUND→404、业务规则→422、兜底→500）+ writeAudit + ok；`:id` 路由先 `fetchRecordScope` 查库取归属再授权；受控药二重权限校验（先查明细含 `controlled_class <> 'none'` 再追加权限码）。Query 类（列表）走 Supabase 直连 + RLS 兜底。**R03：7 个 Command 全部新增 `resolveOperator(service, c)` 服务端推导操作人（登录用户反查在职员工），schema 不再接收操作人/租户字段**。
+实现要点：zod schema + parseJsonBody + requireScopedPermission（scope 为唯一可信 tenantId/storeId）+ service.rpc + mapRpcError（NOT_FOUND→404、业务规则→422、兜底→500）+ writeAudit + ok；`:id` 路由先 `fetchRecordScope` 查库取归属再授权；受控药二重权限校验（先查明细含 `controlled_class <> 'none'` 再追加权限码）。Query 类（列表）走 Supabase 直连 + RLS 兜底。**R03/F01：7 个 Command 全部由 `resolveCurrentEmployee(service, c, tenantId)` 服务端推导操作人——先按实体归属/目标员工确定可信租户，再按 `user_id + tenant_id` 反查在职员工；schema 不再接收操作人/租户字段，禁止对 `user_id` 全局 `.maybeSingle()`（多租户账号安全）**。
 
 ### 修改
 
@@ -191,13 +210,14 @@
 | medical_record.archive | 病历归档 | compliance | ✔ | ✔ | ✔ |
 | medical_record.amend.request | 病历修订申请 | compliance | ✔ | ✔ | ✔ |
 | medical_record.amend.approve | 病历修订审批 | compliance | ✔ | ✔ | ✘ |
-| veterinarian_registration.read | 查看执业兽医备案 | compliance | ✔ | ✔ | ✔ |
-| veterinarian_registration.manage | 管理执业兽医备案 | compliance | ✔ | ✔ | ✘ |
+| veterinarian_registration.read | 查看执业兽医备案 | compliance | ✔ | ✘ | ✘ |
+| veterinarian_registration.manage | 管理执业兽医备案 | compliance | ✔ | ✘ | ✘ |
 | prescription.issue | 开具处方 | prescription | ✔ | ✔ | ✔ |
 | prescription.extend_validity | 延长处方有效期 | prescription | ✔ | ✔ | ✘ |
 | prescription.controlled_issue | 开具受控药品处方 | prescription | ✔ | ✔ | ✔ |
 
 `roles.permissions` 数组按同矩阵同步（兼容旧代码读取）；`revoke` 收紧：新表仅 service_role 可写。
+**F05 修正**：备案权限为 tenant-level（`has_permission(tenant_id, null, ...)` 仅匹配 system/tenant scope 的 tenant-wide 分配），`store_manager`（scope=store）与 `doctor`（scope=store）不再声明 read/manage，避免"声明了但实际被拒"的产品/权限不一致；备案管理仅 `system_admin`（平台场景）持有。migration 28 seed 含存量幂等回退（delete/update），防止旧 seed 残留。
 
 ## 9. 新增 audit events（10 个）
 
@@ -225,7 +245,7 @@
 | 3 | 归档后直接 UPDATE 被 ARCHIVED_RECORD_IMMUTABLE 拦截（postgres 直连同样拦截） |
 | 4 | Amendment 全流：request→pending+before_snapshot→重复申请拒绝→未批准 apply 拒绝→approved→apply→applied+after_snapshot+encounter_revisions+1→已应用不可重复；未归档申请拒绝；拒绝分支（INVALID_DECISION / rejected+原因 / AMENDMENT_NOT_PENDING） |
 | 5 | 兽医备案：**R01：RLS 策略定义断言（has_permission(tenant_id, null, ...)，不含 store_id 引用）**；无备案开方拒绝→upsert active→开方成功（issued/**R07 默认有效期=上海当日 23:59:59**/signature manual/retention 3 年/记录备案 id）→备案过期开方拒绝→恢复 |
-| 6 | 有效期：**R07：>开具日+3 天拒绝（上海自然日口径）**→extend 正常/超上限/缩短拒绝→过期 dispense 拒绝+正常 issued dispense 成功 |
+| 6 | 有效期：**F03：`now()+3days+1s` → VALIDITY_EXCEEDS_MAX、`now()-1h` → PRESCRIPTION_VALIDITY_IN_PAST（过去拒绝）、默认=上海当日 23:59:59**→extend 正常/超 72h 上限拒绝/缩短拒绝；**F04 原子库存：过期 issued 发药失败库存不变+状态 issued、正常 issued 发药成功库存精确 -9+状态 dispensed、无仓库（DISPENSE_WAREHOUSE_NOT_FOUND）库存不变+状态 issued、库存不足（INSUFFICIENT_STOCK）库存不变+状态 issued、二次发药失败库存不二次减少+状态 dispensed** |
 | 7 | 受控药：麻醉 duration=2 拒绝（NARCOTIC_DAILY_LIMIT）→duration=1 成功且 retention 5 年；受控+普通混开拒绝；麻醉+精神混开拒绝 |
 | 8 | issued 后 save 拒绝（PRESCRIPTION_ALREADY_ISSUED）；**R04：draft 直发被拒（PRESCRIPTION_NOT_DISPENSABLE，原"直发兼容"断言反转）** |
 | 9 | **R06：sign_encounter 签署同步 signed_by_employee_id（反查在职员工 c1）+ archive_status='signed' + archive_due_at；归档后不可签署（ARCHIVED_RECORD_IMMUTABLE）** |
@@ -244,9 +264,11 @@
 
 ## 12. 风险
 
+- **migration 28/29 基线声明（F05）**：`20260808000028_compliance_base.sql` 与 `20260808000029_compliance_rpc.sql` **从未被任何共享开发数据库 / staging / production 数据库执行过**（无本地数据库；从未执行 `supabase db reset` 或推送远程）。两者仅存在于未部署的开发分支提交中，因此第二轮复审允许对其就地回改，**不需要新增 migration 30**。若未来有任何环境已应用过 28/29，必须改用新 migration 30 承载修复，不得继续回改历史 migration。
 - 归档截止/保留期规则依赖触发器语义（`before update of status` 不覆盖 insert），已用测试覆盖
 - `prevent_archived_record_update` 为全局兜底，amendment apply 依赖 `set_config('app.allow_archived_update')` 显式放行，误用可能阻塞正常 update，待 staging 回归
 - 无本地数据库，migration 28/29 仅静态自检，语法/行为以 staging `supabase db reset` 为准
+- 业务时区产品决策（F03）：毛线球当前仅服务中国大陆，S3.1 统一业务时区为 `Asia/Shanghai`（硬编码于默认有效期计算）；本 Sprint 不宣称"tenant/store timezone 配置解析已实现"，若未来开放多时区 SaaS 需从 tenant/store 配置读取。
 
 ## 13. 下一 Sprint 依赖
 

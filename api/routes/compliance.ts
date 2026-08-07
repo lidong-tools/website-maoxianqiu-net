@@ -74,6 +74,7 @@ function mapRpcError(error: { message: string }) {
     'NARCOTIC_DAILY_LIMIT',
     'VALIDITY_EXCEEDS_MAX',
     'VALIDITY_NOT_EXTENDED',
+    'PRESCRIPTION_VALIDITY_IN_PAST',
   ].some(k => msg.includes(k))) {
     return err.unprocessable(msg.replace(/^ERROR:\s*/, ''))
   }
@@ -105,31 +106,36 @@ async function fetchRecordScope(
 }
 
 /**
- * 服务端推导当前操作人(R03 审计修复)
+ * 服务端推导当前操作人在【指定租户】下的员工档案(F01 审计修复)
  * 操作人一律由登录用户(auth user)反查在职员工档案得到,禁止客户端传 employee id。
- * 返回员工档案 id 与所属租户 id,作为 RPC 操作人与租户作用域的可信来源。
+ * 禁止对 user_id 做全局 maybeSingle——多租户账号会在多个租户存在 active 员工,
+ * 全局查询因多行返回失败且会取错作用域;必须显式限定目标租户后解析。
  * @param service supabase service client
- * @param c hono context(含 user)
- * @returns 当前操作人员工 id + 租户 id
+ * @param c hono context(仅访问 .get,不依赖具体 Hono 类型)
+ * @param c.get 读取请求上下文中存储的值(如 user)
+ * @param tenantId 目标租户 id(已由实体归属/目标员工档案确定的可信租户)
+ * @returns 当前操作人在该租户下的员工档案 id
  */
-async function resolveOperator(
+async function resolveCurrentEmployee(
   service: ReturnType<typeof createServiceClient>,
   c: { get: (k: string) => unknown },
-): Promise<{ employeeId: string, tenantId: string }> {
+  tenantId: string,
+): Promise<string> {
   const user = c.get('user') as { id: string } | undefined
   if (!user?.id) {
     throw err.unauthorized('未登录')
   }
   const { data, error } = await service
     .from('employees')
-    .select('id, tenant_id')
+    .select('id')
     .eq('user_id', user.id)
+    .eq('tenant_id', tenantId)
     .eq('status', 'active')
     .maybeSingle()
   if (error || !data) {
-    throw err.forbidden('当前账号未关联在职员工档案,无法执行操作')
+    throw err.forbidden('当前账号在目标租户下未关联在职员工档案,无法执行操作')
   }
-  return { employeeId: data.id, tenantId: data.tenant_id }
+  return data.id
 }
 
 const archiveRecordSchema = z.object({
@@ -146,19 +152,20 @@ const archiveRecordSchema = z.object({
 complianceRoutes.post('/records/archive', async (c) => {
   const input = await parseJsonBody(c, archiveRecordSchema)
   const service = createServiceClient()
-  const operator = await resolveOperator(service, c)
   const scopeRow = await fetchRecordScope(service, input.recordType, input.recordId)
   await requireScopedPermission(c, {
     code: 'medical_record.archive',
     tenantId: scopeRow.tenantId,
     storeId: scopeRow.storeId ?? undefined,
   })
+  // F01:按实体归属租户解析当前操作人
+  const operatorEmployeeId = await resolveCurrentEmployee(service, c, scopeRow.tenantId)
 
   const rpcName = input.recordType === 'encounter' ? 'archive_encounter' : 'archive_admission'
   const idParam = input.recordType === 'encounter' ? 'p_encounter_id' : 'p_admission_id'
   const { data, error } = await service.rpc(rpcName, {
     [idParam]: input.recordId,
-    p_operator_employee_id: operator.employeeId,
+    p_operator_employee_id: operatorEmployeeId,
   })
   if (error) {
     throw mapRpcError(error)
@@ -170,7 +177,7 @@ complianceRoutes.post('/records/archive', async (c) => {
     entityId: input.recordId,
     tenantId: scopeRow.tenantId,
     storeId: scopeRow.storeId ?? undefined,
-    metadata: { operatorEmployeeId: operator.employeeId },
+    metadata: { operatorEmployeeId },
   })
   return ok(c, data)
 })
@@ -190,19 +197,20 @@ const requestAmendmentSchema = z.object({
 complianceRoutes.post('/records/amendments/request', async (c) => {
   const input = await parseJsonBody(c, requestAmendmentSchema)
   const service = createServiceClient()
-  const operator = await resolveOperator(service, c)
   const scopeRow = await fetchRecordScope(service, input.recordType, input.recordId)
   await requireScopedPermission(c, {
     code: 'medical_record.amend.request',
     tenantId: scopeRow.tenantId,
     storeId: scopeRow.storeId ?? undefined,
   })
+  // F01:按实体归属租户解析当前操作人
+  const operatorEmployeeId = await resolveCurrentEmployee(service, c, scopeRow.tenantId)
 
   const { data, error } = await service.rpc('request_record_amendment', {
     p_medical_record_type: input.recordType,
     p_medical_record_id: input.recordId,
     p_reason: input.reason,
-    p_requested_by_employee_id: operator.employeeId,
+    p_requested_by_employee_id: operatorEmployeeId,
   })
   if (error) {
     throw mapRpcError(error)
@@ -214,7 +222,7 @@ complianceRoutes.post('/records/amendments/request', async (c) => {
     entityId: (data as { id?: string })?.id,
     tenantId: scopeRow.tenantId,
     storeId: scopeRow.storeId ?? undefined,
-    metadata: { recordType: input.recordType, recordId: input.recordId, reason: input.reason, requestedByEmployeeId: operator.employeeId },
+    metadata: { recordType: input.recordType, recordId: input.recordId, reason: input.reason, requestedByEmployeeId: operatorEmployeeId },
   })
   return ok(c, data)
 })
@@ -233,7 +241,6 @@ complianceRoutes.post('/records/amendments/:id/review', async (c) => {
   const amendmentId = c.req.param('id')
   const input = await parseJsonBody(c, reviewAmendmentSchema)
   const service = createServiceClient()
-  const operator = await resolveOperator(service, c)
 
   const { data: amendment, error: fetchErr } = await service
     .from('medical_record_amendments')
@@ -248,11 +255,13 @@ complianceRoutes.post('/records/amendments/:id/review', async (c) => {
     tenantId: amendment.tenant_id,
     storeId: amendment.store_id ?? undefined,
   })
+  // F01:按修订申请归属租户解析当前操作人
+  const operatorEmployeeId = await resolveCurrentEmployee(service, c, amendment.tenant_id)
 
   const { data, error } = await service.rpc('review_record_amendment', {
     p_amendment_id: amendmentId,
     p_decision: input.decision,
-    p_reviewer_employee_id: operator.employeeId,
+    p_reviewer_employee_id: operatorEmployeeId,
     p_reason: input.reason ?? null,
   })
   if (error) {
@@ -265,7 +274,7 @@ complianceRoutes.post('/records/amendments/:id/review', async (c) => {
     entityId: amendmentId,
     tenantId: amendment.tenant_id,
     storeId: amendment.store_id,
-    metadata: { decision: input.decision, reviewerEmployeeId: operator.employeeId, reason: input.reason },
+    metadata: { decision: input.decision, reviewerEmployeeId: operatorEmployeeId, reason: input.reason },
   })
   return ok(c, data)
 })
@@ -284,7 +293,6 @@ complianceRoutes.post('/records/amendments/:id/apply', async (c) => {
   const amendmentId = c.req.param('id')
   const input = await parseJsonBody(c, applyAmendmentSchema)
   const service = createServiceClient()
-  const operator = await resolveOperator(service, c)
 
   const { data: amendment, error: fetchErr } = await service
     .from('medical_record_amendments')
@@ -299,11 +307,13 @@ complianceRoutes.post('/records/amendments/:id/apply', async (c) => {
     tenantId: amendment.tenant_id,
     storeId: amendment.store_id ?? undefined,
   })
+  // F01:按修订申请归属租户解析当前操作人
+  const operatorEmployeeId = await resolveCurrentEmployee(service, c, amendment.tenant_id)
 
   const { data, error } = await service.rpc('apply_record_amendment', {
     p_amendment_id: amendmentId,
     p_apply_payload: input.payload,
-    p_applied_by_employee_id: operator.employeeId,
+    p_applied_by_employee_id: operatorEmployeeId,
   })
   if (error) {
     throw mapRpcError(error)
@@ -315,7 +325,7 @@ complianceRoutes.post('/records/amendments/:id/apply', async (c) => {
     entityId: amendmentId,
     tenantId: amendment.tenant_id,
     storeId: amendment.store_id,
-    metadata: { appliedByEmployeeId: operator.employeeId },
+    metadata: { appliedByEmployeeId: operatorEmployeeId },
   })
   return ok(c, data)
 })
@@ -343,11 +353,21 @@ const upsertVetRegSchema = z.object({
 complianceRoutes.post('/veterinarian-registrations/upsert', async (c) => {
   const input = await parseJsonBody(c, upsertVetRegSchema)
   const service = createServiceClient()
-  const operator = await resolveOperator(service, c)
+  // F01:先由【目标备案对象员工】确定可信目标租户,再授权、再解析当前操作人
+  const { data: targetEmp, error: empErr } = await service
+    .from('employees')
+    .select('id, tenant_id')
+    .eq('id', input.employeeId)
+    .eq('status', 'active')
+    .maybeSingle()
+  if (empErr || !targetEmp) {
+    throw err.notFound('备案对象员工不存在或未在职')
+  }
   const scope = await requireScopedPermission(c, {
     code: 'veterinarian_registration.manage',
-    tenantId: operator.tenantId,
+    tenantId: targetEmp.tenant_id,
   })
+  const operatorEmployeeId = await resolveCurrentEmployee(service, c, scope.tenantId)
 
   const { data, error } = await service.rpc('upsert_veterinarian_registration', {
     p_tenant_id: scope.tenantId,
@@ -362,7 +382,7 @@ complianceRoutes.post('/veterinarian-registrations/upsert', async (c) => {
     p_signature_specimen_file_id: input.signatureSpecimenFileId ?? null,
     p_electronic_signature_provider: input.electronicSignatureProvider ?? null,
     p_electronic_signature_subject_id: input.electronicSignatureSubjectId ?? null,
-    p_operator_employee_id: operator.employeeId,
+    p_operator_employee_id: operatorEmployeeId,
   })
   if (error) {
     throw mapRpcError(error)
@@ -373,7 +393,7 @@ complianceRoutes.post('/veterinarian-registrations/upsert', async (c) => {
     entityType: 'veterinarian_registration',
     entityId: (data as { id?: string })?.id,
     tenantId: scope.tenantId,
-    metadata: { employeeId: input.employeeId, licenseNo: input.licenseNo, operatorEmployeeId: operator.employeeId },
+    metadata: { employeeId: input.employeeId, licenseNo: input.licenseNo, operatorEmployeeId },
   })
   return ok(c, data)
 })
@@ -394,7 +414,6 @@ complianceRoutes.post('/prescriptions/:id/issue', async (c) => {
   const input = await parseJsonBody(c, issuePrescriptionSchema)
   const service = createServiceClient()
   const user = c.get('user')
-  const operator = await resolveOperator(service, c)
 
   const { data: prescription, error: fetchErr } = await service
     .from('prescriptions')
@@ -409,6 +428,8 @@ complianceRoutes.post('/prescriptions/:id/issue', async (c) => {
     tenantId: prescription.tenant_id,
     storeId: prescription.store_id ?? undefined,
   })
+  // F01:按处方归属租户解析当前操作人(开方人)
+  const prescriberEmployeeId = await resolveCurrentEmployee(service, c, prescription.tenant_id)
 
   // 受控药二重校验:明细含 controlled_class <> 'none' 时要求 prescription.controlled_issue
   const { data: items, error: itemsErr } = await service
@@ -437,7 +458,7 @@ complianceRoutes.post('/prescriptions/:id/issue', async (c) => {
 
   const { data, error } = await service.rpc('issue_prescription', {
     p_prescription_id: prescriptionId,
-    p_prescriber_employee_id: operator.employeeId,
+    p_prescriber_employee_id: prescriberEmployeeId,
     p_prescriber_user_id: user.id,
     p_valid_until: input.validUntil ?? null,
   })
@@ -451,7 +472,7 @@ complianceRoutes.post('/prescriptions/:id/issue', async (c) => {
     entityId: prescriptionId,
     tenantId: prescription.tenant_id,
     storeId: prescription.store_id,
-    metadata: { prescriberEmployeeId: operator.employeeId, validUntil: input.validUntil, controlled: hasControlled },
+    metadata: { prescriberEmployeeId, validUntil: input.validUntil, controlled: hasControlled },
   })
   return ok(c, data)
 })
@@ -470,7 +491,6 @@ complianceRoutes.post('/prescriptions/:id/extend-validity', async (c) => {
   const prescriptionId = c.req.param('id')
   const input = await parseJsonBody(c, extendValiditySchema)
   const service = createServiceClient()
-  const operator = await resolveOperator(service, c)
 
   const { data: prescription, error: fetchErr } = await service
     .from('prescriptions')
@@ -485,11 +505,13 @@ complianceRoutes.post('/prescriptions/:id/extend-validity', async (c) => {
     tenantId: prescription.tenant_id,
     storeId: prescription.store_id ?? undefined,
   })
+  // F01:按处方归属租户解析当前操作人
+  const operatorEmployeeId = await resolveCurrentEmployee(service, c, prescription.tenant_id)
 
   const { data, error } = await service.rpc('extend_prescription_validity', {
     p_prescription_id: prescriptionId,
     p_new_valid_until: input.newValidUntil,
-    p_operator_employee_id: operator.employeeId,
+    p_operator_employee_id: operatorEmployeeId,
   })
   if (error) {
     throw mapRpcError(error)
@@ -501,7 +523,7 @@ complianceRoutes.post('/prescriptions/:id/extend-validity', async (c) => {
     entityId: prescriptionId,
     tenantId: prescription.tenant_id,
     storeId: prescription.store_id,
-    metadata: { newValidUntil: input.newValidUntil, operatorEmployeeId: operator.employeeId },
+    metadata: { newValidUntil: input.newValidUntil, operatorEmployeeId },
   })
   return ok(c, data)
 })

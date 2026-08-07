@@ -512,7 +512,6 @@ declare
   v_narcotic_count integer;
   v_item record;
   v_retention_until timestamptz;
-  v_max_valid_until timestamptz;
 begin
   select * into v_row from public.prescriptions where id = p_prescription_id for update;
   if not found then
@@ -594,15 +593,19 @@ begin
     end if;
   end if;
 
-  -- 有效期(R07 时区/边界修复):
-  --   上限 = 开具日(Asia/Shanghai) 23:59:59 + 3 天(即开具日 + 4 天 - 1 秒)
-  --   默认值 = 开具日(Asia/Shanghai) 23:59:59(当日结束)
-  --   timestamptz 比较与时区无关,统一先换算到业务时区的自然日再转回
-  v_max_valid_until := (date_trunc('day', now() at time zone 'Asia/Shanghai') + interval '4 days' - interval '1 second')
-    at time zone 'Asia/Shanghai';
-  if p_valid_until is not null and p_valid_until > v_max_valid_until then
+  -- 有效期(F03 审计修复,遵循 todo.md A5 验收规则):
+  --   规则1 默认 valid_until = issued_at 当日结束(Asia/Shanghai 业务时区);
+  --   规则4 valid_until > issued_at + 3 days 必须拒绝(72 小时硬上限);
+  --   新增边界:valid_until 不得早于开具时刻(过去时间拒绝);
+  --   时区声明:毛线球当前仅服务中国大陆,统一业务时区 Asia/Shanghai,
+  --   不按 tenant/store 配置解析时区(产品决策,见交付说明)。
+  if p_valid_until is not null and p_valid_until <= now() then
+    raise exception 'PRESCRIPTION_VALIDITY_IN_PAST' using errcode = 'P0003',
+      message = '处方有效期不得早于开具时刻';
+  end if;
+  if p_valid_until is not null and p_valid_until > now() + interval '3 days' then
     raise exception 'VALIDITY_EXCEEDS_MAX' using errcode = 'P0003',
-      message = '处方有效期最长不得超过开具日 + 3 天';
+      message = '处方有效期最长不得超过开具时刻 + 3 天';
   end if;
 
   -- 保存期:受控 5 年,普通 3 年
@@ -672,11 +675,10 @@ begin
     raise exception 'VALIDITY_NOT_EXTENDED' using errcode = 'P0003',
       message = '新有效期必须晚于当前有效期';
   end if;
-  -- R07 边界:上限 = 开具日(Asia/Shanghai) 23:59:59 + 3 天(自然日口径,与 issue 一致)
-  if p_new_valid_until > (date_trunc('day', v_row.issued_at at time zone 'Asia/Shanghai') + interval '4 days' - interval '1 second')
-    at time zone 'Asia/Shanghai' then
+  -- F03 边界:上限 = issued_at + 3 天(todo.md A5 规则4,72 小时硬上限)
+  if p_new_valid_until > v_row.issued_at + interval '3 days' then
     raise exception 'VALIDITY_EXCEEDS_MAX' using errcode = 'P0003',
-      message = '处方有效期最长不得超过开具日 + 3 天';
+      message = '处方有效期最长不得超过开具时刻 + 3 天';
   end if;
 
   select exists(
@@ -849,10 +851,16 @@ begin
     where pi.prescription_id = p_prescription_id
     order by pi.sort_order
   loop
-    -- 手工药名条目(无 catalog_item_id)跳过库存扣减
-    if v_item.catalog_item_id is null or v_wh.id is null then
+    -- 纯手工药名条目(无 catalog_item_id)按产品规则允许不扣库存
+    if v_item.catalog_item_id is null then
       v_skipped_items := v_skipped_items + 1;
       continue;
+    end if;
+    -- F02:库存商品若无可用仓库必须失败,禁止"无出库但标记 dispensed"
+    --     (该租户/门店未配置启用仓库 = 账实一致性 P0)
+    if v_wh.id is null then
+      raise exception 'DISPENSE_WAREHOUSE_NOT_FOUND' using errcode = 'P0003',
+        message = '该租户/门店下无可用仓库,无法发药';
     end if;
 
     -- 优先确认该处方的预留流水(预留转正式扣减,FEFO 批次)

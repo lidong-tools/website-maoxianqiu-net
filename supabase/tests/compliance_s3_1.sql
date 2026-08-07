@@ -19,8 +19,16 @@
 --   R05  Part 8/9:发药单事务(状态+库存扣减)回归
 --   R06  Part 1/2/9:签署/出院同步 archive_status=signed;
 --        sign_encounter 同步 signed_by_employee_id(反查在职员工)
---   R07  Part 5/6:默认有效期 = 上海当日 23:59:59;上限 = 开具日 + 3 天
---        (Asia/Shanghai 自然日口径,timestamptz 先换算业务时区再比较)
+--   R07  Part 5/6:默认有效期 = 上海当日 23:59:59;上限 = issued_at + 3 days(F03 收口)
+--        (Asia/Shanghai 业务时区,timestamptz 绝对时刻比较;过去时间拒绝)
+--
+-- 第二轮定向复审回归(F01-F05):
+--   F02  Part 6:无可用仓库发药必须失败(DISPENSE_WAREHOUSE_NOT_FOUND,
+--        库存不变 + 处方仍 issued,禁止"无出库但标记 dispensed")
+--   F03  Part 6:有效期硬上限 = issued_at + 3 days(72h),过去时间拒绝
+--        (PRESCRIPTION_VALIDITY_IN_PAST / VALIDITY_EXCEEDS_MAX)
+--   F04  Part 6/8:真实库存原子断言——失败场景库存不变、
+--        成功场景精确扣减、二次发药失败库存不二次减少
 --
 -- 本文件独立可执行(psql "$DATABASE_URL" -f supabase/tests/compliance_s3_1.sql):
 --   - 自建 tests.assert_* 断言函数,不依赖其他测试文件;
@@ -495,7 +503,26 @@ $$;
 -- ============================================================
 -- Part 6:处方有效期规则
 -- ============================================================
--- 超过 3 天拒绝
+-- Part 6 前置:发药库存 fixture(仓库 + 余额 + 批次,F04 真实库存断言依赖)
+do $$
+begin
+  execute 'reset role';
+  insert into public.warehouses (id, tenant_id, store_id, name, code, is_default, is_active)
+  values ('99999999-0000-0000-0000-0000000000f1', '99999999-0000-0000-0000-000000000001',
+          '99999999-0000-0000-0000-000000000002', '默认仓', 'WH-S31', true, true)
+  on conflict (id) do nothing;
+  insert into public.inventory_balances (id, tenant_id, warehouse_id, catalog_item_id, quantity_on_hand, quantity_reserved)
+  values ('99999999-0000-0000-0000-0000000000f2', '99999999-0000-0000-0000-000000000001',
+          '99999999-0000-0000-0000-0000000000f1', '99999999-0000-0000-0000-0000000000e1', 100, 0)
+  on conflict (id) do nothing;
+  insert into public.inventory_batches (id, tenant_id, warehouse_id, catalog_item_id, batch_no, received_date, expiry_date, quantity_received, quantity_remaining, status)
+  values ('99999999-0000-0000-0000-0000000000f3', '99999999-0000-0000-0000-000000000001',
+          '99999999-0000-0000-0000-0000000000f1', '99999999-0000-0000-0000-0000000000e1', 'B-S31', current_date, null, 100, 100, 'active')
+  on conflict (id) do nothing;
+end;
+$$;
+
+-- 超过 3 天拒绝(todo.md A5 规则4:valid_until > issued_at + 3 days 必须拒绝)
 do $$
 declare
   v_rx uuid := gen_random_uuid();
@@ -510,8 +537,28 @@ begin
 
   perform tests.assert_raises(
     format($sql$select public.issue_prescription('%s'::uuid, '99999999-0000-0000-0000-0000000000c1'::uuid, '99999999-0000-0000-0000-0000000000aa'::uuid, '%s'::timestamptz)$sql$,
-           v_rx, (date_trunc('day', now() at time zone 'Asia/Shanghai') + interval '4 days') at time zone 'Asia/Shanghai'),
-    'VALIDITY_EXCEEDS_MAX', 'R07:处方有效期超过开具日 + 3 天应拒绝');
+           v_rx, now() + interval '3 days' + interval '1 second'),
+    'VALIDITY_EXCEEDS_MAX', 'F03:处方有效期超过 issued_at + 3 天应拒绝');
+end;
+$$;
+
+-- 过去时间拒绝(F03:valid_until 不得早于开具时刻)
+do $$
+declare
+  v_rx uuid := gen_random_uuid();
+begin
+  execute 'reset role';
+  insert into public.prescriptions (id, tenant_id, store_id, encounter_id, customer_id, pet_id, doctor_id, status)
+  values (v_rx, '99999999-0000-0000-0000-000000000001', '99999999-0000-0000-0000-000000000002',
+          '99999999-0000-0000-0000-0000000000d1', '99999999-0000-0000-0000-0000000000c3', '99999999-0000-0000-0000-0000000000c4',
+          '99999999-0000-0000-0000-0000000000aa', 'draft');
+  insert into public.prescription_items (prescription_id, catalog_item_id, drug_name, dosage, frequency, duration_days, quantity, unit, sort_order)
+  values (v_rx, '99999999-0000-0000-0000-0000000000e1', '普通消炎药', '1片', 'tid', 3, 9, '片', 0);
+
+  perform tests.assert_raises(
+    format($sql$select public.issue_prescription('%s'::uuid, '99999999-0000-0000-0000-0000000000c1'::uuid, '99999999-0000-0000-0000-0000000000aa'::uuid, '%s'::timestamptz)$sql$,
+           v_rx, now() - interval '1 hour'),
+    'PRESCRIPTION_VALIDITY_IN_PAST', 'F03:处方有效期不得早于开具时刻');
 end;
 $$;
 
@@ -538,30 +585,38 @@ begin
     format($sql$select public.extend_prescription_validity('%s'::uuid, '%s'::timestamptz, '99999999-0000-0000-0000-0000000000c2'::uuid)$sql$, v_rx, v_issued.valid_until),
     'VALIDITY_NOT_EXTENDED', '延长有效期不得缩短');
 
-  -- 超过上限拒绝(开具日 + 4 天,超出"开具日 + 4 天 - 1 秒"上限,R07)
+  -- 超过上限拒绝(issued_at + 3 天 + 1 秒,F03 72h 硬上限)
   perform tests.assert_raises(
     format($sql$select public.extend_prescription_validity('%s'::uuid, '%s'::timestamptz, '99999999-0000-0000-0000-0000000000c2'::uuid)$sql$,
-           v_rx, (date_trunc('day', v_issued.issued_at at time zone 'Asia/Shanghai') + interval '4 days') at time zone 'Asia/Shanghai'),
+           v_rx, v_issued.issued_at + interval '3 days' + interval '1 second'),
     'VALIDITY_EXCEEDS_MAX', '延长超过 3 天上限应拒绝');
 
-  -- 正常延长成功(开具日 + 2 天)
+  -- 正常延长成功(issued_at + 2 天,72h 内)
   select * into v_extended from public.extend_prescription_validity(
-    v_rx, (date_trunc('day', v_issued.issued_at at time zone 'Asia/Shanghai') + interval '2 days' + interval '12 hours') at time zone 'Asia/Shanghai',
+    v_rx, v_issued.issued_at + interval '2 days',
     '99999999-0000-0000-0000-0000000000c2'::uuid);
-  perform tests.assert_true(v_extended.valid_until = (date_trunc('day', v_issued.issued_at at time zone 'Asia/Shanghai') + interval '2 days' + interval '12 hours') at time zone 'Asia/Shanghai',
+  perform tests.assert_true(v_extended.valid_until = v_issued.issued_at + interval '2 days',
                         '延长后有效期应更新');
 end;
 $$;
 
--- 过期处方禁止发药 + 正常 issued 发药成功
+-- 过期处方禁止发药(库存不变) + 正常 issued 发药成功(库存精确减少)
 do $$
 declare
   v_rx_exp uuid := gen_random_uuid();
   v_rx_ok uuid := gen_random_uuid();
   v_dispensed public.prescriptions;
+  v_before numeric;
+  v_after numeric;
 begin
   execute 'reset role';
-  -- 过期场景
+  -- 重置库存基线
+  update public.inventory_balances set quantity_on_hand = 100, quantity_reserved = 0
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
+  update public.inventory_batches set quantity_remaining = 100, status = 'active'
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
+
+  -- 过期场景:PRESCRIPTION_EXPIRED + 库存不变
   insert into public.prescriptions (id, tenant_id, store_id, encounter_id, customer_id, pet_id, doctor_id, status)
   values (v_rx_exp, '99999999-0000-0000-0000-000000000001', '99999999-0000-0000-0000-000000000002',
           '99999999-0000-0000-0000-0000000000d1', '99999999-0000-0000-0000-0000000000c3', '99999999-0000-0000-0000-0000000000c4',
@@ -569,13 +624,17 @@ begin
   insert into public.prescription_items (prescription_id, catalog_item_id, drug_name, dosage, frequency, duration_days, quantity, unit, sort_order)
   values (v_rx_exp, '99999999-0000-0000-0000-0000000000e1', '普通消炎药', '1片', 'tid', 3, 9, '片', 0);
   perform public.issue_prescription(v_rx_exp, '99999999-0000-0000-0000-0000000000c1'::uuid, '99999999-0000-0000-0000-0000000000aa'::uuid);
-  -- 有效期改为过去
   update public.prescriptions set valid_until = now() - interval '1 hour' where id = v_rx_exp;
+  select quantity_on_hand into v_before from public.inventory_balances
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
   perform tests.assert_raises(
     format($sql$select public.dispense_prescription('%s'::uuid)$sql$, v_rx_exp),
     'PRESCRIPTION_EXPIRED', '过期处方禁止发药');
+  select quantity_on_hand into v_after from public.inventory_balances
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
+  perform tests.assert_true(v_after = v_before, 'F04:过期发药被拒后库存不得变化');
 
-  -- 正常 issued 发药
+  -- 正常 issued 发药:库存精确扣减 9
   insert into public.prescriptions (id, tenant_id, store_id, encounter_id, customer_id, pet_id, doctor_id, status)
   values (v_rx_ok, '99999999-0000-0000-0000-000000000001', '99999999-0000-0000-0000-000000000002',
           '99999999-0000-0000-0000-0000000000d1', '99999999-0000-0000-0000-0000000000c3', '99999999-0000-0000-0000-0000000000c4',
@@ -583,9 +642,125 @@ begin
   insert into public.prescription_items (prescription_id, catalog_item_id, drug_name, dosage, frequency, duration_days, quantity, unit, sort_order)
   values (v_rx_ok, '99999999-0000-0000-0000-0000000000e1', '普通消炎药', '1片', 'tid', 3, 9, '片', 0);
   perform public.issue_prescription(v_rx_ok, '99999999-0000-0000-0000-0000000000c1'::uuid, '99999999-0000-0000-0000-0000000000aa'::uuid);
+  select quantity_on_hand into v_before from public.inventory_balances
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
   select * into v_dispensed from public.dispense_prescription(v_rx_ok);
+  select quantity_on_hand into v_after from public.inventory_balances
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
   perform tests.assert_true(v_dispensed.status = 'dispensed', '有效期内 issued 处方应可发药');
   perform tests.assert_true(v_dispensed.dispensed_at is not null, '发药应记录 dispensed_at');
+  perform tests.assert_true(v_after = v_before - 9, 'F04:发药成功后库存应精确减少 9');
+end;
+$$;
+
+-- F04:无可用仓库发药必须失败(库存不变 + 处方仍 issued + 整事务回滚)
+do $$
+declare
+  v_rx uuid := gen_random_uuid();
+  v_before numeric;
+  v_after numeric;
+  v_status text;
+begin
+  execute 'reset role';
+  -- 停用唯一仓库,模拟"有库存商品但无可用仓库"
+  update public.warehouses set is_active = false
+  where id = '99999999-0000-0000-0000-0000000000f1';
+
+  insert into public.prescriptions (id, tenant_id, store_id, encounter_id, customer_id, pet_id, doctor_id, status)
+  values (v_rx, '99999999-0000-0000-0000-000000000001', '99999999-0000-0000-0000-000000000002',
+          '99999999-0000-0000-0000-0000000000d1', '99999999-0000-0000-0000-0000000000c3', '99999999-0000-0000-0000-0000000000c4',
+          '99999999-0000-0000-0000-0000000000aa', 'draft');
+  insert into public.prescription_items (prescription_id, catalog_item_id, drug_name, dosage, frequency, duration_days, quantity, unit, sort_order)
+  values (v_rx, '99999999-0000-0000-0000-0000000000e1', '普通消炎药', '1片', 'tid', 3, 9, '片', 0);
+  perform public.issue_prescription(v_rx, '99999999-0000-0000-0000-0000000000c1'::uuid, '99999999-0000-0000-0000-0000000000aa'::uuid);
+
+  select quantity_on_hand into v_before from public.inventory_balances
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
+  perform tests.assert_raises(
+    format($sql$select public.dispense_prescription('%s'::uuid)$sql$, v_rx),
+    'DISPENSE_WAREHOUSE_NOT_FOUND', 'F02:库存商品无可用仓库必须拒绝发药');
+  select quantity_on_hand into v_after from public.inventory_balances
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
+  select status into v_status from public.prescriptions where id = v_rx;
+  perform tests.assert_true(v_after = v_before, 'F04:无仓库发药失败后库存不得变化');
+  perform tests.assert_true(v_status = 'issued', 'F04:无仓库发药失败后处方仍应为 issued');
+
+  -- 恢复仓库启用,供后续场景使用
+  update public.warehouses set is_active = true
+  where id = '99999999-0000-0000-0000-0000000000f1';
+end;
+$$;
+
+-- F04:库存不足发药失败(库存不变 + 处方仍 issued)
+do $$
+declare
+  v_rx uuid := gen_random_uuid();
+  v_before numeric;
+  v_after numeric;
+  v_status text;
+begin
+  execute 'reset role';
+  -- 重置库存基线后降为 1,处方需求 9 → INSUFFICIENT_STOCK
+  update public.inventory_balances set quantity_on_hand = 1, quantity_reserved = 0
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
+  update public.inventory_batches set quantity_remaining = 1, status = 'active'
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
+
+  insert into public.prescriptions (id, tenant_id, store_id, encounter_id, customer_id, pet_id, doctor_id, status)
+  values (v_rx, '99999999-0000-0000-0000-000000000001', '99999999-0000-0000-0000-000000000002',
+          '99999999-0000-0000-0000-0000000000d1', '99999999-0000-0000-0000-0000000000c3', '99999999-0000-0000-0000-0000000000c4',
+          '99999999-0000-0000-0000-0000000000aa', 'draft');
+  insert into public.prescription_items (prescription_id, catalog_item_id, drug_name, dosage, frequency, duration_days, quantity, unit, sort_order)
+  values (v_rx, '99999999-0000-0000-0000-0000000000e1', '普通消炎药', '1片', 'tid', 3, 9, '片', 0);
+  perform public.issue_prescription(v_rx, '99999999-0000-0000-0000-0000000000c1'::uuid, '99999999-0000-0000-0000-0000000000aa'::uuid);
+
+  select quantity_on_hand into v_before from public.inventory_balances
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
+  perform tests.assert_raises(
+    format($sql$select public.dispense_prescription('%s'::uuid)$sql$, v_rx),
+    'INSUFFICIENT_STOCK', 'F04:库存不足必须拒绝发药');
+  select quantity_on_hand into v_after from public.inventory_balances
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
+  select status into v_status from public.prescriptions where id = v_rx;
+  perform tests.assert_true(v_after = v_before, 'F04:库存不足失败后库存不得变化');
+  perform tests.assert_true(v_status = 'issued', 'F04:库存不足失败后处方仍应为 issued');
+
+  -- 恢复库存基线(100)供后续场景使用
+  update public.inventory_balances set quantity_on_hand = 100, quantity_reserved = 0
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
+  update public.inventory_batches set quantity_remaining = 100, status = 'active'
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
+end;
+$$;
+
+-- F04:已发药处方二次发药失败(库存不再二次减少,状态保持 dispensed)
+do $$
+declare
+  v_rx uuid := gen_random_uuid();
+  v_before numeric;
+  v_after numeric;
+  v_status text;
+begin
+  execute 'reset role';
+  insert into public.prescriptions (id, tenant_id, store_id, encounter_id, customer_id, pet_id, doctor_id, status)
+  values (v_rx, '99999999-0000-0000-0000-000000000001', '99999999-0000-0000-0000-000000000002',
+          '99999999-0000-0000-0000-0000000000d1', '99999999-0000-0000-0000-0000000000c3', '99999999-0000-0000-0000-0000000000c4',
+          '99999999-0000-0000-0000-0000000000aa', 'draft');
+  insert into public.prescription_items (prescription_id, catalog_item_id, drug_name, dosage, frequency, duration_days, quantity, unit, sort_order)
+  values (v_rx, '99999999-0000-0000-0000-0000000000e1', '普通消炎药', '1片', 'tid', 3, 9, '片', 0);
+  perform public.issue_prescription(v_rx, '99999999-0000-0000-0000-0000000000c1'::uuid, '99999999-0000-0000-0000-0000000000aa'::uuid);
+  perform public.dispense_prescription(v_rx);
+
+  select quantity_on_hand into v_before from public.inventory_balances
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
+  perform tests.assert_raises(
+    format($sql$select public.dispense_prescription('%s'::uuid)$sql$, v_rx),
+    'PRESCRIPTION_NOT_DISPENSABLE', 'F04:已发药处方二次发药必须失败');
+  select quantity_on_hand into v_after from public.inventory_balances
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
+  select status into v_status from public.prescriptions where id = v_rx;
+  perform tests.assert_true(v_after = v_before, 'F04:二次发药失败后库存不得再次减少');
+  perform tests.assert_true(v_status = 'dispensed', 'F04:二次发药失败后状态应保持 dispensed');
 end;
 $$;
 
@@ -688,10 +863,13 @@ begin
 end;
 $$;
 
--- R04:draft 处方禁止直接发药(必须先开具 issue)
+-- R04:draft 处方禁止直接发药(必须先开具 issue;F04 场景1:库存不变 + 状态仍 draft)
 do $$
 declare
   v_rx uuid := gen_random_uuid();
+  v_before numeric;
+  v_after numeric;
+  v_status text;
 begin
   execute 'reset role';
   insert into public.prescriptions (id, tenant_id, store_id, encounter_id, customer_id, pet_id, doctor_id, status)
@@ -700,10 +878,17 @@ begin
           '99999999-0000-0000-0000-0000000000aa', 'draft');
   insert into public.prescription_items (prescription_id, catalog_item_id, drug_name, dosage, frequency, duration_days, quantity, unit, sort_order)
   values (v_rx, '99999999-0000-0000-0000-0000000000e1', '普通消炎药', '1片', 'tid', 3, 9, '片', 0);
+  select quantity_on_hand into v_before from public.inventory_balances
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
   -- R04:草稿处方直接发药必须被拒绝(先 issue 再 dispense)
   perform tests.assert_raises(
     format($sql$select public.dispense_prescription('%s'::uuid)$sql$, v_rx),
     'PRESCRIPTION_NOT_DISPENSABLE', 'R04:draft 处方禁止直接发药');
+  select quantity_on_hand into v_after from public.inventory_balances
+  where warehouse_id = '99999999-0000-0000-0000-0000000000f1' and catalog_item_id = '99999999-0000-0000-0000-0000000000e1';
+  select status into v_status from public.prescriptions where id = v_rx;
+  perform tests.assert_true(v_after = v_before, 'F04:draft 发药失败后库存不得变化');
+  perform tests.assert_true(v_status = 'draft', 'F04:draft 发药失败后状态仍应为 draft');
 end;
 $$;
 

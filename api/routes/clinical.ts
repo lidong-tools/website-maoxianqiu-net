@@ -976,6 +976,9 @@ clinicalRoutes.post('/prescriptions/:id/dispense', async (c) => {
     if (rpcError.message.includes('PRESCRIPTION_EXPIRED')) {
       throw err.conflict('处方已过期,禁止发药')
     }
+    if (rpcError.message.includes('DISPENSE_WAREHOUSE_NOT_FOUND')) {
+      throw err.conflict('该租户/门店下无可用仓库,无法发药')
+    }
     if (rpcError.message.includes('INSUFFICIENT_STOCK')) {
       throw err.conflict('发药库存不足')
     }
