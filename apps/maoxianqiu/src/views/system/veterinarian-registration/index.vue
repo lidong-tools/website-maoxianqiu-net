@@ -90,7 +90,6 @@ const form = reactive({
   validFrom: '',
   validUntil: '',
   status: 'active' as VeterinarianRegistrationStatus,
-  operatorEmployeeId: '',
 })
 
 /**
@@ -139,7 +138,6 @@ function openCreate() {
   form.validFrom = ''
   form.validUntil = ''
   form.status = 'active'
-  form.operatorEmployeeId = ''
   drawerVisible.value = true
 }
 
@@ -161,7 +159,6 @@ async function onSubmit() {
   submitting.value = true
   try {
     await apiCompliance.upsertVeterinarianRegistration({
-      tenantId: currentTenantId.value,
       employeeId: form.employeeId,
       licenseNo: form.licenseNo.trim(),
       registrationNo: form.registrationNo || undefined,
@@ -170,7 +167,6 @@ async function onSubmit() {
       validFrom: form.validFrom || undefined,
       validUntil: form.validUntil || undefined,
       status: form.status,
-      operatorEmployeeId: form.operatorEmployeeId || undefined,
     })
     drawerVisible.value = false
     useFaToast().success('备案已保存')
@@ -253,9 +249,6 @@ onMounted(async () => {
             ]"
             class="w-full"
           />
-        </FaLabel>
-        <FaLabel label="操作人(可选)">
-          <EmployeePicker v-model="form.operatorEmployeeId" class="w-full" />
         </FaLabel>
       </div>
       <template #footer>

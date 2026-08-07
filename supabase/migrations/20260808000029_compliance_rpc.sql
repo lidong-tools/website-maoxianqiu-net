@@ -147,7 +147,7 @@ as $$
 declare
   v_tenant uuid;
   v_store uuid;
-  v_archived boolean;
+  v_archived text;
   v_emp_exists boolean;
   v_snapshot jsonb;
   v_amendment public.medical_record_amendments;
@@ -512,6 +512,7 @@ declare
   v_narcotic_count integer;
   v_item record;
   v_retention_until timestamptz;
+  v_max_valid_until timestamptz;
 begin
   select * into v_row from public.prescriptions where id = p_prescription_id for update;
   if not found then
@@ -593,8 +594,13 @@ begin
     end if;
   end if;
 
-  -- 有效期:默认开具当日结束;提供值不得超出 issued_at + 3 天
-  if p_valid_until is not null and p_valid_until > now() + interval '3 days' then
+  -- 有效期(R07 时区/边界修复):
+  --   上限 = 开具日(Asia/Shanghai) 23:59:59 + 3 天(即开具日 + 4 天 - 1 秒)
+  --   默认值 = 开具日(Asia/Shanghai) 23:59:59(当日结束)
+  --   timestamptz 比较与时区无关,统一先换算到业务时区的自然日再转回
+  v_max_valid_until := (date_trunc('day', now() at time zone 'Asia/Shanghai') + interval '4 days' - interval '1 second')
+    at time zone 'Asia/Shanghai';
+  if p_valid_until is not null and p_valid_until > v_max_valid_until then
     raise exception 'VALIDITY_EXCEEDS_MAX' using errcode = 'P0003',
       message = '处方有效期最长不得超过开具日 + 3 天';
   end if;
@@ -607,7 +613,8 @@ begin
       issued_at = now(),
       valid_until = coalesce(
         p_valid_until,
-        date_trunc('day', now()) + interval '1 day' - interval '1 second'
+        (date_trunc('day', now() at time zone 'Asia/Shanghai') + interval '1 day' - interval '1 second')
+          at time zone 'Asia/Shanghai'
       ),
       prescriber_employee_id = p_prescriber_employee_id,
       prescriber_user_id = p_prescriber_user_id,
@@ -665,7 +672,9 @@ begin
     raise exception 'VALIDITY_NOT_EXTENDED' using errcode = 'P0003',
       message = '新有效期必须晚于当前有效期';
   end if;
-  if p_new_valid_until > v_row.issued_at + interval '3 days' then
+  -- R07 边界:上限 = 开具日(Asia/Shanghai) 23:59:59 + 3 天(自然日口径,与 issue 一致)
+  if p_new_valid_until > (date_trunc('day', v_row.issued_at at time zone 'Asia/Shanghai') + interval '4 days' - interval '1 second')
+    at time zone 'Asia/Shanghai' then
     raise exception 'VALIDITY_EXCEEDS_MAX' using errcode = 'P0003',
       message = '处方有效期最长不得超过开具日 + 3 天';
   end if;
@@ -774,7 +783,12 @@ $$;
 
 -- ============================================================
 -- 10. 重定义 dispense_prescription(保持原签名)
---     新增:issued 处方必须未过期才可发药;记录发药员工与时间
+--     R04: 仅 issued 处方可发药(禁止 draft 直发,必须先开具);
+--     R05: 改为单事务 RPC——处方状态转换 + 逐项库存扣减
+--          (优先确认该处方的预留流水,否则按门店仓库即时 FEFO 扣减)
+--          在同一个 plpgsql 事务内原子提交/回滚,消除 API 层
+--          "先扣库存后转状态"两步编排的非原子窗口;
+--     发药员工由登录用户(p_operator_id)反查推导。
 -- ============================================================
 create or replace function public.dispense_prescription(
   p_prescription_id uuid,
@@ -788,32 +802,82 @@ as $$
 declare
   v_row public.prescriptions;
   v_dispenser_employee_id uuid;
+  v_item record;
+  v_wh public.warehouses;
+  v_reserve uuid;
+  v_result jsonb;
+  v_dispensed_items integer := 0;
+  v_skipped_items integer := 0;
 begin
+  -- 锁定处方(整单单事务:状态 + 库存扣减原子提交/回滚)
   select * into v_row from public.prescriptions where id = p_prescription_id for update;
   if not found then
     raise exception 'PRESCRIPTION_NOT_FOUND' using errcode = 'P0002';
   end if;
-  if v_row.status not in ('draft', 'issued') then
+  -- R04:仅 issued 处方可发药(draft 必须先开具,禁止直接发药)
+  if v_row.status <> 'issued' then
     raise exception 'PRESCRIPTION_NOT_DISPENSABLE' using errcode = 'P0003',
-      message = '处方状态不可发药';
+      message = '仅已开具(issued)处方可发药,草稿处方必须先开具';
   end if;
-  -- 已开具处方必须未过期(draft 兼容旧流程直发)
-  if v_row.status = 'issued' then
-    if v_row.valid_until is null then
-      raise exception 'PRESCRIPTION_EXPIRED' using errcode = 'P0003',
-        message = '处方缺少有效期,禁止发药';
-    end if;
-    if v_row.valid_until < now() then
-      raise exception 'PRESCRIPTION_EXPIRED' using errcode = 'P0003',
-        message = '处方已过期,禁止发药';
-    end if;
+  -- 已开具处方必须未过期
+  if v_row.valid_until is null then
+    raise exception 'PRESCRIPTION_EXPIRED' using errcode = 'P0003',
+      message = '处方缺少有效期,禁止发药';
+  end if;
+  if v_row.valid_until < now() then
+    raise exception 'PRESCRIPTION_EXPIRED' using errcode = 'P0003',
+      message = '处方已过期,禁止发药';
   end if;
 
-  -- 反查发药员工(可选,p_operator_id 为登录用户 id)
+  -- 发药员工:由登录用户(p_operator_id)反查在职员工,服务端推导
   select e.id into v_dispenser_employee_id from public.employees e
   where e.user_id = p_operator_id and e.tenant_id = v_row.tenant_id and e.status = 'active'
   limit 1;
 
+  -- 发药仓库:优先门店仓库,其次租户下任意启用仓库(与既有 API 行为一致)
+  select * into v_wh from public.warehouses
+  where tenant_id = v_row.tenant_id and is_active = true
+    and (v_row.store_id is null or store_id = v_row.store_id)
+  order by case when v_row.store_id is not null and store_id = v_row.store_id then 0 else 1 end,
+           is_default desc, created_at
+  limit 1;
+
+  -- 单事务库存扣减:逐项确认预留或即时发药(带 catalog_item_id 的药品条目)
+  for v_item in
+    select pi.id as item_id, pi.catalog_item_id, pi.quantity, pi.drug_name
+    from public.prescription_items pi
+    where pi.prescription_id = p_prescription_id
+    order by pi.sort_order
+  loop
+    -- 手工药名条目(无 catalog_item_id)跳过库存扣减
+    if v_item.catalog_item_id is null or v_wh.id is null then
+      v_skipped_items := v_skipped_items + 1;
+      continue;
+    end if;
+
+    -- 优先确认该处方的预留流水(预留转正式扣减,FEFO 批次)
+    select m.id into v_reserve
+    from public.inventory_movements m
+    where m.tenant_id = v_row.tenant_id
+      and m.movement_type = 'reserve'
+      and m.reference_type = 'prescription'
+      and m.reference_id = p_prescription_id::text
+      and m.catalog_item_id = v_item.catalog_item_id
+    order by m.created_at
+    limit 1;
+
+    if v_reserve is not null then
+      v_result := public.confirm_inventory_reservation(
+        v_row.tenant_id, v_reserve, p_operator_id, null);
+    else
+      v_result := public.dispense_inventory(
+        v_row.tenant_id, v_wh.id, v_item.catalog_item_id, v_item.quantity,
+        'prescription', p_prescription_id::text, p_operator_id, null);
+    end if;
+    v_dispensed_items := v_dispensed_items + 1;
+  end loop;
+
+  -- 状态转换 + 发药信息(与库存扣减同事务)
   update public.prescriptions
   set status = 'dispensed',
       dispensed_by_employee_id = coalesce(v_dispenser_employee_id, dispensed_by_employee_id),
@@ -825,7 +889,109 @@ begin
   insert into public.audit_logs (tenant_id, store_id, user_id, action, entity_type, entity_id, metadata)
   values (v_row.tenant_id, v_row.store_id, p_operator_id, 'prescription.dispense', 'prescription', p_prescription_id,
           jsonb_build_object('status', 'dispensed', 'valid_until', v_row.valid_until,
-                             'dispensed_by_employee_id', v_row.dispensed_by_employee_id));
+                             'dispensed_by_employee_id', v_row.dispensed_by_employee_id,
+                             'dispensed_items', v_dispensed_items, 'skipped_items', v_skipped_items));
+
+  return v_row;
+end;
+$$;
+
+-- ============================================================
+-- R06: 归档截止触发器增强(create or replace,覆盖 migration 28 定义)
+--      签署/出院时同步 archive_status draft→signed,保证归档状态机
+--      (draft→signed→archived)与状态转移同源,不依赖各 RPC 手工设置
+-- ============================================================
+create or replace function public.set_encounter_archive_due()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.status in ('signed', 'completed')
+     and new.status is distinct from old.status then
+    new.archive_due_at = coalesce(new.ended_at, now()) + interval '24 hours';
+    if new.archive_status <> 'archived' then
+      new.archive_status = 'signed';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.set_admission_archive_due()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.status = 'discharged'
+     and new.status is distinct from old.status then
+    new.archive_due_at = coalesce(new.discharged_at, now()) + interval '3 days';
+    if new.archive_status <> 'archived' then
+      new.archive_status = 'signed';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+-- ============================================================
+-- R06: 重定义 sign_encounter(保持原签名,覆盖 migration 19 定义)
+--      签署时同步:
+--        * archive_status draft→signed(归档状态机一致)
+--        * signed_by_employee_id 由签署人(p_doctor_id = 登录用户 id)
+--          反查在职员工档案,服务端推导,禁止前端指定
+--      create or replace 保留原 revoke 权限设置,不影响 service-role-only
+-- ============================================================
+create or replace function public.sign_encounter(
+  p_encounter_id uuid,
+  p_doctor_id uuid
+)
+returns public.encounters
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_row public.encounters;
+  v_employee_id uuid;
+begin
+  select * into v_row from public.encounters where id = p_encounter_id for update;
+  if not found then
+    raise exception 'ENCOUNTER_NOT_FOUND' using errcode = 'P0002';
+  end if;
+  -- 必须是主治医生本人签署
+  if v_row.doctor_id is null or v_row.doctor_id <> p_doctor_id then
+    raise exception 'ENCOUNTER_NOT_OWNER' using errcode = 'P0003';
+  end if;
+  -- 仅 in_progress / completed 可签署
+  if v_row.status not in ('in_progress', 'completed') then
+    raise exception 'ENCOUNTER_NOT_SIGNABLE' using errcode = 'P0003';
+  end if;
+  -- 归档后不可签署
+  if v_row.archive_status = 'archived' then
+    raise exception 'ARCHIVED_RECORD_IMMUTABLE' using errcode = 'P0003',
+      message = '已归档病历不可签署';
+  end if;
+
+  -- 签署员工:由登录用户反查在职员工档案(服务端推导)
+  select e.id into v_employee_id from public.employees e
+  where e.user_id = p_doctor_id and e.tenant_id = v_row.tenant_id and e.status = 'active'
+  limit 1;
+
+  update public.encounters
+  set status = 'signed',
+      signed_by = p_doctor_id,
+      signed_by_employee_id = v_employee_id,
+      signed_at = now(),
+      archive_status = 'signed',
+      ended_at = coalesce(ended_at, now()),
+      updated_at = now()
+  where id = p_encounter_id
+  returning * into v_row;
+
+  -- 事务内写入审计(原子保证)
+  insert into public.audit_logs (tenant_id, store_id, user_id, action, entity_type, entity_id, metadata)
+  values (v_row.tenant_id, v_row.store_id, p_doctor_id, 'encounter.sign', 'encounter', p_encounter_id,
+          jsonb_build_object('status', 'signed', 'signed_by_employee_id', v_employee_id));
 
   return v_row;
 end;

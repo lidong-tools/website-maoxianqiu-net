@@ -266,7 +266,9 @@ create policy "medical_record_amendments_select" on public.medical_record_amendm
     )
   );
 
--- 9.2 veterinarian_registrations:读=租户成员+门店范围+备案读权限;写=不开放
+-- 9.2 veterinarian_registrations:读=租户成员+备案读权限;写=不开放
+--    R01 修复:本表为租户级数据(无 store_id 列),RLS 不得引用 store_id;
+--    门店维度由 can_access_store 不适用,按 tenant 上下文校验备案读权限
 alter table public.veterinarian_registrations enable row level security;
 
 drop policy if exists "veterinarian_registrations_select" on public.veterinarian_registrations;
@@ -274,8 +276,7 @@ create policy "veterinarian_registrations_select" on public.veterinarian_registr
   for select to authenticated
   using (
     public.is_tenant_member(tenant_id)
-    and (store_id is null or public.can_access_store(tenant_id, store_id))
-    and public.has_permission(tenant_id, store_id, 'veterinarian_registration.read')
+    and public.has_permission(tenant_id, null, 'veterinarian_registration.read')
   );
 
 -- ============================================================

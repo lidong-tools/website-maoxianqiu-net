@@ -35,32 +35,28 @@ export interface MedicalRecordAmendmentRecord {
   updated_at: string
 }
 
-/** 病历归档入参 */
+/** 病历归档入参(R03:操作人由服务端推导,无需客户端传 employee id) */
 export interface ComplianceArchiveInput {
   recordType: MedicalRecordType
   recordId: string
-  operatorEmployeeId: string
 }
 
-/** 修订申请入参 */
+/** 修订申请入参(R03:申请人由服务端推导) */
 export interface AmendmentRequestInput {
   recordType: MedicalRecordType
   recordId: string
   reason: string
-  requestedByEmployeeId: string
 }
 
-/** 修订审批入参 */
+/** 修订审批入参(R03:审批人由服务端推导) */
 export interface AmendmentReviewInput {
   decision: 'approved' | 'rejected'
   reason?: string
-  reviewerEmployeeId: string
 }
 
-/** 修订应用入参 */
+/** 修订应用入参(R03:执行人由服务端推导) */
 export interface AmendmentApplyInput {
   payload: Record<string, unknown>
-  appliedByEmployeeId: string
 }
 
 // ===== 执业兽医备案 =====
@@ -96,9 +92,8 @@ export interface VeterinarianRegistrationListItem extends VeterinarianRegistrati
   } | null
 }
 
-/** 兽医备案 upsert 入参 */
+/** 兽医备案 upsert 入参(R03:租户/操作人由服务端推导,仅保留备案对象 employeeId) */
 export interface VeterinarianRegistrationUpsertInput {
-  tenantId: string
   employeeId: string
   licenseNo: string
   registrationNo?: string
@@ -110,21 +105,18 @@ export interface VeterinarianRegistrationUpsertInput {
   signatureSpecimenFileId?: string
   electronicSignatureProvider?: string
   electronicSignatureSubjectId?: string
-  operatorEmployeeId?: string
 }
 
 // ===== 处方合规 =====
 
-/** 开具处方入参 */
+/** 开具处方入参(R03:开方人由服务端推导,仅可选传有效期) */
 export interface PrescriptionIssueInput {
-  prescriberEmployeeId: string
   validUntil?: string
 }
 
-/** 延长处方有效期入参 */
+/** 延长处方有效期入参(R03:操作人由服务端推导) */
 export interface PrescriptionExtendValidityInput {
   newValidUntil: string
-  operatorEmployeeId: string
 }
 
 // ===== UI 显示映射 =====

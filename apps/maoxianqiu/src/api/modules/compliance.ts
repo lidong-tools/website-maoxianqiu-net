@@ -15,39 +15,6 @@ import type {
 import { supabase } from '@/lib/supabase'
 import api from '../index'
 
-/** 模块级缓存:当前登录用户对应的 employees.id */
-let currentEmployeeIdCache: string | null = null
-
-/**
- * 获取当前登录用户的员工档案 id(employees.id)
- * 通过 supabase 查询 employees(user_id = 当前 user.id),带模块级缓存,避免重复查询
- * @returns 员工档案 id
- */
-export async function getCurrentEmployeeId(): Promise<string> {
-  if (currentEmployeeIdCache) {
-    return currentEmployeeIdCache
-  }
-  const { data: userData } = await supabase.auth.getUser()
-  const userId = userData.user?.id
-  if (!userId) {
-    throw new Error('未登录')
-  }
-  const { data, error } = await supabase
-    .from('employees')
-    .select('id')
-    .eq('user_id', userId)
-    .eq('status', 'active')
-    .maybeSingle()
-  if (error) {
-    throw new Error(error.message)
-  }
-  if (!data) {
-    throw new Error('当前账号未关联员工档案,无法执行操作')
-  }
-  currentEmployeeIdCache = data.id
-  return data.id
-}
-
 /**
  * Compliance 合规域 API 模块(S3.1-1)
  *
@@ -55,6 +22,7 @@ export async function getCurrentEmployeeId(): Promise<string> {
  *   - Query(list):浏览器直连 Supabase,RLS 兜底
  *   - Command(archive/amend/upsert/issue/extend):走 Hono Command(api/routes/compliance.ts),
  *     服务端做权限/租户归属/状态机校验,禁止前端直连写
+ *   - 操作人(R03):一律由服务端根据登录用户反查在职员工档案推导,客户端不传 employee id
  */
 export default {
   // ============================================================

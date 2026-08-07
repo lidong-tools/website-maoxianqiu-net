@@ -11,6 +11,17 @@
 --   - 受控药:单独处方 / 麻醉一日量 / 保留期 5 年(普通 3 年)
 --   - save/dispense 重定义:draft 兼容 + issued 防护
 --
+-- 审计修复回归(R01-R08):
+--   R01  Part 5:兽医备案 RLS 策略定义断言(租户上下文权限,不含 store_id 引用)
+--   R02  Part 4:Amendment 全流程覆盖(v_archived 类型修正回归)
+--   R03  Part 9:sign_encounter 操作人服务端推导断言(见 R06)
+--   R04  Part 8:draft 直发被拒(PRESCRIPTION_NOT_DISPENSABLE)
+--   R05  Part 8/9:发药单事务(状态+库存扣减)回归
+--   R06  Part 1/2/9:签署/出院同步 archive_status=signed;
+--        sign_encounter 同步 signed_by_employee_id(反查在职员工)
+--   R07  Part 5/6:默认有效期 = 上海当日 23:59:59;上限 = 开具日 + 3 天
+--        (Asia/Shanghai 自然日口径,timestamptz 先换算业务时区再比较)
+--
 -- 本文件独立可执行(psql "$DATABASE_URL" -f supabase/tests/compliance_s3_1.sql):
 --   - 自建 tests.assert_* 断言函数,不依赖其他测试文件;
 --   - 单一事务 begin/rollback,无任何残留;
@@ -115,11 +126,13 @@ on conflict (id) do nothing;
 
 -- ============================================================
 -- Part 1:归档截止触发器(门诊 24h / 住院 3 日)
+--   R06:签署/出院时同步 archive_status draft→signed
 -- ============================================================
 do $$
 declare
   v_enc_encounter_id uuid := '99999999-0000-0000-0000-0000000000d1';
   v_due timestamptz;
+  v_ar text;
 begin
   execute 'reset role';
   -- 签署(触发 trg_encounters_set_archive_due):就诊结束 = ended_at
@@ -132,6 +145,9 @@ begin
   perform tests.assert_true(v_due - (now() - interval '1 hour') >= interval '23 hours'
                         and v_due - (now() - interval '1 hour') <= interval '25 hours',
                         '门诊归档截止应为就诊结束 + 24 小时');
+  -- R06:签署状态转移应同步 archive_status draft→signed
+  select archive_status into v_ar from public.encounters where id = v_enc_encounter_id;
+  perform tests.assert_true(v_ar = 'signed', 'R06:签署后 archive_status 应为 signed');
 end;
 $$;
 
@@ -139,6 +155,7 @@ do $$
 declare
   v_adm_admission_id uuid := '99999999-0000-0000-0000-0000000000d2';
   v_due timestamptz;
+  v_ar text;
 begin
   execute 'reset role';
   -- 出院(触发 trg_admissions_set_archive_due):出院时间 = discharged_at
@@ -151,6 +168,9 @@ begin
   perform tests.assert_true(v_due - (now() - interval '1 day') >= interval '3 days' - interval '1 hour'
                         and v_due - (now() - interval '1 day') <= interval '3 days' + interval '1 hour',
                         '住院归档截止应为出院后 3 日');
+  -- R06:出院状态转移应同步 archive_status draft→signed
+  select archive_status into v_ar from public.admissions where id = v_adm_admission_id;
+  perform tests.assert_true(v_ar = 'signed', 'R06:出院后 archive_status 应为 signed');
 end;
 $$;
 
@@ -348,6 +368,26 @@ $$;
 -- ============================================================
 -- Part 5:执业兽医备案 + 处方开具
 -- ============================================================
+-- R01:veterinarian_registrations RLS 策略定义断言
+--     本表无 store_id 列,策略必须为租户上下文权限(has_permission),
+--     using 表达式不得引用 store_id(否则建策略即报错)
+do $$
+declare
+  v_pol record;
+begin
+  execute 'reset role';
+  select 1 into v_pol from pg_policies
+  where schemaname = 'public'
+    and tablename = 'veterinarian_registrations'
+    and policyname = 'veterinarian_registrations_select'
+    and using_expr is not null
+    and position('store_id' in using_expr) = 0
+    and position('has_permission' in using_expr) > 0;
+  perform tests.assert_true(v_pol is not null,
+    'R01:veterinarian_registrations RLS 应为租户上下文权限(has_permission(tenant_id, null, ...)),且不含 store_id 引用');
+end;
+$$;
+
 -- 无备案时开方拒绝
 do $$
 declare
@@ -407,10 +447,11 @@ begin
     v_rx, '99999999-0000-0000-0000-0000000000c1'::uuid, '99999999-0000-0000-0000-0000000000aa'::uuid);
   perform tests.assert_true(v_row.status = 'issued', '开具后处方状态应为 issued');
   perform tests.assert_true(v_row.issued_at is not null, '开具应记录 issued_at');
+  -- R07:默认有效期 = 开具日(Asia/Shanghai)当日 23:59:59(timestamptz 比较先换算业务时区)
   perform tests.assert_true(v_row.valid_until is not null
-                        and v_row.valid_until >= now()
-                        and v_row.valid_until <= date_trunc('day', now()) + interval '1 day',
-                        '默认有效期应为开具当日结束');
+                        and v_row.valid_until > (date_trunc('day', now() at time zone 'Asia/Shanghai')) at time zone 'Asia/Shanghai'
+                        and v_row.valid_until <= (date_trunc('day', now() at time zone 'Asia/Shanghai') + interval '1 day' - interval '1 second') at time zone 'Asia/Shanghai',
+                        'R07:默认有效期应为开具日(上海时区)当日 23:59:59');
   perform tests.assert_true(v_row.prescriber_veterinarian_registration_id is not null, '应记录开方备案 id');
   perform tests.assert_true(v_row.signature_method = 'manual', '签名方式应为 manual');
   perform tests.assert_true(v_row.retention_until - v_row.issued_at >= interval '3 years' - interval '1 day',
@@ -468,8 +509,9 @@ begin
   values (v_rx, '99999999-0000-0000-0000-0000000000e1', '普通消炎药', '1片', 'tid', 3, 9, '片', 0);
 
   perform tests.assert_raises(
-    format($sql$select public.issue_prescription('%s'::uuid, '99999999-0000-0000-0000-0000000000c1'::uuid, '99999999-0000-0000-0000-0000000000aa'::uuid, now() + interval '4 days')$sql$, v_rx),
-    'VALIDITY_EXCEEDS_MAX', '处方有效期超过 3 天应拒绝');
+    format($sql$select public.issue_prescription('%s'::uuid, '99999999-0000-0000-0000-0000000000c1'::uuid, '99999999-0000-0000-0000-0000000000aa'::uuid, '%s'::timestamptz)$sql$,
+           v_rx, (date_trunc('day', now() at time zone 'Asia/Shanghai') + interval '4 days') at time zone 'Asia/Shanghai'),
+    'VALIDITY_EXCEEDS_MAX', 'R07:处方有效期超过开具日 + 3 天应拒绝');
 end;
 $$;
 
@@ -496,15 +538,18 @@ begin
     format($sql$select public.extend_prescription_validity('%s'::uuid, '%s'::timestamptz, '99999999-0000-0000-0000-0000000000c2'::uuid)$sql$, v_rx, v_issued.valid_until),
     'VALIDITY_NOT_EXTENDED', '延长有效期不得缩短');
 
-  -- 超过上限拒绝(issued_at + 4 天)
+  -- 超过上限拒绝(开具日 + 4 天,超出"开具日 + 4 天 - 1 秒"上限,R07)
   perform tests.assert_raises(
-    format($sql$select public.extend_prescription_validity('%s'::uuid, '%s'::timestamptz, '99999999-0000-0000-0000-0000000000c2'::uuid)$sql$, v_rx, v_issued.issued_at + interval '4 days'),
+    format($sql$select public.extend_prescription_validity('%s'::uuid, '%s'::timestamptz, '99999999-0000-0000-0000-0000000000c2'::uuid)$sql$,
+           v_rx, (date_trunc('day', v_issued.issued_at at time zone 'Asia/Shanghai') + interval '4 days') at time zone 'Asia/Shanghai'),
     'VALIDITY_EXCEEDS_MAX', '延长超过 3 天上限应拒绝');
 
-  -- 正常延长成功(issued_at + 2 天)
+  -- 正常延长成功(开具日 + 2 天)
   select * into v_extended from public.extend_prescription_validity(
-    v_rx, v_issued.issued_at + interval '2 days', '99999999-0000-0000-0000-0000000000c2'::uuid);
-  perform tests.assert_true(v_extended.valid_until = v_issued.issued_at + interval '2 days', '延长后有效期应更新');
+    v_rx, (date_trunc('day', v_issued.issued_at at time zone 'Asia/Shanghai') + interval '2 days' + interval '12 hours') at time zone 'Asia/Shanghai',
+    '99999999-0000-0000-0000-0000000000c2'::uuid);
+  perform tests.assert_true(v_extended.valid_until = (date_trunc('day', v_issued.issued_at at time zone 'Asia/Shanghai') + interval '2 days' + interval '12 hours') at time zone 'Asia/Shanghai',
+                        '延长后有效期应更新');
 end;
 $$;
 
@@ -643,11 +688,10 @@ begin
 end;
 $$;
 
--- draft 直发兼容(旧流程)
+-- R04:draft 处方禁止直接发药(必须先开具 issue)
 do $$
 declare
   v_rx uuid := gen_random_uuid();
-  v_row public.prescriptions;
 begin
   execute 'reset role';
   insert into public.prescriptions (id, tenant_id, store_id, encounter_id, customer_id, pet_id, doctor_id, status)
@@ -656,8 +700,42 @@ begin
           '99999999-0000-0000-0000-0000000000aa', 'draft');
   insert into public.prescription_items (prescription_id, catalog_item_id, drug_name, dosage, frequency, duration_days, quantity, unit, sort_order)
   values (v_rx, '99999999-0000-0000-0000-0000000000e1', '普通消炎药', '1片', 'tid', 3, 9, '片', 0);
-  select * into v_row from public.dispense_prescription(v_rx);
-  perform tests.assert_true(v_row.status = 'dispensed', 'draft 直发(旧流程)应兼容');
+  -- R04:草稿处方直接发药必须被拒绝(先 issue 再 dispense)
+  perform tests.assert_raises(
+    format($sql$select public.dispense_prescription('%s'::uuid)$sql$, v_rx),
+    'PRESCRIPTION_NOT_DISPENSABLE', 'R04:draft 处方禁止直接发药');
+end;
+$$;
+
+-- ============================================================
+-- Part 9:R06 签署同步(archive_status / signed_by_employee_id)
+-- ============================================================
+do $$
+declare
+  v_enc uuid := gen_random_uuid();
+  v_row public.encounters;
+begin
+  execute 'reset role';
+  insert into public.encounters (id, tenant_id, store_id, customer_id, pet_id, doctor_id, status, started_at)
+  values (v_enc, '99999999-0000-0000-0000-000000000001', '99999999-0000-0000-0000-000000000002',
+          '99999999-0000-0000-0000-0000000000c3', '99999999-0000-0000-0000-0000000000c4',
+          '99999999-0000-0000-0000-0000000000aa', 'in_progress', now());
+
+  -- sign_encounter 签署:同步 signed_by_employee_id(反查在职员工)+ archive_status
+  select * into v_row from public.sign_encounter(
+    v_enc, '99999999-0000-0000-0000-0000000000aa'::uuid);
+  perform tests.assert_true(v_row.status = 'signed', 'sign_encounter 后状态应为 signed');
+  perform tests.assert_true(v_row.signed_by = '99999999-0000-0000-0000-0000000000aa', 'signed_by 应为签署登录用户');
+  perform tests.assert_true(v_row.signed_by_employee_id = '99999999-0000-0000-0000-0000000000c1',
+                        'R06:signed_by_employee_id 应由签署人反查在职员工得到');
+  perform tests.assert_true(v_row.archive_status = 'signed', 'R06:签署后 archive_status 应为 signed');
+  perform tests.assert_true(v_row.archive_due_at is not null, '签署后应生成归档截止时间');
+
+  -- 归档后不可签署
+  perform public.archive_encounter(v_enc, '99999999-0000-0000-0000-0000000000c1'::uuid);
+  perform tests.assert_raises(
+    format($sql$select public.sign_encounter('%s'::uuid, '99999999-0000-0000-0000-0000000000aa'::uuid)$sql$, v_enc),
+    'ARCHIVED_RECORD_IMMUTABLE', 'R06:归档后不可签署');
 end;
 $$;
 

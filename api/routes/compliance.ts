@@ -104,21 +104,49 @@ async function fetchRecordScope(
   return { tenantId: data.tenant_id, storeId: data.store_id ?? null }
 }
 
+/**
+ * 服务端推导当前操作人(R03 审计修复)
+ * 操作人一律由登录用户(auth user)反查在职员工档案得到,禁止客户端传 employee id。
+ * 返回员工档案 id 与所属租户 id,作为 RPC 操作人与租户作用域的可信来源。
+ * @param service supabase service client
+ * @param c hono context(含 user)
+ * @returns 当前操作人员工 id + 租户 id
+ */
+async function resolveOperator(
+  service: ReturnType<typeof createServiceClient>,
+  c: { get: (k: string) => unknown },
+): Promise<{ employeeId: string, tenantId: string }> {
+  const user = c.get('user') as { id: string } | undefined
+  if (!user?.id) {
+    throw err.unauthorized('未登录')
+  }
+  const { data, error } = await service
+    .from('employees')
+    .select('id, tenant_id')
+    .eq('user_id', user.id)
+    .eq('status', 'active')
+    .maybeSingle()
+  if (error || !data) {
+    throw err.forbidden('当前账号未关联在职员工档案,无法执行操作')
+  }
+  return { employeeId: data.id, tenantId: data.tenant_id }
+}
+
 const archiveRecordSchema = z.object({
   recordType: z.enum(['encounter', 'admission']),
   recordId: z.string().uuid('病历 id 格式错误'),
-  operatorEmployeeId: z.string().uuid('操作员工 id 格式错误'),
 })
 
 /**
  * 病历归档(S3.1-1-A1)
  * - 权限:medical_record.archive
  * - 行为:按 recordType 调 archive_encounter / archive_admission RPC,
- *   归档后 retention_until = 归档日 + 3 年
+ *   归档后 retention_until = 归档日 + 3 年;操作人由服务端推导(R03)
  */
 complianceRoutes.post('/records/archive', async (c) => {
   const input = await parseJsonBody(c, archiveRecordSchema)
   const service = createServiceClient()
+  const operator = await resolveOperator(service, c)
   const scopeRow = await fetchRecordScope(service, input.recordType, input.recordId)
   await requireScopedPermission(c, {
     code: 'medical_record.archive',
@@ -130,7 +158,7 @@ complianceRoutes.post('/records/archive', async (c) => {
   const idParam = input.recordType === 'encounter' ? 'p_encounter_id' : 'p_admission_id'
   const { data, error } = await service.rpc(rpcName, {
     [idParam]: input.recordId,
-    p_operator_employee_id: input.operatorEmployeeId,
+    p_operator_employee_id: operator.employeeId,
   })
   if (error) {
     throw mapRpcError(error)
@@ -142,7 +170,7 @@ complianceRoutes.post('/records/archive', async (c) => {
     entityId: input.recordId,
     tenantId: scopeRow.tenantId,
     storeId: scopeRow.storeId ?? undefined,
-    metadata: { operatorEmployeeId: input.operatorEmployeeId },
+    metadata: { operatorEmployeeId: operator.employeeId },
   })
   return ok(c, data)
 })
@@ -151,18 +179,18 @@ const requestAmendmentSchema = z.object({
   recordType: z.enum(['encounter', 'admission']),
   recordId: z.string().uuid('病历 id 格式错误'),
   reason: z.string().min(1, '修订原因不能为空').max(1000),
-  requestedByEmployeeId: z.string().uuid('申请员工 id 格式错误'),
 })
 
 /**
  * 归档后修订申请(S3.1-1-A2)
  * - 权限:medical_record.amend.request
  * - 行为:调 request_record_amendment RPC,生成 before_snapshot,
- *   同一记录存在 pending 时拒绝重复申请
+ *   同一记录存在 pending 时拒绝重复申请;申请人由服务端推导(R03)
  */
 complianceRoutes.post('/records/amendments/request', async (c) => {
   const input = await parseJsonBody(c, requestAmendmentSchema)
   const service = createServiceClient()
+  const operator = await resolveOperator(service, c)
   const scopeRow = await fetchRecordScope(service, input.recordType, input.recordId)
   await requireScopedPermission(c, {
     code: 'medical_record.amend.request',
@@ -174,7 +202,7 @@ complianceRoutes.post('/records/amendments/request', async (c) => {
     p_medical_record_type: input.recordType,
     p_medical_record_id: input.recordId,
     p_reason: input.reason,
-    p_requested_by_employee_id: input.requestedByEmployeeId,
+    p_requested_by_employee_id: operator.employeeId,
   })
   if (error) {
     throw mapRpcError(error)
@@ -186,25 +214,26 @@ complianceRoutes.post('/records/amendments/request', async (c) => {
     entityId: (data as { id?: string })?.id,
     tenantId: scopeRow.tenantId,
     storeId: scopeRow.storeId ?? undefined,
-    metadata: { recordType: input.recordType, recordId: input.recordId, reason: input.reason, requestedByEmployeeId: input.requestedByEmployeeId },
+    metadata: { recordType: input.recordType, recordId: input.recordId, reason: input.reason, requestedByEmployeeId: operator.employeeId },
   })
   return ok(c, data)
 })
 const reviewAmendmentSchema = z.object({
   decision: z.enum(['approved', 'rejected']),
   reason: z.string().max(1000).optional().nullable(),
-  reviewerEmployeeId: z.string().uuid('审批员工 id 格式错误'),
 })
 
 /**
  * 修订申请审批(S3.1-1-A2)
  * - 权限:medical_record.amend.approve
- * - 行为:先查 medical_record_amendments 拿归属再授权,调 review_record_amendment RPC
+ * - 行为:先查 medical_record_amendments 拿归属再授权,调 review_record_amendment RPC;
+ *   审批人由服务端推导(R03)
  */
 complianceRoutes.post('/records/amendments/:id/review', async (c) => {
   const amendmentId = c.req.param('id')
   const input = await parseJsonBody(c, reviewAmendmentSchema)
   const service = createServiceClient()
+  const operator = await resolveOperator(service, c)
 
   const { data: amendment, error: fetchErr } = await service
     .from('medical_record_amendments')
@@ -223,7 +252,7 @@ complianceRoutes.post('/records/amendments/:id/review', async (c) => {
   const { data, error } = await service.rpc('review_record_amendment', {
     p_amendment_id: amendmentId,
     p_decision: input.decision,
-    p_reviewer_employee_id: input.reviewerEmployeeId,
+    p_reviewer_employee_id: operator.employeeId,
     p_reason: input.reason ?? null,
   })
   if (error) {
@@ -236,26 +265,26 @@ complianceRoutes.post('/records/amendments/:id/review', async (c) => {
     entityId: amendmentId,
     tenantId: amendment.tenant_id,
     storeId: amendment.store_id,
-    metadata: { decision: input.decision, reviewerEmployeeId: input.reviewerEmployeeId, reason: input.reason },
+    metadata: { decision: input.decision, reviewerEmployeeId: operator.employeeId, reason: input.reason },
   })
   return ok(c, data)
 })
 
 const applyAmendmentSchema = z.object({
   payload: z.record(z.string(), z.unknown()),
-  appliedByEmployeeId: z.string().uuid('执行员工 id 格式错误'),
 })
 
 /**
  * 执行修订(S3.1-1-A2)
  * - 权限:medical_record.amend.request
  * - 行为:先查表取归属再授权,调 apply_record_amendment RPC,
- *   创建新版本并保留 before/after 快照(原始版本永远保留)
+ *   创建新版本并保留 before/after 快照(原始版本永远保留);执行人由服务端推导(R03)
  */
 complianceRoutes.post('/records/amendments/:id/apply', async (c) => {
   const amendmentId = c.req.param('id')
   const input = await parseJsonBody(c, applyAmendmentSchema)
   const service = createServiceClient()
+  const operator = await resolveOperator(service, c)
 
   const { data: amendment, error: fetchErr } = await service
     .from('medical_record_amendments')
@@ -274,7 +303,7 @@ complianceRoutes.post('/records/amendments/:id/apply', async (c) => {
   const { data, error } = await service.rpc('apply_record_amendment', {
     p_amendment_id: amendmentId,
     p_apply_payload: input.payload,
-    p_applied_by_employee_id: input.appliedByEmployeeId,
+    p_applied_by_employee_id: operator.employeeId,
   })
   if (error) {
     throw mapRpcError(error)
@@ -286,13 +315,12 @@ complianceRoutes.post('/records/amendments/:id/apply', async (c) => {
     entityId: amendmentId,
     tenantId: amendment.tenant_id,
     storeId: amendment.store_id,
-    metadata: { appliedByEmployeeId: input.appliedByEmployeeId },
+    metadata: { appliedByEmployeeId: operator.employeeId },
   })
   return ok(c, data)
 })
 
 const upsertVetRegSchema = z.object({
-  tenantId: z.string().uuid('租户 id 格式错误'),
   employeeId: z.string().uuid('员工 id 格式错误'),
   licenseNo: z.string().min(1, '执业证号不能为空').max(100),
   registrationNo: z.string().max(100).optional().nullable(),
@@ -304,21 +332,21 @@ const upsertVetRegSchema = z.object({
   signatureSpecimenFileId: z.string().uuid().optional().nullable(),
   electronicSignatureProvider: z.string().max(200).optional().nullable(),
   electronicSignatureSubjectId: z.string().max(200).optional().nullable(),
-  operatorEmployeeId: z.string().uuid().optional().nullable(),
 })
 
 /**
  * 执业兽医备案管理(S3.1-1-A4)
  * - 权限:veterinarian_registration.manage
  * - 行为:调 upsert_veterinarian_registration RPC(tenant_id + license_no 幂等),
- *   只有有效备案的执业兽医可开具处方
+ *   只有有效备案的执业兽医可开具处方;租户/操作人由服务端推导(R03)
  */
 complianceRoutes.post('/veterinarian-registrations/upsert', async (c) => {
   const input = await parseJsonBody(c, upsertVetRegSchema)
   const service = createServiceClient()
+  const operator = await resolveOperator(service, c)
   const scope = await requireScopedPermission(c, {
     code: 'veterinarian_registration.manage',
-    tenantId: input.tenantId,
+    tenantId: operator.tenantId,
   })
 
   const { data, error } = await service.rpc('upsert_veterinarian_registration', {
@@ -334,7 +362,7 @@ complianceRoutes.post('/veterinarian-registrations/upsert', async (c) => {
     p_signature_specimen_file_id: input.signatureSpecimenFileId ?? null,
     p_electronic_signature_provider: input.electronicSignatureProvider ?? null,
     p_electronic_signature_subject_id: input.electronicSignatureSubjectId ?? null,
-    p_operator_employee_id: input.operatorEmployeeId ?? null,
+    p_operator_employee_id: operator.employeeId,
   })
   if (error) {
     throw mapRpcError(error)
@@ -345,12 +373,11 @@ complianceRoutes.post('/veterinarian-registrations/upsert', async (c) => {
     entityType: 'veterinarian_registration',
     entityId: (data as { id?: string })?.id,
     tenantId: scope.tenantId,
-    metadata: { employeeId: input.employeeId, licenseNo: input.licenseNo, operatorEmployeeId: input.operatorEmployeeId },
+    metadata: { employeeId: input.employeeId, licenseNo: input.licenseNo, operatorEmployeeId: operator.employeeId },
   })
   return ok(c, data)
 })
 const issuePrescriptionSchema = z.object({
-  prescriberEmployeeId: z.string().uuid('开方员工 id 格式错误'),
   validUntil: z.string().datetime({ offset: true }).optional().nullable(),
 })
 
@@ -359,13 +386,15 @@ const issuePrescriptionSchema = z.object({
  * - 权限:prescription.issue;含受控药时额外校验 prescription.controlled_issue
  * - 行为:先查 prescriptions 归属授权,再查明细判断是否含受控药
  *   (prescription_items join catalog_items join catalog_drug_extensions),
- *   受控药必须单独处方且麻醉药品不超过一日量
+ *   受控药必须单独处方且麻醉药品不超过一日量;
+ *   开方人由服务端推导 = 当前登录用户对应员工(R03)
  */
 complianceRoutes.post('/prescriptions/:id/issue', async (c) => {
   const prescriptionId = c.req.param('id')
   const input = await parseJsonBody(c, issuePrescriptionSchema)
   const service = createServiceClient()
   const user = c.get('user')
+  const operator = await resolveOperator(service, c)
 
   const { data: prescription, error: fetchErr } = await service
     .from('prescriptions')
@@ -408,7 +437,7 @@ complianceRoutes.post('/prescriptions/:id/issue', async (c) => {
 
   const { data, error } = await service.rpc('issue_prescription', {
     p_prescription_id: prescriptionId,
-    p_prescriber_employee_id: input.prescriberEmployeeId,
+    p_prescriber_employee_id: operator.employeeId,
     p_prescriber_user_id: user.id,
     p_valid_until: input.validUntil ?? null,
   })
@@ -422,26 +451,26 @@ complianceRoutes.post('/prescriptions/:id/issue', async (c) => {
     entityId: prescriptionId,
     tenantId: prescription.tenant_id,
     storeId: prescription.store_id,
-    metadata: { prescriberEmployeeId: input.prescriberEmployeeId, validUntil: input.validUntil, controlled: hasControlled },
+    metadata: { prescriberEmployeeId: operator.employeeId, validUntil: input.validUntil, controlled: hasControlled },
   })
   return ok(c, data)
 })
 
 const extendValiditySchema = z.object({
   newValidUntil: z.string().datetime({ offset: true }),
-  operatorEmployeeId: z.string().uuid('操作员工 id 格式错误'),
 })
 
 /**
  * 延长处方有效期(S3.1-1-A5)
  * - 权限:prescription.extend_validity
  * - 行为:先查 prescriptions 归属授权,调 extend_prescription_validity RPC,
- *   仅 issued 可延长且不得超过 issued_at + 3 天
+ *   仅 issued 可延长且不得超过开具日 + 3 天;操作人由服务端推导(R03)
  */
 complianceRoutes.post('/prescriptions/:id/extend-validity', async (c) => {
   const prescriptionId = c.req.param('id')
   const input = await parseJsonBody(c, extendValiditySchema)
   const service = createServiceClient()
+  const operator = await resolveOperator(service, c)
 
   const { data: prescription, error: fetchErr } = await service
     .from('prescriptions')
@@ -460,7 +489,7 @@ complianceRoutes.post('/prescriptions/:id/extend-validity', async (c) => {
   const { data, error } = await service.rpc('extend_prescription_validity', {
     p_prescription_id: prescriptionId,
     p_new_valid_until: input.newValidUntil,
-    p_operator_employee_id: input.operatorEmployeeId,
+    p_operator_employee_id: operator.employeeId,
   })
   if (error) {
     throw mapRpcError(error)
@@ -472,7 +501,7 @@ complianceRoutes.post('/prescriptions/:id/extend-validity', async (c) => {
     entityId: prescriptionId,
     tenantId: prescription.tenant_id,
     storeId: prescription.store_id,
-    metadata: { newValidUntil: input.newValidUntil, operatorEmployeeId: input.operatorEmployeeId },
+    metadata: { newValidUntil: input.newValidUntil, operatorEmployeeId: operator.employeeId },
   })
   return ok(c, data)
 })

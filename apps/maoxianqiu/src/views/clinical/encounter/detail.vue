@@ -2,7 +2,7 @@
 import type { EncounterRecord, EncounterRevisionRecord, PrescriptionItemInput, PrescriptionRecord } from '@/types/clinical'
 import type { MedicalRecordAmendmentRecord } from '@/types/compliance'
 import apiClinical from '@/api/modules/clinical'
-import apiCompliance, { getCurrentEmployeeId } from '@/api/modules/compliance'
+import apiCompliance from '@/api/modules/compliance'
 import { supabase } from '@/lib/supabase'
 import { ENCOUNTER_STATUS_COLORS, ENCOUNTER_STATUS_LABELS, PRESCRIPTION_STATUS_LABELS } from '@/types/clinical'
 import { AMENDMENT_STATUS_LABELS, ARCHIVE_STATUS_LABELS } from '@/types/compliance'
@@ -73,7 +73,6 @@ const applyForm = reactive({
 const issueVisible = ref(false)
 const issueTarget = ref<PrescriptionRecord | null>(null)
 const issueForm = reactive({
-  prescriberEmployeeId: '',
   validUntil: '',
 })
 
@@ -255,11 +254,9 @@ async function onArchive() {
     return
   }
   try {
-    const operatorEmployeeId = await getCurrentEmployeeId()
     await apiCompliance.archiveRecord({
       recordType: 'encounter',
       recordId: encounter.value.id,
-      operatorEmployeeId,
     })
     useFaToast().success('病历已归档')
     loadData()
@@ -290,12 +287,10 @@ async function onSubmitAmendmentRequest() {
     return
   }
   try {
-    const requestedByEmployeeId = await getCurrentEmployeeId()
     await apiCompliance.requestAmendment({
       recordType: 'encounter',
       recordId: encounter.value.id,
       reason: amendmentRequestForm.reason.trim(),
-      requestedByEmployeeId,
     })
     amendmentRequestVisible.value = false
     amendmentRequestForm.reason = ''
@@ -316,10 +311,8 @@ function onApproveAmendment(row: MedicalRecordAmendmentRecord) {
     content: '确认批准该修订申请?批准后申请人可执行修订。',
     onConfirm: async () => {
       try {
-        const reviewerEmployeeId = await getCurrentEmployeeId()
         await apiCompliance.reviewAmendment(row.id, {
           decision: 'approved',
-          reviewerEmployeeId,
         })
         useFaToast().success('已批准')
         loadData()
@@ -350,11 +343,9 @@ async function onSubmitReject() {
     return
   }
   try {
-    const reviewerEmployeeId = await getCurrentEmployeeId()
     await apiCompliance.reviewAmendment(rejectTarget.value.id, {
       decision: 'rejected',
       reason: rejectReason.value.trim(),
-      reviewerEmployeeId,
     })
     rejectVisible.value = false
     useFaToast().success('已拒绝')
@@ -385,7 +376,6 @@ async function onSubmitApply() {
     return
   }
   try {
-    const appliedByEmployeeId = await getCurrentEmployeeId()
     await apiCompliance.applyAmendment(applyTarget.value.id, {
       payload: {
         chief_complaint: applyForm.chiefComplaint,
@@ -394,7 +384,6 @@ async function onSubmitApply() {
         diagnosis_text: applyForm.diagnosisText,
         treatment_plan: applyForm.treatmentPlan,
       },
-      appliedByEmployeeId,
     })
     applyVisible.value = false
     useFaToast().success('修订已应用')
@@ -475,25 +464,19 @@ async function onDispense(rx: PrescriptionRecord) {
 /** 打开开具处方弹窗 */
 function openIssue(rx: PrescriptionRecord) {
   issueTarget.value = rx
-  issueForm.prescriberEmployeeId = ''
   issueForm.validUntil = ''
   issueVisible.value = true
 }
 
 /**
- * 开具处方(走 Hono Command,权限 prescription.issue)
+ * 开具处方(走 Hono Command,权限 prescription.issue;开方人由服务端推导 R03)
  */
 async function onSubmitIssue() {
   if (!issueTarget.value) {
     return
   }
-  if (!issueForm.prescriberEmployeeId) {
-    useFaToast().warning('请选择开方人')
-    return
-  }
   try {
     await apiCompliance.issuePrescription(issueTarget.value.id, {
-      prescriberEmployeeId: issueForm.prescriberEmployeeId,
       validUntil: issueForm.validUntil || undefined,
     })
     issueVisible.value = false
@@ -524,10 +507,8 @@ async function onSubmitExtend() {
     return
   }
   try {
-    const operatorEmployeeId = await getCurrentEmployeeId()
     await apiCompliance.extendPrescriptionValidity(extendTarget.value.id, {
       newValidUntil: extendForm.newValidUntil,
-      operatorEmployeeId,
     })
     extendVisible.value = false
     useFaToast().success('有效期已延长')
@@ -805,11 +786,8 @@ onMounted(loadData)
     <FaModal v-model:visible="issueVisible" title="开具处方" @confirm="onSubmitIssue">
       <div class="space-y-3">
         <p class="text-sm text-gray-600">
-          开具后处方进入已开具状态,明细将锁定不可编辑。
+          开具后处方进入已开具状态,明细将锁定不可编辑。开方人默认为当前登录账号。
         </p>
-        <FaLabel label="开方人">
-          <EmployeePicker v-model="issueForm.prescriberEmployeeId" class="w-full" />
-        </FaLabel>
         <FaLabel label="有效期至">
           <FaInput v-model="issueForm.validUntil" type="datetime-local" class="w-full" />
         </FaLabel>
