@@ -102,4 +102,13 @@ export const PERMISSIONS = [
   { code: 'print.manage', label: '管理打印' },
   { code: 'reports.view', label: '查看报表' },
   { code: 'security.view', label: '查看安全事件' },
+  // ===== S3.1-1:Compliance 合规域权限 =====
+  { code: 'medical_record.archive', label: '病历归档' },
+  { code: 'medical_record.amend.request', label: '病历修订申请' },
+  { code: 'medical_record.amend.approve', label: '病历修订审批' },
+  { code: 'veterinarian_registration.read', label: '查看执业兽医备案' },
+  { code: 'veterinarian_registration.manage', label: '管理执业兽医备案' },
+  { code: 'prescription.issue', label: '开具处方' },
+  { code: 'prescription.extend_validity', label: '延长处方有效期' },
+  { code: 'prescription.controlled_issue', label: '开具受控药品处方' },
 ] as const

@@ -9,6 +9,7 @@ import { requestIdMiddleware } from './middlewares/request-id'
 import billingRoutes from './routes/billing'
 import catalogRoutes from './routes/catalog'
 import clinicalRoutes from './routes/clinical'
+import complianceRoutes from './routes/compliance'
 import customersRoutes from './routes/customers'
 import diagnosticsRoutes from './routes/diagnostics'
 import employeeRoutes from './routes/employees'
@@ -98,6 +99,8 @@ app.route('/billing', billingRoutes)
 app.route('/inpatient', inpatientRoutes)
 // MXQ-10001~10011:Diagnostics 疫苗方案/接种/证明/驱虫/检验申请/标本/结果发布/审核/危急值/提醒
 app.route('/diagnostics', diagnosticsRoutes)
+// S3.1-1:Compliance 病历归档/修订/兽医备案/处方开具合规
+app.route('/compliance', complianceRoutes)
 
 // 统一错误处理(MXQ-2001):业务错误带明确 HTTP 状态与错误码
 app.notFound((c) => {

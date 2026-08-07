@@ -67,6 +67,26 @@ const routes: RouteRecordRaw[] = [
     ],
   },
   {
+    path: '/system/veterinarian-registration',
+    component: Layout,
+    name: 'systemVeterinarianRegistration',
+    meta: {
+      title: '执业兽医备案',
+      icon: 'i-ic:round-medical-services',
+      auth: 'veterinarian_registration.read',
+    },
+    children: [
+      {
+        path: '',
+        component: () => import('@/views/system/veterinarian-registration/index.vue'),
+        meta: {
+          title: '执业兽医备案',
+          breadcrumb: false,
+        },
+      },
+    ],
+  },
+  {
     // UI Foundation 业务组件演示页(Story,隐藏菜单,仅内部验证用)
     path: '/system/component-demo',
     component: Layout,

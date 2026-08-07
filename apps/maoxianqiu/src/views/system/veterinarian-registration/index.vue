@@ -1,0 +1,273 @@
+<script setup lang="ts">
+import type { TableColumn } from '@fantastic-admin/components'
+import type { VeterinarianRegistrationListItem, VeterinarianRegistrationStatus } from '@/types/compliance'
+import apiApp from '@/api/modules/app'
+import apiCompliance from '@/api/modules/compliance'
+import { VET_REG_STATUS_LABELS } from '@/types/compliance'
+
+defineOptions({
+  name: 'SystemVeterinarianRegistration',
+})
+
+/** 列表展示行(join 员工姓名/工号) */
+interface DisplayRow {
+  id: string
+  employeeName: string
+  employeeNo: string
+  licenseNo: string
+  registrationNo: string
+  registrationAuthority: string
+  registrationRegion: string
+  validFrom: string
+  validUntil: string
+  status: VeterinarianRegistrationStatus
+}
+
+const loading = ref(false)
+const dataList = ref<VeterinarianRegistrationListItem[]>([])
+const currentTenantId = ref('')
+
+/** 列表列配置 */
+const tableColumns = computed<TableColumn<DisplayRow>[]>(() => [
+  {
+    accessorKey: 'employeeName',
+    header: '员工姓名',
+    cell: info => info.getValue() ?? '-',
+  },
+  {
+    accessorKey: 'employeeNo',
+    header: '工号',
+    cell: info => info.getValue() ?? '-',
+  },
+  {
+    accessorKey: 'licenseNo',
+    header: '执业牌照号',
+  },
+  {
+    accessorKey: 'registrationNo',
+    header: '备案编号',
+    cell: info => info.getValue() ?? '-',
+  },
+  {
+    accessorKey: 'registrationAuthority',
+    header: '备案机构',
+    cell: info => info.getValue() ?? '-',
+  },
+  {
+    accessorKey: 'registrationRegion',
+    header: '备案地区',
+    cell: info => info.getValue() ?? '-',
+  },
+  {
+    accessorKey: 'validFrom',
+    header: '生效日期',
+    cell: info => info.getValue() ?? '-',
+  },
+  {
+    accessorKey: 'validUntil',
+    header: '失效日期',
+    cell: info => info.getValue() ?? '-',
+  },
+  {
+    accessorKey: 'status',
+    header: '状态',
+    cell: (info) => {
+      const v = info.getValue() as VeterinarianRegistrationStatus
+      return VET_REG_STATUS_LABELS[v] ?? v
+    },
+  },
+])
+
+/** 新增备案抽屉表单 */
+const drawerVisible = ref(false)
+const submitting = ref(false)
+const form = reactive({
+  employeeId: '',
+  licenseNo: '',
+  registrationNo: '',
+  registrationAuthority: '',
+  registrationRegion: '',
+  validFrom: '',
+  validUntil: '',
+  status: 'active' as VeterinarianRegistrationStatus,
+  operatorEmployeeId: '',
+})
+
+/**
+ * 加载备案列表(浏览器直连,RLS 兜底)
+ */
+async function getDataList() {
+  if (!currentTenantId.value) {
+    return
+  }
+  loading.value = true
+  try {
+    const res: any = await apiCompliance.listVeterinarianRegistrations(currentTenantId.value)
+    dataList.value = res.data.list ?? []
+  }
+  catch (e: any) {
+    useFaToast().error(e?.message || '加载失败')
+  }
+  finally {
+    loading.value = false
+  }
+}
+
+/** 行 → 展示结构 */
+function toDisplayRow(row: VeterinarianRegistrationListItem): DisplayRow {
+  return {
+    id: row.id,
+    employeeName: row.employees?.name ?? '-',
+    employeeNo: row.employees?.employee_no ?? '-',
+    licenseNo: row.license_no,
+    registrationNo: row.registration_no ?? '-',
+    registrationAuthority: row.registration_authority ?? '-',
+    registrationRegion: row.registration_region ?? '-',
+    validFrom: row.valid_from ?? '-',
+    validUntil: row.valid_until ?? '-',
+    status: row.status,
+  }
+}
+
+/** 打开新增备案抽屉并重置表单 */
+function openCreate() {
+  form.employeeId = ''
+  form.licenseNo = ''
+  form.registrationNo = ''
+  form.registrationAuthority = ''
+  form.registrationRegion = ''
+  form.validFrom = ''
+  form.validUntil = ''
+  form.status = 'active'
+  form.operatorEmployeeId = ''
+  drawerVisible.value = true
+}
+
+/**
+ * 提交备案(走 Hono Command,权限 veterinarian_registration.manage)
+ */
+async function onSubmit() {
+  if (!form.employeeId) {
+    useFaToast().warning('请选择员工')
+    return
+  }
+  if (!form.licenseNo.trim()) {
+    useFaToast().warning('请填写执业牌照号')
+    return
+  }
+  if (submitting.value) {
+    return
+  }
+  submitting.value = true
+  try {
+    await apiCompliance.upsertVeterinarianRegistration({
+      tenantId: currentTenantId.value,
+      employeeId: form.employeeId,
+      licenseNo: form.licenseNo.trim(),
+      registrationNo: form.registrationNo || undefined,
+      registrationAuthority: form.registrationAuthority || undefined,
+      registrationRegion: form.registrationRegion || undefined,
+      validFrom: form.validFrom || undefined,
+      validUntil: form.validUntil || undefined,
+      status: form.status,
+      operatorEmployeeId: form.operatorEmployeeId || undefined,
+    })
+    drawerVisible.value = false
+    useFaToast().success('备案已保存')
+    getDataList()
+  }
+  catch (e: any) {
+    useFaToast().error(e?.message || '保存失败')
+  }
+  finally {
+    submitting.value = false
+  }
+}
+
+onMounted(async () => {
+  // 获取当前租户(参考用户管理页 profile 方式)
+  const res: any = await apiApp.profile()
+  const memberships = res.data.memberships ?? []
+  currentTenantId.value = memberships[0]?.tenant_id ?? ''
+  getDataList()
+})
+</script>
+
+<template>
+  <div>
+    <FaPageHeader title="执业兽医备案" class="mb-0">
+      <template #description>
+        管理执业兽医备案信息(牌照/备案编号/有效期/电子签名资质)
+      </template>
+    </FaPageHeader>
+    <FaPageMain>
+      <FaTable
+        v-loading="loading"
+        table-root-class="rounded-lg overflow-hidden"
+        row-key="id"
+        stripe
+        border
+        :columns="tableColumns"
+        :data="dataList.map(toDisplayRow)"
+      >
+        <template #toolbar>
+          <PermissionButton permission="veterinarian_registration.manage" @click="openCreate">
+            新增备案
+          </PermissionButton>
+        </template>
+      </FaTable>
+    </FaPageMain>
+
+    <FaDrawer v-model="drawerVisible" title="新增备案" :width="560">
+      <div class="space-y-3">
+        <FaLabel label="员工">
+          <EmployeePicker v-model="form.employeeId" class="w-full" />
+        </FaLabel>
+        <FaLabel label="执业牌照号">
+          <FaInput v-model="form.licenseNo" placeholder="执业牌照号" class="w-full" />
+        </FaLabel>
+        <FaLabel label="备案编号">
+          <FaInput v-model="form.registrationNo" placeholder="备案编号" class="w-full" />
+        </FaLabel>
+        <FaLabel label="备案机构">
+          <FaInput v-model="form.registrationAuthority" placeholder="备案机构" class="w-full" />
+        </FaLabel>
+        <FaLabel label="备案地区">
+          <FaInput v-model="form.registrationRegion" placeholder="备案地区" class="w-full" />
+        </FaLabel>
+        <div class="gap-3 grid grid-cols-2">
+          <FaLabel label="生效日期">
+            <FaInput v-model="form.validFrom" type="date" class="w-full" />
+          </FaLabel>
+          <FaLabel label="失效日期">
+            <FaInput v-model="form.validUntil" type="date" class="w-full" />
+          </FaLabel>
+        </div>
+        <FaLabel label="状态">
+          <FaSelect
+            v-model="form.status"
+            :options="[
+              { label: '有效', value: 'active' },
+              { label: '停用', value: 'inactive' },
+              { label: '过期', value: 'expired' },
+            ]"
+            class="w-full"
+          />
+        </FaLabel>
+        <FaLabel label="操作人(可选)">
+          <EmployeePicker v-model="form.operatorEmployeeId" class="w-full" />
+        </FaLabel>
+      </div>
+      <template #footer>
+        <div class="flex gap-2 justify-end">
+          <FaButton variant="outline" @click="drawerVisible = false">
+            取消
+          </FaButton>
+          <FaButton type="primary" :loading="submitting" @click="onSubmit">
+            保存
+          </FaButton>
+        </div>
+      </template>
+    </FaDrawer>
+  </div>
+</template>

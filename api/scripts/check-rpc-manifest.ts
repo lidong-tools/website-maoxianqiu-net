@@ -5,10 +5,11 @@
  *   1) api/routes 中 service.rpc('<fn>') 的每一个函数名必须属于
  *      api/lib/service-rpc-manifest.ts 的 SERVICE_ROLE_ONLY_RPC;
  *      → 新增"浏览器可直连"的 RPC 调用将直接 CI 失败。
- *   2) manifest 的每一个函数名必须出现在
- *      supabase/migrations/20260808000027_platform_admin_model.sql 的
- *      revoke DO 块清单中(按单引号字符串存在性校验);
+ *   2) manifest 的每一个函数名必须出现在 supabase/migrations/ 目录
+ *      全部 .sql 文件的 revoke 清单中(聚合所有单引号字符串存在性校验);
  *      → 防止"手工维护高危 RPC 名单"与数据库真实授权漂移。
+ *      S3.1-1:规则 2 升级为目录扫描(S3.1 禁止修改已交付 migration 01~27,
+ *      新 RPC 的 revoke 在 migration 29)。
  *
  * 用法:
  *   pnpm check:rpc-manifest
@@ -23,12 +24,11 @@ import { SERVICE_ROLE_ONLY_RPC_SET } from '../lib/service-rpc-manifest.js'
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const apiRoot = join(__dirname, '..')
 const routesDir = join(apiRoot, 'routes')
-const migration27 = join(
+const migrationsDir = join(
   apiRoot,
   '..',
   'supabase',
   'migrations',
-  '20260808000027_platform_admin_model.sql',
 )
 
 /** 提取 .rpc('<name>') / .rpc("<name>") / .rpc(`<name>`) 的函数名集合 */
@@ -46,15 +46,17 @@ function collectRpcNames(dir: string): { file: string, fn: string }[] {
   return hits
 }
 
-/** 从 migration 27 revoke DO 块提取函数名清单(按 'xxx' 字符串解析) */
-function collectMigrationRevokeNames(migrationFile: string): string[] {
-  const content = readFileSync(migrationFile, 'utf8')
-  const re = /'([a-z_][a-z0-9_]*)'/g
+/** 从 migrations 目录全部 .sql 文件聚合函数名清单(按 'xxx' 字符串解析) */
+function collectMigrationRevokeNames(migrationsDir: string): string[] {
   const names = new Set<string>()
-  let m: RegExpExecArray | null = re.exec(content)
-  while (m !== null) {
-    names.add(m[1])
-    m = re.exec(content)
+  const re = /'([a-z_][a-z0-9_]*)'/g
+  for (const file of readdirSync(migrationsDir).filter(f => f.endsWith('.sql'))) {
+    const content = readFileSync(join(migrationsDir, file), 'utf8')
+    let m: RegExpExecArray | null = re.exec(content)
+    while (m !== null) {
+      names.add(m[1])
+      m = re.exec(content)
+    }
   }
   return [...names]
 }
@@ -75,18 +77,18 @@ else {
   console.log(`[check:rpc-manifest] OK: api/routes 中 ${routeHits.length} 处 service.rpc() 调用全部属于 manifest(${SERVICE_ROLE_ONLY_RPC_SET.size} 个函数)`)
 }
 
-// ---- 规则 2:manifest 必须 ⊆ migration 27 revoke 清单 ----
-const revokeNames = new Set(collectMigrationRevokeNames(migration27))
+// ---- 规则 2:manifest 必须 ⊆ migrations 目录全部 .sql 的 revoke 清单 ----
+const revokeNames = new Set(collectMigrationRevokeNames(migrationsDir))
 const manifestMissing = [...SERVICE_ROLE_ONLY_RPC_SET].filter(n => !revokeNames.has(n))
 if (manifestMissing.length > 0) {
   failed = true
-  console.error('[check:rpc-manifest] FAIL: 以下 manifest 函数未出现在 migration 27 revoke DO 块:')
+  console.error('[check:rpc-manifest] FAIL: 以下 manifest 函数未出现在 migrations 目录 revoke 清单:')
   for (const n of manifestMissing) {
-    console.error(`  - ${n} → 请加入 20260808000027_platform_admin_model.sql 的 revoke 清单`)
+    console.error(`  - ${n} → 请加入对应 migration 的 revoke DO 块`)
   }
 }
 else {
-  console.log(`[check:rpc-manifest] OK: manifest 全部 ${SERVICE_ROLE_ONLY_RPC_SET.size} 个函数均已纳入 migration 27 revoke(public/anon/authenticated) + grant service_role`)
+  console.log(`[check:rpc-manifest] OK: manifest 全部 ${SERVICE_ROLE_ONLY_RPC_SET.size} 个函数均已纳入 migrations revoke(public/anon/authenticated) + grant service_role`)
 }
 
 if (failed) {

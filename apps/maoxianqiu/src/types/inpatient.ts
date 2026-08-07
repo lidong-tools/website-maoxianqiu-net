@@ -2,6 +2,7 @@
  * Inpatient 住院管理领域类型定义(MXQ-11001~11009)
  * 与 supabase/migrations/20260806000021_inpatient.sql 对齐
  */
+import type { ArchiveStatus } from './clinical'
 
 /** 房间类型 */
 export type RoomType = 'ward' | 'icu' | 'isolation' | 'standard'
@@ -80,6 +81,9 @@ export interface Admission {
   discharged_at: string | null
   discharge_reason: string | null
   discharge_notes: string | null
+  archive_status: ArchiveStatus | null
+  archive_due_at: string | null
+  archived_at: string | null
   total_charge: number
   created_at: string
   updated_at: string

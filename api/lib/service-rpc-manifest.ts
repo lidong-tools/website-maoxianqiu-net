@@ -9,12 +9,14 @@
  *
  * CI 静态规则(check:rpc-manifest):
  *   - api/routes 中 service.rpc('<fn>') 的每一个函数名必须属于本 manifest;
- *   - 本 manifest 的每一个函数名必须出现在 migration 27(S30-F02 RPC 收紧)
- *     的 revoke 清单中,防止"手工维护高危 RPC 名单"与真实授权漂移。
+ *   - 本 manifest 的每一个函数名必须出现在 supabase/migrations/ 目录
+ *     全部 .sql 文件的 revoke 清单(聚合单引号字符串)中,
+ *     防止"手工维护高危 RPC 名单"与真实授权漂移。
  *
  * 新增业务 RPC 时必须:
  *   1) 在本文件追加函数名;
- *   2) 在 20260808000027_platform_admin_model.sql 的 revoke DO 块追加同名函数;
+ *   2) 在对应 migration(禁止改动已交付 migration 01~27,S3.1 新 RPC 放新 migration)
+ *      的 revoke DO 块追加同名函数;
  *   3) 否则 CI 静态校验失败。
  */
 export const SERVICE_ROLE_ONLY_RPC: readonly string[] = [
@@ -81,6 +83,15 @@ export const SERVICE_ROLE_ONLY_RPC: readonly string[] = [
   'create_pet',
   'update_pet',
   'archive_pet',
+  // ---- compliance(S3.1-1 合规) ----
+  'archive_encounter',
+  'archive_admission',
+  'request_record_amendment',
+  'review_record_amendment',
+  'apply_record_amendment',
+  'upsert_veterinarian_registration',
+  'issue_prescription',
+  'extend_prescription_validity',
   // ---- 审计结论(S30-F02):仅服务端/内部辅助,无前端直连,撤销 authenticated ----
   'generate_customer_no',
   'generate_invoice_no',

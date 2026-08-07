@@ -80,6 +80,9 @@ export interface UpdateAppointmentInput {
 /** 就诊状态机:in_progress→completed→signed(终态,需修订) */
 export type EncounterStatus = 'in_progress' | 'completed' | 'signed'
 
+/** 病历归档状态:draft 草稿 / signed 已签署 / archived 已归档(S3.1-1 合规) */
+export type ArchiveStatus = 'draft' | 'signed' | 'archived'
+
 /** encounters 表记录 */
 export interface EncounterRecord {
   id: string
@@ -102,6 +105,13 @@ export interface EncounterRecord {
   follow_up_date: string | null
   signed_by: string | null
   signed_at: string | null
+  signed_by_employee_id: string | null
+  archive_status: ArchiveStatus | null
+  archive_due_at: string | null
+  archived_at: string | null
+  archived_by_employee_id: string | null
+  retention_until: string | null
+  retention_status: string | null
   created_at: string
   updated_at: string
 }
@@ -178,7 +188,7 @@ export interface ReviseEncounterInput {
 // ===== 处方相关 =====
 
 /** 处方状态机:draft→dispensed;draft→cancelled */
-export type PrescriptionStatus = 'draft' | 'dispensed' | 'cancelled'
+export type PrescriptionStatus = 'draft' | 'issued' | 'dispensed' | 'cancelled'
 
 /** prescriptions 表记录 */
 export interface PrescriptionRecord {
@@ -190,6 +200,17 @@ export interface PrescriptionRecord {
   pet_id: string
   doctor_id: string | null
   status: PrescriptionStatus
+  issued_at: string | null
+  valid_until: string | null
+  prescriber_employee_id: string | null
+  prescriber_user_id: string | null
+  prescriber_veterinarian_registration_id: string | null
+  signed_at: string | null
+  signature_method: 'manual' | 'electronic' | null
+  dispensed_by_employee_id: string | null
+  dispensed_at: string | null
+  retention_until: string | null
+  retention_status: string | null
   created_at: string
   updated_at: string
 }
@@ -326,7 +347,8 @@ export const ENCOUNTER_STATUS_TRANSITIONS: Record<EncounterStatus, EncounterStat
 
 /** 处方状态机转换矩阵 */
 export const PRESCRIPTION_STATUS_TRANSITIONS: Record<PrescriptionStatus, PrescriptionStatus[]> = {
-  draft: ['dispensed', 'cancelled'],
+  draft: ['issued', 'cancelled'],
+  issued: ['dispensed', 'cancelled'],
   dispensed: [],
   cancelled: [],
 }
@@ -415,6 +437,7 @@ export const ENCOUNTER_STATUS_COLORS: Record<EncounterStatus, string> = {
 /** 处方状态标签映射 */
 export const PRESCRIPTION_STATUS_LABELS: Record<PrescriptionStatus, string> = {
   draft: '待发药',
+  issued: '已开具',
   dispensed: '已发药',
   cancelled: '已取消',
 }
@@ -422,6 +445,7 @@ export const PRESCRIPTION_STATUS_LABELS: Record<PrescriptionStatus, string> = {
 /** 处方状态颜色映射 */
 export const PRESCRIPTION_STATUS_COLORS: Record<PrescriptionStatus, string> = {
   draft: 'warning',
+  issued: 'info',
   dispensed: 'success',
   cancelled: 'default',
 }
