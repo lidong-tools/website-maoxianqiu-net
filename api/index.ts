@@ -1,7 +1,7 @@
 import type { AppEnv } from './lib/types'
+import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import process from 'node:process'
-import { execSync } from 'node:child_process'
 import { Hono } from 'hono'
 import { handle } from 'hono/vercel'
 import { fail, failError, ok } from './lib/result'
@@ -12,15 +12,14 @@ import clinicalRoutes from './routes/clinical'
 import customersRoutes from './routes/customers'
 import diagnosticsRoutes from './routes/diagnostics'
 import employeeRoutes from './routes/employees'
-import fileRoutes from './routes/files'
 import fileCommandRoutes from './routes/files-v2'
 import inpatientRoutes from './routes/inpatient'
 import inventoryRoutes from './routes/inventory'
 import operationsRoutes from './routes/operations'
 import petsRoutes from './routes/pets'
+import reportDataRoutes from './routes/report-data'
 import roleRoutes from './routes/roles'
 import storeRoutes from './routes/stores'
-import uploadRoutes from './routes/upload'
 import userRoutes from './routes/user'
 
 export const runtime = 'nodejs'
@@ -71,8 +70,7 @@ app.get('/health', (c) => {
 })
 
 // 仅保留无法浏览器直连的服务端操作
-app.route('/upload', uploadRoutes)
-app.route('/files', fileRoutes)
+// P0-03:旧 /api/upload(Vercel 中转)与旧 /api/files/delete(r2_files) 已下线,统一走新私有 files 模型
 app.route('/user', userRoutes)
 // MXQ-4003~4006:文件上传意图/完成/下载 URL/归档/物理删除(Hono Command + RPC)
 app.route('/files', fileCommandRoutes)
@@ -87,6 +85,9 @@ app.route('/pets', petsRoutes)
 app.route('/catalog', catalogRoutes)
 // MXQ-9001~9008:Inventory 仓库/批次/发药/盘点/调拨(不可变流水 + 幂等)
 app.route('/inventory', inventoryRoutes)
+// P0-06:统一报表真源(实时明细,服务端聚合,前端只渲染)
+// 注意:必须挂在 /operations 之前,否则会被 operationsRoutes 拦截
+app.route('/operations/report-data', reportDataRoutes)
 // MXQ-12001~12009:Operations 会员/积分/消息/导入/打印/报表/安全事件
 app.route('/operations', operationsRoutes)
 // MXQ-7001~7011:Clinical 预约/候诊/就诊/病历签署/修订/处方/护士任务

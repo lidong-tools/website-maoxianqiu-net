@@ -3,8 +3,8 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
-import { assertTenantAccess, requirePermission } from '../lib/permission'
-import { loadContext } from '../lib/request-context'
+import { requireScopedPermission } from '../lib/permission'
+import { getContext, loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { parseJsonBody } from '../lib/validation'
@@ -31,6 +31,7 @@ clinicalRoutes.use('*', authMiddleware(), loadCaller(), loadContext())
 // ============================================================
 
 const appointmentListSchema = z.object({
+  tenantId: z.string().uuid().optional(),
   storeId: z.string().uuid().optional(),
   doctorId: z.string().uuid().optional(),
   petId: z.string().uuid().optional(),
@@ -45,16 +46,22 @@ const appointmentListSchema = z.object({
 /**
  * 预约列表(MXQ-7001)
  * - 权限:appointment.view
- * - 支持 storeId/doctorId/petId/customerId/status/日期范围筛选
+ * - 支持 tenantId/storeId/doctorId/petId/customerId/status/日期范围筛选
  */
 clinicalRoutes.get('/appointments', async (c) => {
   const input = appointmentListSchema.parse(c.req.query())
-  await requirePermission(c, { code: 'appointment.view', storeId: input.storeId })
+  // P0-02 scoped:租户作用域授权(tenantId 缺失时取调用者首个成员租户)
+  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无法确定租户作用域')
+  }
+  const scope = await requireScopedPermission(c, { code: 'appointment.view', tenantId, storeId: input.storeId })
 
   const service = createServiceClient()
   let query = service
     .from('appointments')
     .select('*', { count: 'exact' })
+    .eq('tenant_id', scope.tenantId)
 
   if (input.storeId) {
     query = query.eq('store_id', input.storeId)
@@ -97,18 +104,19 @@ clinicalRoutes.get('/appointments', async (c) => {
  */
 clinicalRoutes.get('/appointments/waiting', async (c) => {
   const storeId = c.req.query('storeId')
-  if (storeId) {
-    await requirePermission(c, { code: 'appointment.view', storeId })
+  // P0-02 scoped:租户作用域授权(缺失时取调用者首个成员租户)
+  const tenantId = getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无法确定租户作用域')
   }
-  else {
-    await requirePermission(c, { code: 'appointment.view' })
-  }
+  await requireScopedPermission(c, { code: 'appointment.view', tenantId, storeId: storeId || undefined })
 
   const service = createServiceClient()
   let query = service
     .from('appointments')
     .select('*')
     .eq('status', 'checked_in')
+    .eq('tenant_id', tenantId)
     .order('scheduled_start', { ascending: true })
 
   if (storeId) {
@@ -145,9 +153,8 @@ const createAppointmentSchema = z.object({
  */
 clinicalRoutes.post('/appointments', async (c) => {
   const input = await parseJsonBody(c, createAppointmentSchema)
-  await requirePermission(c, { code: 'appointment.manage', storeId: input.storeId })
-  // 租户归属校验:请求体 tenantId 必须属于调用者
-  assertTenantAccess(c, input.tenantId)
+  // P0-02 scoped:租户/门店作用域授权(替代 requirePermission + assertTenantAccess)
+  const scope = await requireScopedPermission(c, { code: 'appointment.manage', tenantId: input.tenantId, storeId: input.storeId })
 
   const service = createServiceClient()
   const user = c.get('user')
@@ -157,8 +164,8 @@ clinicalRoutes.post('/appointments', async (c) => {
     let conflictQuery = service
       .from('appointments')
       .select('id', { count: 'exact', head: true })
-    conflictQuery = input.storeId
-      ? conflictQuery.eq('store_id', input.storeId)
+    conflictQuery = scope.storeId
+      ? conflictQuery.eq('store_id', scope.storeId)
       : conflictQuery.is('store_id', null)
     const { count: conflictCount, error: conflictError } = await conflictQuery
       .eq('doctor_id', input.doctorId)
@@ -176,8 +183,8 @@ clinicalRoutes.post('/appointments', async (c) => {
   const { data, error } = await service
     .from('appointments')
     .insert({
-      tenant_id: input.tenantId,
-      store_id: input.storeId ?? null,
+      tenant_id: scope.tenantId,
+      store_id: scope.storeId ?? null,
       customer_id: input.customerId,
       pet_id: input.petId,
       doctor_id: input.doctorId ?? null,
@@ -200,8 +207,8 @@ clinicalRoutes.post('/appointments', async (c) => {
     action: 'appointment.create',
     entityType: 'appointment',
     entityId: data.id,
-    tenantId: input.tenantId,
-    storeId: input.storeId,
+    tenantId: scope.tenantId,
+    storeId: scope.storeId,
     metadata: { customerId: input.customerId, petId: input.petId },
   })
 
@@ -225,7 +232,6 @@ const updateAppointmentSchema = z.object({
 clinicalRoutes.patch('/appointments/:id', async (c) => {
   const id = c.req.param('id')
   const input = await parseJsonBody(c, updateAppointmentSchema)
-  await requirePermission(c, { code: 'appointment.manage' })
 
   const service = createServiceClient()
   const { data: existing, error: fetchError } = await service
@@ -237,7 +243,8 @@ clinicalRoutes.patch('/appointments/:id', async (c) => {
   if (fetchError || !existing) {
     throw err.notFound('预约不存在')
   }
-  await requirePermission(c, { code: 'appointment.manage', storeId: existing.store_id ?? undefined })
+  // P0-02 scoped:实体租户/门店作用域授权
+  await requireScopedPermission(c, { code: 'appointment.manage', tenantId: existing.tenant_id, storeId: existing.store_id ?? undefined })
 
   if (['completed', 'cancelled', 'no_show'].includes(existing.status)) {
     throw err.conflict('终态预约不可编辑')
@@ -298,7 +305,6 @@ const transitionAppointmentSchema = z.object({
 clinicalRoutes.post('/appointments/:id/transition', async (c) => {
   const id = c.req.param('id')
   const input = await parseJsonBody(c, transitionAppointmentSchema)
-  await requirePermission(c, { code: 'appointment.manage' })
 
   const service = createServiceClient()
   const user = c.get('user')
@@ -312,7 +318,8 @@ clinicalRoutes.post('/appointments/:id/transition', async (c) => {
   if (fetchError || !existing) {
     throw err.notFound('预约不存在')
   }
-  await requirePermission(c, { code: 'appointment.manage', storeId: existing.store_id ?? undefined })
+  // P0-02 scoped:实体租户/门店作用域授权
+  await requireScopedPermission(c, { code: 'appointment.manage', tenantId: existing.tenant_id, storeId: existing.store_id ?? undefined })
 
   const { data, error: rpcError } = await service.rpc('transition_appointment', {
     p_appointment_id: id,
@@ -347,6 +354,7 @@ clinicalRoutes.post('/appointments/:id/transition', async (c) => {
 // ============================================================
 
 const encounterListSchema = z.object({
+  tenantId: z.string().uuid().optional(),
   storeId: z.string().uuid().optional(),
   doctorId: z.string().uuid().optional(),
   petId: z.string().uuid().optional(),
@@ -361,12 +369,18 @@ const encounterListSchema = z.object({
  */
 clinicalRoutes.get('/encounters', async (c) => {
   const input = encounterListSchema.parse(c.req.query())
-  await requirePermission(c, { code: 'encounter.view', storeId: input.storeId })
+  // P0-02 scoped:租户作用域授权(tenantId 缺失时取调用者首个成员租户)
+  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无法确定租户作用域')
+  }
+  const scope = await requireScopedPermission(c, { code: 'encounter.view', tenantId, storeId: input.storeId })
 
   const service = createServiceClient()
   let query = service
     .from('encounters')
     .select('*', { count: 'exact' })
+    .eq('tenant_id', scope.tenantId)
 
   if (input.storeId) {
     query = query.eq('store_id', input.storeId)
@@ -400,7 +414,6 @@ clinicalRoutes.get('/encounters', async (c) => {
  */
 clinicalRoutes.get('/encounters/:id', async (c) => {
   const id = c.req.param('id')
-  await requirePermission(c, { code: 'encounter.view' })
 
   const service = createServiceClient()
   const { data: encounter, error } = await service
@@ -412,6 +425,8 @@ clinicalRoutes.get('/encounters/:id', async (c) => {
   if (error || !encounter) {
     throw err.notFound('病历不存在')
   }
+  // P0-02 scoped:实体租户/门店作用域授权
+  await requireScopedPermission(c, { code: 'encounter.view', tenantId: encounter.tenant_id, storeId: encounter.store_id ?? undefined })
 
   // 并行查询修订历史
   const { data: revisions, error: revError } = await service
@@ -445,17 +460,16 @@ const createEncounterSchema = z.object({
  */
 clinicalRoutes.post('/encounters', async (c) => {
   const input = await parseJsonBody(c, createEncounterSchema)
-  await requirePermission(c, { code: 'encounter.work', storeId: input.storeId })
-  // 租户归属校验:请求体 tenantId 必须属于调用者
-  assertTenantAccess(c, input.tenantId)
+  // P0-02 scoped:租户/门店作用域授权(替代 requirePermission + assertTenantAccess)
+  const scope = await requireScopedPermission(c, { code: 'encounter.work', tenantId: input.tenantId, storeId: input.storeId })
 
   const service = createServiceClient()
   const user = c.get('user')
   const { data, error } = await service
     .from('encounters')
     .insert({
-      tenant_id: input.tenantId,
-      store_id: input.storeId ?? null,
+      tenant_id: scope.tenantId,
+      store_id: scope.storeId ?? null,
       appointment_id: input.appointmentId ?? null,
       customer_id: input.customerId,
       pet_id: input.petId,
@@ -489,8 +503,8 @@ clinicalRoutes.post('/encounters', async (c) => {
     action: 'encounter.create',
     entityType: 'encounter',
     entityId: data.id,
-    tenantId: input.tenantId,
-    storeId: input.storeId,
+    tenantId: scope.tenantId,
+    storeId: scope.storeId,
     metadata: { customerId: input.customerId, petId: input.petId, appointmentId: input.appointmentId },
   })
 
@@ -517,7 +531,6 @@ const updateEncounterSchema = z.object({
 clinicalRoutes.patch('/encounters/:id', async (c) => {
   const id = c.req.param('id')
   const input = await parseJsonBody(c, updateEncounterSchema)
-  await requirePermission(c, { code: 'encounter.work' })
 
   const service = createServiceClient()
   const { data: existing, error: fetchError } = await service
@@ -529,7 +542,8 @@ clinicalRoutes.patch('/encounters/:id', async (c) => {
   if (fetchError || !existing) {
     throw err.notFound('病历不存在')
   }
-  await requirePermission(c, { code: 'encounter.work', storeId: existing.store_id ?? undefined })
+  // P0-02 scoped:实体租户/门店作用域授权
+  await requireScopedPermission(c, { code: 'encounter.work', tenantId: existing.tenant_id, storeId: existing.store_id ?? undefined })
 
   if (existing.status === 'signed') {
     throw err.conflict('已签署病历不可直接修改,请使用修订功能')
@@ -610,7 +624,6 @@ const signEncounterSchema = z.object({
 clinicalRoutes.post('/encounters/:id/sign', async (c) => {
   const id = c.req.param('id')
   const input = await parseJsonBody(c, signEncounterSchema)
-  await requirePermission(c, { code: 'encounter.sign' })
 
   const service = createServiceClient()
   const user = c.get('user')
@@ -618,6 +631,17 @@ clinicalRoutes.post('/encounters/:id/sign', async (c) => {
   if (doctorId !== user.id) {
     throw err.forbidden('仅可签署本人负责的病历')
   }
+
+  // P0-02 scoped:先查实体获得租户/门店作用域
+  const { data: existing, error: fetchError } = await service
+    .from('encounters')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchError || !existing) {
+    throw err.notFound('病历不存在')
+  }
+  await requireScopedPermission(c, { code: 'encounter.sign', tenantId: existing.tenant_id, storeId: existing.store_id ?? undefined })
 
   const { data, error: rpcError } = await service.rpc('sign_encounter', {
     p_encounter_id: id,
@@ -653,10 +677,21 @@ const reviseEncounterSchema = z.object({
 clinicalRoutes.post('/encounters/:id/revise', async (c) => {
   const id = c.req.param('id')
   const input = await parseJsonBody(c, reviseEncounterSchema)
-  await requirePermission(c, { code: 'encounter.revise' })
 
   const service = createServiceClient()
   const user = c.get('user')
+
+  // P0-02 scoped:先查实体获得租户/门店作用域
+  const { data: existing, error: fetchError } = await service
+    .from('encounters')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchError || !existing) {
+    throw err.notFound('病历不存在')
+  }
+  await requireScopedPermission(c, { code: 'encounter.revise', tenantId: existing.tenant_id, storeId: existing.store_id ?? undefined })
+
   const { data, error: rpcError } = await service.rpc('revise_encounter', {
     p_encounter_id: id,
     p_content: input.content,
@@ -686,16 +721,23 @@ clinicalRoutes.post('/encounters/:id/revise', async (c) => {
  * - 权限:prescription.view
  */
 clinicalRoutes.get('/prescriptions', async (c) => {
+  const tenantIdParam = c.req.query('tenantId')
   const encounterId = c.req.query('encounterId')
   const storeId = c.req.query('storeId')
   const petId = c.req.query('petId')
   const status = c.req.query('status')
-  await requirePermission(c, { code: 'prescription.view', storeId: storeId || undefined })
+  // P0-02 scoped:租户作用域授权(tenantId 缺失时取调用者首个成员租户)
+  const tenantId = tenantIdParam ?? getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无法确定租户作用域')
+  }
+  const scope = await requireScopedPermission(c, { code: 'prescription.view', tenantId, storeId: storeId || undefined })
 
   const service = createServiceClient()
   let query = service
     .from('prescriptions')
     .select('*', { count: 'exact' })
+    .eq('tenant_id', scope.tenantId)
 
   if (encounterId) {
     query = query.eq('encounter_id', encounterId)
@@ -726,7 +768,6 @@ clinicalRoutes.get('/prescriptions', async (c) => {
  */
 clinicalRoutes.get('/prescriptions/:id', async (c) => {
   const id = c.req.param('id')
-  await requirePermission(c, { code: 'prescription.view' })
 
   const service = createServiceClient()
   const { data: prescription, error } = await service
@@ -738,6 +779,8 @@ clinicalRoutes.get('/prescriptions/:id', async (c) => {
   if (error || !prescription) {
     throw err.notFound('处方不存在')
   }
+  // P0-02 scoped:实体租户/门店作用域授权
+  await requireScopedPermission(c, { code: 'prescription.view', tenantId: prescription.tenant_id, storeId: prescription.store_id ?? undefined })
 
   const { data: items, error: itemsError } = await service
     .from('prescription_items')
@@ -776,7 +819,6 @@ const savePrescriptionSchema = z.object({
  */
 clinicalRoutes.post('/prescriptions/save', async (c) => {
   const input = await parseJsonBody(c, savePrescriptionSchema)
-  await requirePermission(c, { code: 'prescription.create' })
 
   const service = createServiceClient()
   const user = c.get('user')
@@ -791,7 +833,8 @@ clinicalRoutes.post('/prescriptions/save', async (c) => {
   if (fetchError || !encounter) {
     throw err.notFound('就诊不存在')
   }
-  await requirePermission(c, { code: 'prescription.create', storeId: encounter.store_id ?? undefined })
+  // P0-02 scoped:实体租户/门店作用域授权
+  await requireScopedPermission(c, { code: 'prescription.create', tenantId: encounter.tenant_id, storeId: encounter.store_id ?? undefined })
 
   // 组装明细 JSON(RPC 入参)
   const itemsJson = input.items.map((item, idx) => ({
@@ -822,15 +865,178 @@ clinicalRoutes.post('/prescriptions/save', async (c) => {
   return ok(c, data)
 })
 
+// ============================================================
+// 处方发药/取消的库存联动(P0-08 统一发药路径)
+// ============================================================
+
+/**
+ * 查询处方关联的未处理预留流水(reserve 未被 confirm/release 引用)
+ * @param service supabase service client
+ * @param tenantId 租户 id
+ * @param prescriptionId 处方 id
+ * @returns 未处理 reserve 流水列表
+ */
+async function findPendingPrescriptionReservations(
+  service: ReturnType<typeof createServiceClient>,
+  tenantId: string,
+  prescriptionId: string,
+) {
+  const { data: reserves, error: rErr } = await service
+    .from('inventory_movements')
+    .select('id, warehouse_id, catalog_item_id, quantity')
+    .eq('tenant_id', tenantId)
+    .eq('movement_type', 'reserve')
+    .eq('reference_type', 'prescription')
+    .eq('reference_id', prescriptionId)
+  if (rErr) {
+    throw err.internal(`查询处方预留失败: ${rErr.message}`)
+  }
+  const reserveIds = (reserves ?? []).map(r => r.id)
+  if (reserveIds.length === 0) {
+    return reserves ?? []
+  }
+  // 已被 confirm/release 处理的预留(id 集合)
+  const { data: processed } = await service
+    .from('inventory_movements')
+    .select('reference_id')
+    .eq('reference_type', 'inventory_reservation')
+    .in('movement_type', ['confirm', 'release'])
+    .in('reference_id', reserveIds)
+  const processedIds = new Set((processed ?? []).map(p => p.reference_id as string))
+  return (reserves ?? []).filter(r => !processedIds.has(r.id))
+}
+
+/**
+ * 确认处方预留(预留转正式扣减,confirm 内含 FEFO 批次扣减)
+ * 已处理的预留跳过(并发幂等),其余错误上抛
+ * @param service supabase service client
+ * @param tenantId 租户 id
+ * @param prescriptionId 处方 id
+ * @param operatorId 操作人 id
+ */
+async function confirmPrescriptionReservations(
+  service: ReturnType<typeof createServiceClient>,
+  tenantId: string,
+  prescriptionId: string,
+  operatorId: string,
+) {
+  const pending = await findPendingPrescriptionReservations(service, tenantId, prescriptionId)
+  for (const rsv of pending) {
+    const { error: confErr } = await service.rpc('confirm_inventory_reservation', {
+      p_tenant_id: tenantId,
+      p_reservation_id: rsv.id,
+      p_operator_id: operatorId,
+    })
+    if (confErr && !confErr.message.includes('RESERVATION_ALREADY')) {
+      if (confErr.message.includes('INSUFFICIENT_STOCK')) {
+        throw err.conflict('发药库存不足')
+      }
+      throw err.internal(`确认预留失败: ${confErr.message}`)
+    }
+  }
+  return pending.length
+}
+
+/**
+ * 释放处方预留(取消处方时调用,防止库存永久占用)
+ * @param service supabase service client
+ * @param tenantId 租户 id
+ * @param prescriptionId 处方 id
+ * @param operatorId 操作人 id
+ * @returns 释放条数
+ */
+async function releasePrescriptionReservations(
+  service: ReturnType<typeof createServiceClient>,
+  tenantId: string,
+  prescriptionId: string,
+  operatorId: string,
+) {
+  const pending = await findPendingPrescriptionReservations(service, tenantId, prescriptionId)
+  for (const rsv of pending) {
+    const { error: relErr } = await service.rpc('release_inventory_reservation', {
+      p_tenant_id: tenantId,
+      p_reservation_id: rsv.id,
+      p_operator_id: operatorId,
+    })
+    if (relErr && !relErr.message.includes('RESERVATION_ALREADY')) {
+      throw err.internal(`释放预留失败: ${relErr.message}`)
+    }
+  }
+  return pending.length
+}
+
+/**
+ * 处方无预留时按明细即时发药(FEFO 扣减,取门店默认仓库)
+ * 仅处理带 catalog_item_id 的药品条目,手工药名条目跳过
+ * @param service supabase service client
+ * @param prescription 处方行
+ * @param operatorId 操作人 id
+ * @returns { dispensed, skipped } 扣减条目数与跳过条目数
+ */
+async function dispensePrescriptionItems(
+  service: ReturnType<typeof createServiceClient>,
+  prescription: { id: string, tenant_id: string, store_id: string | null },
+  operatorId: string,
+) {
+  const { data: items, error: itemErr } = await service
+    .from('prescription_items')
+    .select('catalog_item_id, quantity, drug_name')
+    .eq('prescription_id', prescription.id)
+  if (itemErr) {
+    throw err.internal(`查询处方明细失败: ${itemErr.message}`)
+  }
+
+  const drugItems = (items ?? []).filter(i => i.catalog_item_id)
+  if (drugItems.length === 0) {
+    return { dispensed: 0, skipped: (items ?? []).length }
+  }
+
+  // 取门店默认仓库(优先同门店,其次租户下任意启用仓库);无仓库则跳过库存扣减
+  let whQuery = service
+    .from('warehouses')
+    .select('id')
+    .eq('tenant_id', prescription.tenant_id)
+    .eq('is_active', true)
+  if (prescription.store_id) {
+    whQuery = whQuery.eq('store_id', prescription.store_id)
+  }
+  const { data: wh } = await whQuery.limit(1).maybeSingle()
+  if (!wh) {
+    return { dispensed: 0, skipped: (items ?? []).length }
+  }
+
+  let dispensed = 0
+  for (const item of drugItems) {
+    const { error: dErr } = await service.rpc('dispense_inventory', {
+      p_tenant_id: prescription.tenant_id,
+      p_warehouse_id: wh.id,
+      p_catalog_item_id: item.catalog_item_id,
+      p_quantity: item.quantity,
+      p_reference_type: 'prescription',
+      p_reference_id: prescription.id,
+      p_operator_id: operatorId,
+    })
+    if (dErr) {
+      if (dErr.message.includes('INSUFFICIENT_STOCK')) {
+        throw err.conflict(`「${item.drug_name ?? ''}」库存不足`)
+      }
+      throw err.internal(`发药扣减失败: ${dErr.message}`)
+    }
+    dispensed += 1
+  }
+  return { dispensed, skipped: (items ?? []).length - drugItems.length }
+}
+
 /**
  * 发药(MXQ-7006)
  * - 权限:prescription.dispense
- * - 调 dispense_prescription RPC:draft→dispensed
- * - 库存扣减由 Inventory dispense RPC 完成,此处仅转换处方状态
+ * - P0-08 统一发药路径:
+ *   1. 处方有关联预留(reserve) → 逐个 confirm(预留转正式扣减,含 FEFO 批次扣减)
+ *   2. 无预留 → 对带 catalog_item_id 的明细即时 dispense(门店默认仓库,FEFO 扣减)
+ * - 随后调 dispense_prescription RPC 转状态:draft→dispensed
  */
 clinicalRoutes.post('/prescriptions/:id/dispense', async (c) => {
   const id = c.req.param('id')
-  await requirePermission(c, { code: 'prescription.dispense' })
 
   const service = createServiceClient()
   const user = c.get('user')
@@ -844,7 +1050,14 @@ clinicalRoutes.post('/prescriptions/:id/dispense', async (c) => {
   if (fetchError || !existing) {
     throw err.notFound('处方不存在')
   }
-  await requirePermission(c, { code: 'prescription.dispense', storeId: existing.store_id ?? undefined })
+  // P0-02 scoped:实体租户/门店作用域授权
+  await requireScopedPermission(c, { code: 'prescription.dispense', tenantId: existing.tenant_id, storeId: existing.store_id ?? undefined })
+
+  // P0-08:先完成库存扣减(确认预留或即时发药),再转处方状态
+  const confirmed = await confirmPrescriptionReservations(service, existing.tenant_id, id, user.id)
+  if (confirmed === 0) {
+    await dispensePrescriptionItems(service, existing, user.id)
+  }
 
   const { data, error: rpcError } = await service.rpc('dispense_prescription', {
     p_prescription_id: id,
@@ -867,13 +1080,13 @@ clinicalRoutes.post('/prescriptions/:id/dispense', async (c) => {
 /**
  * 取消处方(MXQ-7006)
  * - 权限:prescription.create
- * - draft→cancelled
+ * - P0-08:取消前先释放关联预留(reserved 正确释放),再 draft→cancelled
  */
 clinicalRoutes.post('/prescriptions/:id/cancel', async (c) => {
   const id = c.req.param('id')
-  await requirePermission(c, { code: 'prescription.create' })
 
   const service = createServiceClient()
+  const user = c.get('user')
   const { data: existing, error: fetchError } = await service
     .from('prescriptions')
     .select('id, tenant_id, store_id, status')
@@ -883,11 +1096,15 @@ clinicalRoutes.post('/prescriptions/:id/cancel', async (c) => {
   if (fetchError || !existing) {
     throw err.notFound('处方不存在')
   }
-  await requirePermission(c, { code: 'prescription.create', storeId: existing.store_id ?? undefined })
+  // P0-02 scoped:实体租户/门店作用域授权
+  await requireScopedPermission(c, { code: 'prescription.create', tenantId: existing.tenant_id, storeId: existing.store_id ?? undefined })
 
   if (existing.status !== 'draft') {
     throw err.conflict('仅待发药处方可取消')
   }
+
+  // P0-08:释放处方关联预留,防止库存永久占用
+  await releasePrescriptionReservations(service, existing.tenant_id, id, user.id)
 
   const { data, error } = await service
     .from('prescriptions')
@@ -916,6 +1133,7 @@ clinicalRoutes.post('/prescriptions/:id/cancel', async (c) => {
 // ============================================================
 
 const nurseTaskListSchema = z.object({
+  tenantId: z.string().uuid().optional(),
   storeId: z.string().uuid().optional(),
   assigneeId: z.string().uuid().optional(),
   petId: z.string().uuid().optional(),
@@ -932,12 +1150,18 @@ const nurseTaskListSchema = z.object({
  */
 clinicalRoutes.get('/nurse-tasks', async (c) => {
   const input = nurseTaskListSchema.parse(c.req.query())
-  await requirePermission(c, { code: 'nurse_task.view', storeId: input.storeId })
+  // P0-02 scoped:租户作用域授权(tenantId 缺失时取调用者首个成员租户)
+  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无法确定租户作用域')
+  }
+  const scope = await requireScopedPermission(c, { code: 'nurse_task.view', tenantId, storeId: input.storeId })
 
   const service = createServiceClient()
   let query = service
     .from('nurse_tasks')
     .select('*', { count: 'exact' })
+    .eq('tenant_id', scope.tenantId)
 
   if (input.storeId) {
     query = query.eq('store_id', input.storeId)
@@ -987,16 +1211,15 @@ const createNurseTaskSchema = z.object({
  */
 clinicalRoutes.post('/nurse-tasks', async (c) => {
   const input = await parseJsonBody(c, createNurseTaskSchema)
-  await requirePermission(c, { code: 'nurse_task.manage', storeId: input.storeId })
-  // 租户归属校验:请求体 tenantId 必须属于调用者
-  assertTenantAccess(c, input.tenantId)
+  // P0-02 scoped:租户/门店作用域授权(替代 requirePermission + assertTenantAccess)
+  const scope = await requireScopedPermission(c, { code: 'nurse_task.manage', tenantId: input.tenantId, storeId: input.storeId })
 
   const service = createServiceClient()
   const { data, error } = await service
     .from('nurse_tasks')
     .insert({
-      tenant_id: input.tenantId,
-      store_id: input.storeId ?? null,
+      tenant_id: scope.tenantId,
+      store_id: scope.storeId ?? null,
       encounter_id: input.encounterId ?? null,
       pet_id: input.petId,
       assigned_to: input.assignedTo || null,
@@ -1016,8 +1239,8 @@ clinicalRoutes.post('/nurse-tasks', async (c) => {
     action: 'nurse_task.create',
     entityType: 'nurse_task',
     entityId: data.id,
-    tenantId: input.tenantId,
-    storeId: input.storeId,
+    tenantId: scope.tenantId,
+    storeId: scope.storeId,
     metadata: { petId: input.petId, taskType: input.taskType },
   })
 
@@ -1041,7 +1264,6 @@ const updateNurseTaskSchema = z.object({
 clinicalRoutes.patch('/nurse-tasks/:id', async (c) => {
   const id = c.req.param('id')
   const input = await parseJsonBody(c, updateNurseTaskSchema)
-  await requirePermission(c, { code: 'nurse_task.manage' })
 
   const service = createServiceClient()
   const user = c.get('user')
@@ -1054,7 +1276,8 @@ clinicalRoutes.patch('/nurse-tasks/:id', async (c) => {
   if (fetchError || !existing) {
     throw err.notFound('护士任务不存在')
   }
-  await requirePermission(c, { code: 'nurse_task.manage', storeId: existing.store_id ?? undefined })
+  // P0-02 scoped:实体租户/门店作用域授权
+  await requireScopedPermission(c, { code: 'nurse_task.manage', tenantId: existing.tenant_id, storeId: existing.store_id ?? undefined })
 
   const patch: Record<string, unknown> = {}
   if (input.assignedTo !== undefined) {
@@ -1109,7 +1332,6 @@ clinicalRoutes.patch('/nurse-tasks/:id', async (c) => {
  */
 clinicalRoutes.delete('/nurse-tasks/:id', async (c) => {
   const id = c.req.param('id')
-  await requirePermission(c, { code: 'nurse_task.manage' })
 
   const service = createServiceClient()
   const { data: existing, error: fetchError } = await service
@@ -1121,7 +1343,8 @@ clinicalRoutes.delete('/nurse-tasks/:id', async (c) => {
   if (fetchError || !existing) {
     throw err.notFound('护士任务不存在')
   }
-  await requirePermission(c, { code: 'nurse_task.manage', storeId: existing.store_id ?? undefined })
+  // P0-02 scoped:实体租户/门店作用域授权
+  await requireScopedPermission(c, { code: 'nurse_task.manage', tenantId: existing.tenant_id, storeId: existing.store_id ?? undefined })
 
   const { error } = await service
     .from('nurse_tasks')

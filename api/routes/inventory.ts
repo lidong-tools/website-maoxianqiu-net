@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
 import { getRequestIdempotencyKey } from '../lib/idempotency'
-import { assertStoreTenant, assertTenantAccess, requirePermission } from '../lib/permission'
+import { requireScopedPermission } from '../lib/permission'
 import { getContext, loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
@@ -107,13 +107,18 @@ inventoryRoutes.post('/goods-receipt', async (c) => {
   if (!wh.is_active) {
     throw err.conflict('仓库已停用')
   }
-  await requirePermission(c, { code: 'inventory.receive', storeId: wh.store_id })
+  // P0-02 scoped:仓库级作用域授权,替代 requirePermission
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.receive',
+    tenantId: wh.tenant_id,
+    storeId: wh.store_id ?? undefined,
+  })
 
   const user = c.get('user')
   const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
 
   const { data, error } = await service.rpc('post_goods_receipt', {
-    p_tenant_id: input.tenantId,
+    p_tenant_id: scope.tenantId,
     p_warehouse_id: input.warehouseId,
     p_catalog_item_id: input.catalogItemId,
     p_batch_no: input.batchNo ?? null,
@@ -180,13 +185,18 @@ inventoryRoutes.post('/dispense', async (c) => {
   if (!wh.is_active) {
     throw err.conflict('仓库已停用')
   }
-  await requirePermission(c, { code: 'inventory.dispense', storeId: wh.store_id })
+  // P0-02 scoped:仓库级作用域授权,替代 requirePermission
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.dispense',
+    tenantId: wh.tenant_id,
+    storeId: wh.store_id ?? undefined,
+  })
 
   const user = c.get('user')
   const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
 
   const { data, error } = await service.rpc('dispense_inventory', {
-    p_tenant_id: input.tenantId,
+    p_tenant_id: scope.tenantId,
     p_warehouse_id: input.warehouseId,
     p_catalog_item_id: input.catalogItemId,
     p_quantity: input.quantity,
@@ -250,13 +260,18 @@ inventoryRoutes.post('/stock-count', async (c) => {
   if (!wh.is_active) {
     throw err.conflict('仓库已停用')
   }
-  await requirePermission(c, { code: 'inventory.count', storeId: wh.store_id })
+  // P0-02 scoped:仓库级作用域授权,替代 requirePermission
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.count',
+    tenantId: wh.tenant_id,
+    storeId: wh.store_id ?? undefined,
+  })
 
   const user = c.get('user')
   const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
 
   const { data, error } = await service.rpc('post_stock_count', {
-    p_tenant_id: input.tenantId,
+    p_tenant_id: scope.tenantId,
     p_warehouse_id: input.warehouseId,
     p_items: input.items.map(i => ({ catalog_item_id: i.catalogItemId, counted_quantity: i.countedQuantity })),
     p_operator_id: user.id,
@@ -318,7 +333,12 @@ inventoryRoutes.post('/transfer', async (c) => {
   if (!fromWh.is_active) {
     throw err.conflict('源仓库已停用')
   }
-  await requirePermission(c, { code: 'inventory.transfer', storeId: fromWh.store_id })
+  // P0-02 scoped:源仓库作用域授权,替代 requirePermission
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.transfer',
+    tenantId: fromWh.tenant_id,
+    storeId: fromWh.store_id ?? undefined,
+  })
 
   // 校验目标仓库(须同租户且调用者有权访问目标门店)
   const { data: toWh, error: toErr } = await service
@@ -333,13 +353,18 @@ inventoryRoutes.post('/transfer', async (c) => {
   if (!toWh.is_active) {
     throw err.conflict('目标仓库已停用')
   }
-  await requirePermission(c, { code: 'inventory.transfer', storeId: toWh.store_id })
+  // P0-02 scoped:目标仓库同样须在调用者门店作用域内
+  await requireScopedPermission(c, {
+    code: 'inventory.transfer',
+    tenantId: toWh.tenant_id,
+    storeId: toWh.store_id ?? undefined,
+  })
 
   const user = c.get('user')
   const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
 
   const { data, error } = await service.rpc('transfer_inventory', {
-    p_tenant_id: input.tenantId,
+    p_tenant_id: scope.tenantId,
     p_from_warehouse_id: input.fromWarehouseId,
     p_to_warehouse_id: input.toWarehouseId,
     p_catalog_item_id: input.catalogItemId,
@@ -403,13 +428,18 @@ inventoryRoutes.post('/reserve', async (c) => {
   if (!wh.is_active) {
     throw err.conflict('仓库已停用')
   }
-  await requirePermission(c, { code: 'inventory.reserve', storeId: wh.store_id })
+  // P0-02 scoped:仓库级作用域授权,替代 requirePermission
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.reserve',
+    tenantId: wh.tenant_id,
+    storeId: wh.store_id ?? undefined,
+  })
 
   const user = c.get('user')
   const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
 
   const { data, error } = await service.rpc('reserve_inventory', {
-    p_tenant_id: input.tenantId,
+    p_tenant_id: scope.tenantId,
     p_warehouse_id: input.warehouseId,
     p_catalog_item_id: input.catalogItemId,
     p_quantity: input.quantity,
@@ -491,14 +521,19 @@ async function resolveReservation(c: Context<AppEnv>, input: { tenantId: string,
 inventoryRoutes.post('/reserve/confirm', async (c) => {
   const input = await parseJsonBody(c, reservationProcessSchema)
   const { warehouse } = await resolveReservation(c, input)
-  await requirePermission(c, { code: 'inventory.confirm', storeId: warehouse.store_id })
+  // P0-02 scoped:按预留所属仓库作用域授权,替代 requirePermission
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.confirm',
+    tenantId: warehouse.tenant_id,
+    storeId: warehouse.store_id ?? undefined,
+  })
 
   const user = c.get('user')
   const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
   const service = createServiceClient()
 
   const { data, error } = await service.rpc('confirm_inventory_reservation', {
-    p_tenant_id: input.tenantId,
+    p_tenant_id: scope.tenantId,
     p_reservation_id: input.reservationId,
     p_operator_id: user.id,
     p_idempotency_key: idempotencyKey,
@@ -533,14 +568,19 @@ inventoryRoutes.post('/reserve/confirm', async (c) => {
 inventoryRoutes.post('/reserve/release', async (c) => {
   const input = await parseJsonBody(c, reservationProcessSchema)
   const { warehouse } = await resolveReservation(c, input)
-  await requirePermission(c, { code: 'inventory.release', storeId: warehouse.store_id })
+  // P0-02 scoped:按预留所属仓库作用域授权,替代 requirePermission
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.release',
+    tenantId: warehouse.tenant_id,
+    storeId: warehouse.store_id ?? undefined,
+  })
 
   const user = c.get('user')
   const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
   const service = createServiceClient()
 
   const { data, error } = await service.rpc('release_inventory_reservation', {
-    p_tenant_id: input.tenantId,
+    p_tenant_id: scope.tenantId,
     p_reservation_id: input.reservationId,
     p_operator_id: user.id,
     p_idempotency_key: idempotencyKey,
@@ -567,28 +607,60 @@ inventoryRoutes.post('/reserve/release', async (c) => {
 })
 
 /**
+ * 批量释放过期预留(P0-08,运维/定时触发;防支付失败等场景导致永久占用)
+ * - 权限:inventory.release
+ * - 行为:调 release_expired_reservations RPC,释放租户下所有已过 reserved_until 且未处理的 reserve 流水
+ */
+inventoryRoutes.post('/reserve/release-expired', async (c) => {
+  // P0-02 scoped:租户作用域授权(tenantId 缺失时取调用者首个成员租户)
+  const tenantId = c.req.query('tenantId') ?? getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无法确定租户作用域')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.release',
+    tenantId,
+  })
+
+  const user = c.get('user')
+  const service = createServiceClient()
+  const { data, error } = await service.rpc('release_expired_reservations', {
+    p_tenant_id: scope.tenantId,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw err.internal(`释放过期预留失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.releaseExpiredReservations',
+    entityType: 'inventory_movement',
+    tenantId: scope.tenantId,
+    metadata: (data ?? {}) as Record<string, unknown>,
+  })
+
+  return ok(c, data)
+})
+
+/**
  * 近效期预警(MXQ-9007)
  * - 权限:inventory.view
  * - 行为:查 inventory_near_expiry 视图,按当前工作租户/门店过滤
  */
 inventoryRoutes.get('/near-expiry', async (c) => {
-  await requirePermission(c, { code: 'inventory.view' })
-
-  const service = createServiceClient()
-  const tenantId = c.req.query('tenantId') ?? getContext(c).tenantId
+  // P0-02 scoped:校验 tenant 归属(缺失取调用者默认租户),并强制按 scope.tenantId 过滤
+  const tenantId = c.req.query('tenantId') ?? getContext(c).memberships[0]?.tenant_id
   const storeId = c.req.query('storeId')
   const warehouseId = c.req.query('warehouseId')
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.view',
+    tenantId: tenantId ?? '',
+    storeId: storeId ?? undefined,
+  })
 
-  // 跨租户隔离:query tenantId 必须与调用者成员关系一致;缺失时回退请求上下文租户,两者皆无则 400
-  assertTenantAccess(c, tenantId)
-
-  let query = service.from('inventory_near_expiry').select('*')
-  if (tenantId) {
-    query = query.eq('tenant_id', tenantId)
-  }
+  const service = createServiceClient()
+  let query = service.from('inventory_near_expiry').select('*').eq('tenant_id', scope.tenantId)
   if (storeId) {
-    // 门店归属校验(内部会再次校验调用者对该门店所属租户的访问权)
-    await assertStoreTenant(c, storeId)
     query = query.eq('store_id', storeId)
   }
   if (warehouseId) {

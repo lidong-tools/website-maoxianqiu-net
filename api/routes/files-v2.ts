@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
-import { assertTenantAccess, requirePermission } from '../lib/permission'
+import { requireScopedPermission } from '../lib/permission'
 import {
   createPresignedDownloadUrl,
   createPresignedUploadUrl,
@@ -14,7 +14,7 @@ import { getContext, loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { parseJsonBody } from '../lib/validation'
-import { authMiddleware, hasRole, loadCaller } from '../middlewares/auth'
+import { authMiddleware, loadCaller } from '../middlewares/auth'
 
 /**
  * 文件 Command 路由(MXQ-4003~4006)
@@ -121,7 +121,6 @@ const uploadIntentSchema = z.object({
  */
 fileCommandRoutes.post('/upload-intents', async (c) => {
   const input = await parseJsonBody(c, uploadIntentSchema)
-  await requirePermission(c, { code: 'file.upload', storeId: input.storeId })
 
   // 租户归属校验:tenantId 缺失时回退到调用者首个成员关系,仍不匹配则拒绝
   const context = getContext(c)
@@ -129,7 +128,12 @@ fileCommandRoutes.post('/upload-intents', async (c) => {
   if (!tenantId) {
     throw err.badRequest('缺少租户标识')
   }
-  assertTenantAccess(c, tenantId)
+  // P0-02 scoped:统一做租户+门店作用域授权(含权限码校验),替代 requirePermission + assertTenantAccess
+  await requireScopedPermission(c, {
+    code: 'file.upload',
+    tenantId,
+    storeId: input.storeId,
+  })
 
   // 按分类白名单校验 MIME 类型与大小(与前端 apps/maoxianqiu/src/types/file.ts 保持一致)
   if (!ALLOWED_MIME_BY_CATEGORY[input.category].test(input.contentType)) {
@@ -250,10 +254,13 @@ fileCommandRoutes.post('/:id/complete', async (c) => {
     throw err.notFound('文件不存在')
   }
 
-  // 权限校验(带 storeId 以收敛门店范围)
-  await requirePermission(c, { code: 'file.upload', storeId: file.store_id ?? undefined })
-  // 租户归属校验(tenant 级文件 store_id 为空时必须校验租户)
-  assertTenantAccess(c, file.tenant_id)
+  // 权限校验(带 storeId 以收敛门店范围)+ 租户归属校验(tenant 级文件 store_id 为空时必须校验租户)
+  // P0-02 scoped:统一作用域授权,替代 requirePermission + assertTenantAccess
+  await requireScopedPermission(c, {
+    code: 'file.upload',
+    tenantId: file.tenant_id,
+    storeId: file.store_id ?? undefined,
+  })
   // 仅上传者本人可完成上传(历史数据 uploaded_by 为空时放行,以租户归属校验为准)
   if (file.uploaded_by && file.uploaded_by !== user.id) {
     throw err.forbidden('仅上传者可完成该文件上传')
@@ -327,10 +334,13 @@ fileCommandRoutes.post('/:id/download-url', async (c) => {
     throw err.notFound('文件不存在')
   }
 
-  // 权限校验(带 storeId 以收敛门店范围,同时触发权限码懒加载)
-  await requirePermission(c, { code: 'file.download', storeId: file.store_id ?? undefined })
-  // 租户归属校验(tenant 级文件 store_id 为空时必须校验租户归属)
-  assertTenantAccess(c, file.tenant_id)
+  // 权限校验(带 storeId 以收敛门店范围)+ 租户归属校验(tenant 级文件 store_id 为空时必须校验租户归属)
+  // P0-02 scoped:统一作用域授权,替代 requirePermission + assertTenantAccess
+  await requireScopedPermission(c, {
+    code: 'file.download',
+    tenantId: file.tenant_id,
+    storeId: file.store_id ?? undefined,
+  })
 
   if (file.status === 'archived') {
     throw err.conflict('文件已归档,不可下载')
@@ -389,7 +399,12 @@ fileCommandRoutes.post('/:id/archive', async (c) => {
     throw err.notFound('文件不存在')
   }
 
-  await requirePermission(c, { code: 'file.archive', storeId: file.store_id ?? undefined })
+  // P0-02 scoped:统一作用域授权,替代 requirePermission
+  await requireScopedPermission(c, {
+    code: 'file.archive',
+    tenantId: file.tenant_id,
+    storeId: file.store_id ?? undefined,
+  })
 
   const { data: updated, error: rpcError } = await service.rpc('archive_file', {
     p_file_id: fileId,
@@ -427,22 +442,29 @@ fileCommandRoutes.post('/:id/archive', async (c) => {
  */
 fileCommandRoutes.post('/:id/delete', async (c) => {
   const fileId = c.req.param('id')
-  await requirePermission(c, { code: 'file.delete' })
-
-  // 额外校验:仅超管可物理删除
-  if (!hasRole(c, 'system_admin')) {
-    throw err.forbidden('仅系统管理员可物理删除文件')
-  }
 
   const service = createServiceClient()
+  // 先查文件实体获取 tenant,再授权(防止跨租户直接操作)
   const { data: file, error: fetchError } = await service
     .from('files')
-    .select('id, object_key, status')
+    .select('id, tenant_id, store_id, object_key, status')
     .eq('id', fileId)
     .maybeSingle()
 
   if (fetchError || !file) {
     throw err.notFound('文件不存在')
+  }
+
+  // P0-02 scoped:统一作用域授权,替代 requirePermission
+  const scope = await requireScopedPermission(c, {
+    code: 'file.delete',
+    tenantId: file.tenant_id,
+    storeId: file.store_id ?? undefined,
+  })
+
+  // 额外校验:仅超管可物理删除
+  if (!scope.isPlatformAdmin) {
+    throw err.forbidden('仅系统管理员可物理删除文件')
   }
 
   // 仅允许删除已归档文件

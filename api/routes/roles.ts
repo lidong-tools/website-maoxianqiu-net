@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
-import { assertTenantAccess, requirePermission } from '../lib/permission'
+import { requireScopedPermission } from '../lib/permission'
 import { loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
@@ -31,7 +31,6 @@ const replacePermissionsSchema = z.object({
  */
 roleRoutes.post('/replace-permissions', async (c) => {
   const input = await parseJsonBody(c, replacePermissionsSchema)
-  await requirePermission(c, { code: 'role.permission.update' })
 
   const service = createServiceClient()
 
@@ -48,8 +47,11 @@ roleRoutes.post('/replace-permissions', async (c) => {
   if (role.is_system) {
     throw err.forbidden('系统内置角色不可修改权限')
   }
-  // MXQ-3007 跨租户防护:角色须归属调用者所属租户
-  assertTenantAccess(c, role.tenant_id)
+  // P0-02 scoped: 租户角色必须归属租户,基于实体租户解析授权作用域(平台管理员跨租户放行)
+  if (!role.tenant_id) {
+    throw err.badRequest('缺少租户标识')
+  }
+  await requireScopedPermission(c, { code: 'role.permission.update', tenantId: role.tenant_id })
 
   const { error } = await service.rpc('replace_role_permissions', {
     p_role_id: input.roleId,

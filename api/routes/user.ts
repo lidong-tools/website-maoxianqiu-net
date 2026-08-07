@@ -3,12 +3,12 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
-import { assertStoreTenant, requirePermission } from '../lib/permission'
-import { loadContext } from '../lib/request-context'
+import { assertStoreTenant, requireScopedPermission } from '../lib/permission'
+import { getContext, loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { parseJsonBody } from '../lib/validation'
-import { authMiddleware, canManageStore, hasRole, loadCaller } from '../middlewares/auth'
+import { authMiddleware, canManageStore, loadCaller } from '../middlewares/auth'
 
 const userRoutes = new Hono<AppEnv>()
 
@@ -32,12 +32,6 @@ const createSchema = z.object({
  */
 userRoutes.post('/create', async (c) => {
   const input = await parseJsonBody(c, createSchema)
-  await requirePermission(c, { code: 'system.user.create', storeId: input.storeId })
-
-  if (!canManageStore(c, input.storeId)) {
-    throw err.forbidden('无权限管理该店铺')
-  }
-
   const service = createServiceClient()
   const user = c.get('user')
 
@@ -47,6 +41,12 @@ userRoutes.post('/create', async (c) => {
     throw err.badRequest('租户与门店归属不一致')
   }
   const tenantId = input.tenantId ?? storeTenantId
+  // P0-02 scoped: 按解析后的租户+门店解析授权作用域(平台管理员跨租户放行)
+  const scope = await requireScopedPermission(c, { code: 'system.user.create', tenantId, storeId: input.storeId })
+
+  if (!canManageStore(c, scope.storeId ?? input.storeId)) {
+    throw err.forbidden('无权限管理该店铺')
+  }
 
   // 1) 建 auth 用户
   const { data, error } = await service.auth.admin.createUser({
@@ -66,13 +66,13 @@ userRoutes.post('/create', async (c) => {
 
   // 2) 调 invite_employee RPC(事务化建 tenant_membership + employee + store_assignment + role_assignment)
   const { error: rpcError } = await service.rpc('invite_employee', {
-    p_tenant_id: tenantId,
+    p_tenant_id: scope.tenantId,
     p_user_id: userId,
     p_employee_no: input.employeeNo || input.account,
     p_name: input.realName || input.account,
     p_phone: input.phone ?? null,
     p_email: input.account,
-    p_store_id: input.storeId,
+    p_store_id: scope.storeId ?? null,
     p_role_id: input.roleId,
     p_is_primary: true,
     p_invited_by: user.id,
@@ -103,9 +103,15 @@ const resetSchema = z.object({
 // admin 重置密码(需 service role)
 userRoutes.post('/reset-password', async (c) => {
   const input = await parseJsonBody(c, resetSchema)
-  await requirePermission(c, { code: 'system.user.resetPassword' })
 
-  if (!hasRole(c, 'system_admin')) {
+  // P0-02 scoped: 以调用者默认租户为授权目标租户(平台管理员跨租户放行)
+  const tenantId = getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无权访问该租户的数据')
+  }
+  const scope = await requireScopedPermission(c, { code: 'system.user.resetPassword', tenantId })
+
+  if (!scope.isPlatformAdmin) {
     const service = createServiceClient()
     const { data: memberships } = await service.from('store_members').select('store_id').eq('user_id', input.id)
     const managed = (memberships ?? []).some((item: { store_id: string }) => canManageStore(c, item.store_id))

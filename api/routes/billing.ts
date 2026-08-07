@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
 import { getRequestIdempotencyKey } from '../lib/idempotency'
-import { requirePermission } from '../lib/permission'
+import { requireScopedPermission } from '../lib/permission'
 import { loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
@@ -92,6 +92,73 @@ function mapRpcError(error: { message: string }) {
   return err.internal(`收费操作失败: ${msg}`)
 }
 
+/**
+ * 释放就诊下所有处方的未处理预留(取消发票时调用,防止库存永久占用)
+ * 仅处理尚未 confirm/release 的 reserve 流水,已发药(confirm 已扣减)的不受影响
+ * @param service supabase service client
+ * @param tenantId 租户 id
+ * @param encounterId 就诊 id
+ * @param operatorId 操作人 id
+ * @returns 释放条数
+ */
+async function releasePrescriptionReservationsByEncounter(
+  service: ReturnType<typeof createServiceClient>,
+  tenantId: string,
+  encounterId: string,
+  operatorId: string,
+) {
+  const { data: rxs, error: rxErr } = await service
+    .from('prescriptions')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('encounter_id', encounterId)
+  if (rxErr) {
+    throw err.internal(`查询就诊处方失败: ${rxErr.message}`)
+  }
+  const rxIds = (rxs ?? []).map(r => r.id as string)
+  if (rxIds.length === 0) {
+    return 0
+  }
+  const { data: reserves, error: rErr } = await service
+    .from('inventory_movements')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('movement_type', 'reserve')
+    .eq('reference_type', 'prescription')
+    .in('reference_id', rxIds)
+  if (rErr) {
+    throw err.internal(`查询处方预留失败: ${rErr.message}`)
+  }
+  const reserveIds = (reserves ?? []).map(r => r.id as string)
+  if (reserveIds.length === 0) {
+    return 0
+  }
+  // 已被 confirm/release 处理的预留 id 集合(并发/重复取消时跳过)
+  const { data: processed } = await service
+    .from('inventory_movements')
+    .select('reference_id')
+    .eq('reference_type', 'inventory_reservation')
+    .in('movement_type', ['confirm', 'release'])
+    .in('reference_id', reserveIds)
+  const processedIds = new Set((processed ?? []).map(p => p.reference_id as string))
+  let released = 0
+  for (const reserveId of reserveIds) {
+    if (processedIds.has(reserveId)) {
+      continue
+    }
+    const { error: relErr } = await service.rpc('release_inventory_reservation', {
+      p_tenant_id: tenantId,
+      p_reservation_id: reserveId,
+      p_operator_id: operatorId,
+    })
+    if (relErr && !relErr.message.includes('RESERVATION_ALREADY')) {
+      throw err.internal(`释放预留失败: ${relErr.message}`)
+    }
+    released += 1
+  }
+  return released
+}
+
 const createInvoiceSchema = z.object({
   tenantId: z.string().uuid('租户 id 格式错误'),
   storeId: z.string().uuid('门店 id 格式错误'),
@@ -126,7 +193,12 @@ const createInvoiceSchema = z.object({
  */
 billingRoutes.post('/invoices', async (c) => {
   const input = await parseJsonBody(c, createInvoiceSchema)
-  await requirePermission(c, { code: 'invoice.create', storeId: input.storeId })
+  // P0-02 scoped:租户/门店作用域授权,替代 requirePermission
+  const scope = await requireScopedPermission(c, {
+    code: 'invoice.create',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
 
   const service = createServiceClient()
   const user = c.get('user')
@@ -146,8 +218,8 @@ billingRoutes.post('/invoices', async (c) => {
   }))
 
   const { data, error } = await service.rpc('create_invoice', {
-    p_tenant_id: input.tenantId,
-    p_store_id: input.storeId,
+    p_tenant_id: scope.tenantId,
+    p_store_id: scope.storeId ?? null,
     p_customer_id: input.customerId ?? null,
     p_pet_id: input.petId ?? null,
     p_encounter_id: input.encounterId ?? null,
@@ -202,7 +274,12 @@ billingRoutes.post('/invoices/:id/confirm', async (c) => {
   if (fetchErr || !invoice) {
     throw err.notFound('发票不存在')
   }
-  await requirePermission(c, { code: 'invoice.confirm', storeId: invoice.store_id })
+  // P0-02 scoped:按发票租户/门店做作用域授权,替代 requirePermission
+  await requireScopedPermission(c, {
+    code: 'invoice.confirm',
+    tenantId: invoice.tenant_id,
+    storeId: invoice.store_id ?? undefined,
+  })
 
   const user = c.get('user')
   const { data, error } = await service.rpc('confirm_invoice', {
@@ -242,13 +319,18 @@ billingRoutes.post('/invoices/:id/cancel', async (c) => {
   const service = createServiceClient()
   const { data: invoice, error: fetchErr } = await service
     .from('invoices')
-    .select('id, tenant_id, store_id, status')
+    .select('id, tenant_id, store_id, status, encounter_id')
     .eq('id', invoiceId)
     .maybeSingle()
   if (fetchErr || !invoice) {
     throw err.notFound('发票不存在')
   }
-  await requirePermission(c, { code: 'invoice.cancel', storeId: invoice.store_id })
+  // P0-02 scoped:按发票租户/门店做作用域授权,替代 requirePermission
+  await requireScopedPermission(c, {
+    code: 'invoice.cancel',
+    tenantId: invoice.tenant_id,
+    storeId: invoice.store_id ?? undefined,
+  })
 
   const user = c.get('user')
   const { data, error } = await service.rpc('cancel_invoice', {
@@ -259,6 +341,12 @@ billingRoutes.post('/invoices/:id/cancel', async (c) => {
 
   if (error) {
     throw mapRpcError(error)
+  }
+
+  // P0-08:发票关联就诊时,联动释放该就诊下处方的未处理预留,防止库存永久占用
+  // 仅释放 pending 的 reserve 流水,已发药(confirm 已扣减)的不受影响
+  if (invoice.encounter_id) {
+    await releasePrescriptionReservationsByEncounter(service, invoice.tenant_id, invoice.encounter_id, user.id)
   }
 
   await writeAudit(c, {
@@ -296,7 +384,12 @@ billingRoutes.post('/approvals/:id/decide', async (c) => {
   if (fetchErr || !approval) {
     throw err.notFound('审批记录不存在')
   }
-  await requirePermission(c, { code: 'invoice.confirm', storeId: approval.store_id })
+  // P0-02 scoped:按审批租户/门店做作用域授权,替代 requirePermission
+  await requireScopedPermission(c, {
+    code: 'invoice.confirm',
+    tenantId: approval.tenant_id,
+    storeId: approval.store_id ?? undefined,
+  })
 
   const user = c.get('user')
   const { data, error } = await service.rpc('approve_discount', {
@@ -349,7 +442,12 @@ billingRoutes.post('/payments', async (c) => {
   if (fetchErr || !invoice) {
     throw err.notFound('发票不存在')
   }
-  await requirePermission(c, { code: 'payment.process', storeId: invoice.store_id })
+  // P0-02 scoped:按发票租户/门店做作用域授权,替代 requirePermission
+  await requireScopedPermission(c, {
+    code: 'payment.process',
+    tenantId: invoice.tenant_id,
+    storeId: invoice.store_id ?? undefined,
+  })
 
   const user = c.get('user')
   const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
@@ -412,7 +510,12 @@ billingRoutes.post('/refunds', async (c) => {
   if (fetchErr || !invoice) {
     throw err.notFound('发票不存在')
   }
-  await requirePermission(c, { code: 'refund.process', storeId: invoice.store_id })
+  // P0-02 scoped:按发票租户/门店做作用域授权,替代 requirePermission
+  await requireScopedPermission(c, {
+    code: 'refund.process',
+    tenantId: invoice.tenant_id,
+    storeId: invoice.store_id ?? undefined,
+  })
 
   const user = c.get('user')
   const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
@@ -464,7 +567,12 @@ billingRoutes.post('/invoices/:id/receipt', async (c) => {
   if (fetchErr || !invoice) {
     throw err.notFound('发票不存在')
   }
-  await requirePermission(c, { code: 'receipt.print', storeId: invoice.store_id })
+  // P0-02 scoped:按发票租户/门店做作用域授权,替代 requirePermission
+  await requireScopedPermission(c, {
+    code: 'receipt.print',
+    tenantId: invoice.tenant_id,
+    storeId: invoice.store_id ?? undefined,
+  })
 
   const { data, error } = await service.rpc('generate_receipt', {
     p_invoice_id: invoiceId,

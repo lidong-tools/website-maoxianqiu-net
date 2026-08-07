@@ -3,8 +3,8 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
-import { assertTenantAccess, requirePermission } from '../lib/permission'
-import { loadContext } from '../lib/request-context'
+import { requireScopedPermission } from '../lib/permission'
+import { getContext, loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { parseJsonBody } from '../lib/validation'
@@ -42,13 +42,18 @@ const migrateSchema = z.object({
  */
 catalogRoutes.post('/migrate-to-store', async (c) => {
   const input = await parseJsonBody(c, migrateSchema)
-  await requirePermission(c, { code: 'catalog.storePrice.manage', storeId: input.storeId })
+  // P0-02 scoped:租户/门店作用域授权,替代 requirePermission
+  const scope = await requireScopedPermission(c, {
+    code: 'catalog.storePrice.manage',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
 
   const service = createServiceClient()
   const user = c.get('user')
   const { data, error: rpcError } = await service.rpc('migrate_catalog_to_store', {
-    p_tenant_id: input.tenantId,
-    p_store_id: input.storeId,
+    p_tenant_id: scope.tenantId,
+    p_store_id: scope.storeId ?? null,
     p_category_code: input.categoryCode ?? null,
     p_operator_id: user.id,
   })
@@ -99,13 +104,17 @@ const intakeQuestionListSchema = z.object({
  */
 catalogRoutes.get('/intake-questions', async (c) => {
   const input = intakeQuestionListSchema.parse(c.req.query())
-  await requirePermission(c, { code: 'catalog.view' })
+  // P0-02 scoped:校验 tenant 归属,缺失时取调用者默认租户
+  const scope = await requireScopedPermission(c, {
+    code: 'catalog.view',
+    tenantId: input.tenantId ?? (getContext(c).memberships[0]?.tenant_id ?? ''),
+  })
 
   const service = createServiceClient()
   let query = service
     .from('intake_questions')
     .select('*', { count: 'exact' })
-    .eq('tenant_id', input.tenantId)
+    .eq('tenant_id', scope.tenantId)
 
   if (input.category) {
     query = query.eq('category', input.category)
@@ -140,15 +149,14 @@ const createIntakeQuestionSchema = z.object({
  */
 catalogRoutes.post('/intake-questions', async (c) => {
   const input = await parseJsonBody(c, createIntakeQuestionSchema)
-  await requirePermission(c, { code: 'catalog.manage' })
-  // 跨租户隔离:请求体 tenantId 必须与调用者成员关系一致
-  assertTenantAccess(c, input.tenantId)
+  // P0-02 scoped:租户作用域授权(含跨租户隔离校验),替代 requirePermission + assertTenantAccess
+  const scope = await requireScopedPermission(c, { code: 'catalog.manage', tenantId: input.tenantId })
 
   const service = createServiceClient()
   const { data, error } = await service
     .from('intake_questions')
     .insert({
-      tenant_id: input.tenantId,
+      tenant_id: scope.tenantId,
       category: input.category,
       question: input.question,
       sort_order: input.sortOrder,
@@ -185,7 +193,6 @@ const updateIntakeQuestionSchema = z.object({
 catalogRoutes.patch('/intake-questions/:id', async (c) => {
   const id = c.req.param('id')
   const input = await parseJsonBody(c, updateIntakeQuestionSchema)
-  await requirePermission(c, { code: 'catalog.manage' })
 
   const patch: Record<string, string | number | boolean> = {}
   if (input.category !== undefined) {
@@ -211,7 +218,8 @@ catalogRoutes.patch('/intake-questions/:id', async (c) => {
   if (findErr || !existing) {
     throw err.notFound('问诊问题不存在')
   }
-  assertTenantAccess(c, existing.tenant_id)
+  // P0-02 scoped:按实体租户做作用域授权,替代 requirePermission + assertTenantAccess
+  await requireScopedPermission(c, { code: 'catalog.manage', tenantId: existing.tenant_id })
 
   const { data, error } = await service
     .from('intake_questions')
@@ -243,7 +251,6 @@ catalogRoutes.patch('/intake-questions/:id', async (c) => {
  */
 catalogRoutes.delete('/intake-questions/:id', async (c) => {
   const id = c.req.param('id')
-  await requirePermission(c, { code: 'catalog.manage' })
 
   const service = createServiceClient()
   // 跨租户隔离:先查记录归属再校验调用者访问权
@@ -255,7 +262,8 @@ catalogRoutes.delete('/intake-questions/:id', async (c) => {
   if (findErr || !existing) {
     throw err.notFound('问诊问题不存在')
   }
-  assertTenantAccess(c, existing.tenant_id)
+  // P0-02 scoped:按实体租户做作用域授权,替代 requirePermission + assertTenantAccess
+  await requireScopedPermission(c, { code: 'catalog.manage', tenantId: existing.tenant_id })
 
   const { error } = await service.from('intake_questions').delete().eq('id', id)
   if (error) {
@@ -288,13 +296,17 @@ const diagnosisListSchema = z.object({
  */
 catalogRoutes.get('/diagnosis-dict', async (c) => {
   const input = diagnosisListSchema.parse(c.req.query())
-  await requirePermission(c, { code: 'catalog.view' })
+  // P0-02 scoped:校验 tenant 归属,缺失时取调用者默认租户
+  const scope = await requireScopedPermission(c, {
+    code: 'catalog.view',
+    tenantId: input.tenantId ?? (getContext(c).memberships[0]?.tenant_id ?? ''),
+  })
 
   const service = createServiceClient()
   let query = service
     .from('diagnosis_dict')
     .select('*', { count: 'exact' })
-    .eq('tenant_id', input.tenantId)
+    .eq('tenant_id', scope.tenantId)
 
   if (input.category) {
     query = query.eq('category', input.category)
@@ -332,13 +344,14 @@ const createDiagnosisSchema = z.object({
  */
 catalogRoutes.post('/diagnosis-dict', async (c) => {
   const input = await parseJsonBody(c, createDiagnosisSchema)
-  await requirePermission(c, { code: 'catalog.manage' })
+  // P0-02 scoped:租户作用域授权,替代 requirePermission
+  const scope = await requireScopedPermission(c, { code: 'catalog.manage', tenantId: input.tenantId })
 
   const service = createServiceClient()
   const { data, error } = await service
     .from('diagnosis_dict')
     .insert({
-      tenant_id: input.tenantId,
+      tenant_id: scope.tenantId,
       code: input.code,
       name: input.name,
       category: input.category ?? null,
@@ -379,7 +392,6 @@ const updateDiagnosisSchema = z.object({
 catalogRoutes.patch('/diagnosis-dict/:id', async (c) => {
   const id = c.req.param('id')
   const input = await parseJsonBody(c, updateDiagnosisSchema)
-  await requirePermission(c, { code: 'catalog.manage' })
 
   const patch: Record<string, string | boolean | null> = {}
   if (input.name !== undefined) {
@@ -405,7 +417,8 @@ catalogRoutes.patch('/diagnosis-dict/:id', async (c) => {
   if (findErr || !existing) {
     throw err.notFound('诊断字典不存在')
   }
-  assertTenantAccess(c, existing.tenant_id)
+  // P0-02 scoped:按实体租户做作用域授权,替代 requirePermission + assertTenantAccess
+  await requireScopedPermission(c, { code: 'catalog.manage', tenantId: existing.tenant_id })
 
   const { data, error } = await service
     .from('diagnosis_dict')
@@ -437,7 +450,6 @@ catalogRoutes.patch('/diagnosis-dict/:id', async (c) => {
  */
 catalogRoutes.delete('/diagnosis-dict/:id', async (c) => {
   const id = c.req.param('id')
-  await requirePermission(c, { code: 'catalog.manage' })
 
   const service = createServiceClient()
   // 跨租户隔离:先查记录归属再校验调用者访问权
@@ -449,7 +461,8 @@ catalogRoutes.delete('/diagnosis-dict/:id', async (c) => {
   if (findErr || !existing) {
     throw err.notFound('诊断字典不存在')
   }
-  assertTenantAccess(c, existing.tenant_id)
+  // P0-02 scoped:按实体租户做作用域授权,替代 requirePermission + assertTenantAccess
+  await requireScopedPermission(c, { code: 'catalog.manage', tenantId: existing.tenant_id })
 
   const { error } = await service.from('diagnosis_dict').delete().eq('id', id)
   if (error) {
@@ -481,13 +494,17 @@ const labPanelListSchema = z.object({
  */
 catalogRoutes.get('/lab-panels', async (c) => {
   const input = labPanelListSchema.parse(c.req.query())
-  await requirePermission(c, { code: 'catalog.view' })
+  // P0-02 scoped:校验 tenant 归属,缺失时取调用者默认租户
+  const scope = await requireScopedPermission(c, {
+    code: 'catalog.view',
+    tenantId: input.tenantId ?? (getContext(c).memberships[0]?.tenant_id ?? ''),
+  })
 
   const service = createServiceClient()
   let query = service
     .from('lab_panels')
     .select('*', { count: 'exact' })
-    .eq('tenant_id', input.tenantId)
+    .eq('tenant_id', scope.tenantId)
 
   if (input.category) {
     query = query.eq('category', input.category)
@@ -522,15 +539,14 @@ const createLabPanelSchema = z.object({
  */
 catalogRoutes.post('/lab-panels', async (c) => {
   const input = await parseJsonBody(c, createLabPanelSchema)
-  await requirePermission(c, { code: 'catalog.manage' })
-  // 跨租户隔离:请求体 tenantId 必须与调用者成员关系一致
-  assertTenantAccess(c, input.tenantId)
+  // P0-02 scoped:租户作用域授权(含跨租户隔离校验),替代 requirePermission + assertTenantAccess
+  const scope = await requireScopedPermission(c, { code: 'catalog.manage', tenantId: input.tenantId })
 
   const service = createServiceClient()
   const { data, error } = await service
     .from('lab_panels')
     .insert({
-      tenant_id: input.tenantId,
+      tenant_id: scope.tenantId,
       code: input.code,
       name: input.name,
       category: input.category,
@@ -571,7 +587,6 @@ const updateLabPanelSchema = z.object({
 catalogRoutes.patch('/lab-panels/:id', async (c) => {
   const id = c.req.param('id')
   const input = await parseJsonBody(c, updateLabPanelSchema)
-  await requirePermission(c, { code: 'catalog.manage' })
 
   const patch: Record<string, string | boolean | null> = {}
   if (input.name !== undefined) {
@@ -597,7 +612,8 @@ catalogRoutes.patch('/lab-panels/:id', async (c) => {
   if (findErr || !existing) {
     throw err.notFound('检验 panel 不存在')
   }
-  assertTenantAccess(c, existing.tenant_id)
+  // P0-02 scoped:按实体租户做作用域授权,替代 requirePermission + assertTenantAccess
+  await requireScopedPermission(c, { code: 'catalog.manage', tenantId: existing.tenant_id })
 
   const { data, error } = await service
     .from('lab_panels')
@@ -630,7 +646,6 @@ catalogRoutes.patch('/lab-panels/:id', async (c) => {
  */
 catalogRoutes.delete('/lab-panels/:id', async (c) => {
   const id = c.req.param('id')
-  await requirePermission(c, { code: 'catalog.manage' })
 
   const service = createServiceClient()
   // 跨租户隔离:先查记录归属再校验调用者访问权
@@ -642,7 +657,8 @@ catalogRoutes.delete('/lab-panels/:id', async (c) => {
   if (findErr || !existing) {
     throw err.notFound('检验 panel 不存在')
   }
-  assertTenantAccess(c, existing.tenant_id)
+  // P0-02 scoped:按实体租户做作用域授权,替代 requirePermission + assertTenantAccess
+  await requireScopedPermission(c, { code: 'catalog.manage', tenantId: existing.tenant_id })
 
   const { error } = await service.from('lab_panels').delete().eq('id', id)
   if (error) {
@@ -671,7 +687,11 @@ const labAnalyteListSchema = z.object({
  */
 catalogRoutes.get('/lab-analytes', async (c) => {
   const input = labAnalyteListSchema.parse(c.req.query())
-  await requirePermission(c, { code: 'catalog.view' })
+  // P0-02 scoped:无 tenantId 参数,以调用者默认租户做作用域授权
+  await requireScopedPermission(c, {
+    code: 'catalog.view',
+    tenantId: getContext(c).memberships[0]?.tenant_id ?? '',
+  })
 
   const service = createServiceClient()
   const { data, error } = await service
@@ -706,7 +726,6 @@ const createLabAnalyteSchema = z.object({
  */
 catalogRoutes.post('/lab-analytes', async (c) => {
   const input = await parseJsonBody(c, createLabAnalyteSchema)
-  await requirePermission(c, { code: 'catalog.manage' })
 
   const service = createServiceClient()
   // 跨租户隔离:通过 panel 归属校验调用者租户访问权
@@ -718,7 +737,8 @@ catalogRoutes.post('/lab-analytes', async (c) => {
   if (panelErr || !panel) {
     throw err.notFound('检验 panel 不存在')
   }
-  assertTenantAccess(c, panel.tenant_id)
+  // P0-02 scoped:按 panel 租户做作用域授权,替代 requirePermission + assertTenantAccess
+  await requireScopedPermission(c, { code: 'catalog.manage', tenantId: panel.tenant_id })
 
   const { data, error } = await service
     .from('lab_analytes')
@@ -767,7 +787,6 @@ const updateLabAnalyteSchema = z.object({
 catalogRoutes.patch('/lab-analytes/:id', async (c) => {
   const id = c.req.param('id')
   const input = await parseJsonBody(c, updateLabAnalyteSchema)
-  await requirePermission(c, { code: 'catalog.manage' })
 
   const patch: Record<string, string | number | boolean | null> = {}
   if (input.name !== undefined) {
@@ -810,7 +829,8 @@ catalogRoutes.patch('/lab-analytes/:id', async (c) => {
   if (panelErr || !panel) {
     throw err.notFound('检验 panel 不存在')
   }
-  assertTenantAccess(c, panel.tenant_id)
+  // P0-02 scoped:按 panel 租户做作用域授权,替代 requirePermission + assertTenantAccess
+  await requireScopedPermission(c, { code: 'catalog.manage', tenantId: panel.tenant_id })
 
   const { data, error } = await service
     .from('lab_analytes')
@@ -842,7 +862,6 @@ catalogRoutes.patch('/lab-analytes/:id', async (c) => {
  */
 catalogRoutes.delete('/lab-analytes/:id', async (c) => {
   const id = c.req.param('id')
-  await requirePermission(c, { code: 'catalog.manage' })
 
   const service = createServiceClient()
   // 跨租户隔离:先查 analyte 归属 panel,再校验 panel 租户访问权
@@ -862,7 +881,8 @@ catalogRoutes.delete('/lab-analytes/:id', async (c) => {
   if (panelErr || !panel) {
     throw err.notFound('检验 panel 不存在')
   }
-  assertTenantAccess(c, panel.tenant_id)
+  // P0-02 scoped:按 panel 租户做作用域授权,替代 requirePermission + assertTenantAccess
+  await requireScopedPermission(c, { code: 'catalog.manage', tenantId: panel.tenant_id })
 
   const { error } = await service.from('lab_analytes').delete().eq('id', id)
   if (error) {

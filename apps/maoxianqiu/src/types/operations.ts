@@ -287,6 +287,114 @@ export function canTransitionPrintJobStatus(from: PrintJobStatus, to: PrintJobSt
   return PRINT_JOB_STATUS_TRANSITIONS[from].includes(to)
 }
 
+// ===== P0-05 打印真实业务数据 DTO(GET /api/operations/print-data/:entityType/:entityId) =====
+
+/** 打印单据通用信息(医院/门店/客户/宠物/医生/操作员) */
+export interface PrintDataBase {
+  hospital: { name: string, shortName?: string }
+  store: { name: string, code?: string, address?: string, phone?: string } | null
+  customer: { name: string, phone?: string, gender?: string } | null
+  pet: { name: string, species?: string, breed?: string, gender?: string, weight?: number } | null
+  doctor: { name: string, title?: string } | null
+  operator: { name: string } | null
+  createdAt: string
+}
+
+/** 收费单打印区段 */
+export interface InvoicePrintSection {
+  invoiceNo: string
+  status: string
+  subtotal: number
+  discountAmount: number
+  discountReason?: string | null
+  taxAmount: number
+  total: number
+  paidAmount: number
+  paymentMethod?: string | null
+  dueDate?: string | null
+  items: Array<{
+    name: string
+    unitPrice: number
+    quantity: number
+    discountAmount: number
+    amount: number
+    category?: string
+  }>
+}
+
+/** 病历打印区段 */
+export interface MedicalRecordPrintSection {
+  status: string
+  startedAt?: string | null
+  endedAt?: string | null
+  chiefComplaint?: string | null
+  historyPresent?: string | null
+  examFindings?: string | null
+  diagnosisCodes: string[]
+  diagnosisText?: string | null
+  treatmentPlan?: string | null
+  followUpDate?: string | null
+  signedAt?: string | null
+}
+
+/** 处方打印区段 */
+export interface PrescriptionPrintSection {
+  status: string
+  items: Array<{
+    drugName: string
+    dosage?: string | null
+    frequency?: string | null
+    durationDays?: number | null
+    quantity: number
+    unit?: string | null
+    instructions?: string | null
+  }>
+}
+
+/** 检验报告打印区段 */
+export interface LabReportPrintSection {
+  orderNo: string
+  status: string
+  requestedAt?: string | null
+  completedAt?: string | null
+  analytes: Array<{
+    name: string
+    resultValue?: string | null
+    unit?: string | null
+    refRange?: string | null
+    isAbnormal: boolean
+    isCritical: boolean
+    flag?: string | null
+    note?: string | null
+  }>
+}
+
+/** 疫苗证明打印区段 */
+export interface VaccineCertificatePrintSection {
+  certificateNo: string
+  status: string
+  issuedDate?: string | null
+  vaccinations: Array<{
+    vaccineName?: string | null
+    doseNo?: number | null
+    administeredDate?: string | null
+    batchNo?: string | null
+    manufacturer?: string | null
+    nextDueDate?: string | null
+  }>
+}
+
+/** 统一打印 DTO(P0-05) */
+export interface PrintData extends PrintDataBase {
+  entityType: PrintTemplateType
+  entityId: string
+  invoice?: InvoicePrintSection
+  medicalRecord?: MedicalRecordPrintSection
+  prescription?: PrescriptionPrintSection
+  labReport?: LabReportPrintSection
+  vaccineCertificate?: VaccineCertificatePrintSection
+}
+
 // ===== MXQ-12008 报表 =====
 
 /** 报表分类 */
@@ -324,6 +432,25 @@ export interface GenerateReportSnapshotInput {
   reportCode: string
   periodStart: string
   periodEnd: string
+}
+
+/** 报表数据行(动态列,兼容前端动态表格渲染) */
+export type ReportDataRow = Record<string, unknown>
+
+/**
+ * 报表实时数据 DTO(P0-06 统一报表真源)
+ * GET /api/operations/report-data/:reportCode
+ * 由服务端聚合业务表后返回,前端只负责渲染 rows
+ */
+export interface ReportDataPayload {
+  /** 报表类别(revenue/refund/inventory/customer/medical) */
+  category: ReportCategory | string
+  /** 报表编码 */
+  reportCode: string
+  /** 查询期间(YYYY-MM-DD) */
+  period: { start: string, end: string }
+  /** 报表数据行(可能含 __isSummary 合计行) */
+  rows: ReportDataRow[]
 }
 
 // ===== MXQ-12009 安全事件 =====

@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
-import type { PrintJobStatus, PrintTemplateType } from '@/types/operations'
+import type {
+  InvoicePrintSection,
+  LabReportPrintSection,
+  MedicalRecordPrintSection,
+  PrescriptionPrintSection,
+  PrintData,
+  PrintJobStatus,
+  PrintTemplateType,
+  VaccineCertificatePrintSection,
+} from '@/types/operations'
 import apiOperations from '@/api/modules/operations'
 import apiStore from '@/api/modules/store'
 import BusinessEncounterPicker from '@/components/business/EncounterPicker/index.vue'
@@ -261,29 +270,76 @@ function getDefaultPaperSize(entityType: string): PaperSize {
   }
 }
 
+/** 转义 HTML 特殊字符,防止业务数据注入打印内容 */
+function escapeHtml(v: unknown): string {
+  if (v == null) {
+    return ''
+  }
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/** 格式化日期时间 */
+function fmtDateTime(v?: string | null): string {
+  return v ? new Date(v).toLocaleString('zh-CN') : '-'
+}
+
+/** 格式化日期 */
+function fmtDate(v?: string | null): string {
+  return v ? new Date(v).toLocaleDateString('zh-CN') : '-'
+}
+
+/** 格式化金额(2 位小数) */
+function fmtMoney(v?: number): string {
+  return (v ?? 0).toFixed(2)
+}
+
+/** 渲染打印基础信息区块(医院/门店/客户/宠物/医生/操作员) */
+function renderPrintMeta(data: PrintData): string {
+  const hospital = `${data.hospital.name}${data.hospital.shortName ? `(${data.hospital.shortName})` : ''}`
+  const store = data.store ? `${data.store.name}${data.store.code ? `(${data.store.code})` : ''}` : '-'
+  const customer = data.customer ? `${data.customer.name}${data.customer.phone ? ` ${data.customer.phone}` : ''}` : '-'
+  const pet = data.pet
+    ? `${data.pet.name}${data.pet.species ? ` / ${data.pet.species}` : ''}${data.pet.breed ? ` ${data.pet.breed}` : ''}${data.pet.gender ? ` / ${data.pet.gender}` : ''}${data.pet.weight != null ? ` / ${data.pet.weight}kg` : ''}`
+    : '-'
+  const doctor = data.doctor ? `${data.doctor.name}${data.doctor.title ? `(${data.doctor.title})` : ''}` : '-'
+  const operator = data.operator?.name ?? '-'
+  return `
+<table class="print-table">
+  <tr><th style="width:18%">医院</th><td>${escapeHtml(hospital)}</td><th style="width:18%">门店</th><td>${escapeHtml(store)}</td></tr>
+  <tr><th>客户</th><td>${escapeHtml(customer)}</td><th>宠物</th><td>${escapeHtml(pet)}</td></tr>
+  <tr><th>主治医生</th><td>${escapeHtml(doctor)}</td><th>操作员</th><td>${escapeHtml(operator)}</td></tr>
+</table>`
+}
+
 /**
- * 生成打印预览 HTML 内容
+ * 生成打印预览 HTML 内容(P0-05:基于服务端真实业务 DTO 渲染)
+ * @param data 服务端 print-data 接口返回的标准 DTO
  */
-function generatePreviewContent(row: PrintJobRow): string {
-  const entityLabel = getEntityLabel(row.entity_type)
-  const createdAt = row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : '-'
+function generatePreviewContent(data: PrintData): string {
+  const entityLabel = getEntityLabel(data.entityType)
+  const createdAt = fmtDateTime(data.createdAt)
 
   let bodyHtml = ''
-  switch (row.entity_type) {
+  switch (data.entityType) {
     case 'invoice':
-      bodyHtml = generateInvoicePreview(row)
+      bodyHtml = generateInvoicePreview(data)
       break
     case 'medical_record':
-      bodyHtml = generateMedicalRecordPreview(row)
+      bodyHtml = generateMedicalRecordPreview(data)
       break
     case 'prescription':
-      bodyHtml = generatePrescriptionPreview(row)
+      bodyHtml = generatePrescriptionPreview(data)
       break
     case 'lab_report':
-      bodyHtml = generateLabReportPreview(row)
+      bodyHtml = generateLabReportPreview(data)
       break
     case 'vaccine_certificate':
-      bodyHtml = generateVaccineCertificatePreview(row)
+      bodyHtml = generateVaccineCertificatePreview(data)
       break
     default:
       bodyHtml = `<p style="text-align:center;padding:40px;">暂不支持该类型的打印预览</p>`
@@ -291,7 +347,7 @@ function generatePreviewContent(row: PrintJobRow): string {
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8"><title>打印预览 - ${entityLabel}</title>
+<head><meta charset="UTF-8"><title>打印预览 - ${escapeHtml(entityLabel)}</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: "SimSun", "Microsoft YaHei", serif; font-size: 14px; color: #333; padding: 20px; }
@@ -302,131 +358,174 @@ function generatePreviewContent(row: PrintJobRow): string {
   .print-table th, .print-table td { border: 1px solid #333; padding: 6px 8px; font-size: 13px; }
   .print-table th { background: #f0f0f0; text-align: center; }
   .print-table td { text-align: left; }
+  .print-footer-text { margin-top: 12px; font-size: 12px; color: #666; }
   .print-footer { margin-top: 20px; font-size: 12px; color: #666; text-align: center; }
   .print-footer p { margin: 2px 0; }
   @media print {
     body { padding: 0; }
   }
 </style></head>
-<body>${bodyHtml}<div class="print-footer"><p>毛线球宠物医院 SaaS</p><p>打印时间: ${createdAt} | 任务编号: ${row.id.slice(0, 8)}</p></div></body></html>`
+<body>${bodyHtml}<div class="print-footer"><p>${escapeHtml(data.hospital.name)}</p><p>打印时间: ${createdAt}</p></div></body></html>`
 }
 
 /**
- * 生成收费单预览
+ * 生成收费单预览(真实 DTO 数据)
  */
-function generateInvoicePreview(row: PrintJobRow): string {
+function generateInvoicePreview(data: PrintData): string {
+  const sec = data.invoice as InvoicePrintSection | undefined
+  const rows = (sec?.items ?? []).map(it => `
+    <tr>
+      <td>${escapeHtml(it.name)}</td>
+      <td style="text-align:right">${fmtMoney(it.unitPrice)}</td>
+      <td style="text-align:center">${it.quantity}</td>
+      <td style="text-align:right">${fmtMoney(it.discountAmount)}</td>
+      <td style="text-align:right">${fmtMoney(it.amount)}</td>
+    </tr>`).join('')
   return `
 <div class="print-header">
   <h1>收费单</h1>
-  <p class="sub">编号: ${row.entity_id.slice(0, 12)}</p>
+  <p class="sub">单号: ${escapeHtml(sec?.invoiceNo ?? '-')} | 状态: ${escapeHtml(sec?.status ?? '-')}</p>
 </div>
+${renderPrintMeta(data)}
 <table class="print-table">
-  <tr><th style="width:30%">项目</th><th>内容</th></tr>
-  <tr><td>业务编号</td><td>${row.entity_id}</td></tr>
-  <tr><td>创建时间</td><td>${row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : '-'}</td></tr>
-  <tr><td>状态</td><td>${PRINT_JOB_STATUS_LABELS[row.status] ?? row.status}</td></tr>
+  <tr><th>项目</th><th style="width:80px">单价</th><th style="width:60px">数量</th><th style="width:80px">折扣</th><th style="width:100px">金额</th></tr>
+  ${rows || '<tr><td colspan="5" style="text-align:center;color:#999;">暂无明细</td></tr>'}
 </table>
-<p style="text-align:center;color:#999;margin-top:20px;">实际打印时将加载完整收费明细数据</p>`
+<table class="print-table">
+  <tr><th style="width:30%">小计</th><td style="text-align:right">${fmtMoney(sec?.subtotal)}</td></tr>
+  <tr><th>折扣</th><td style="text-align:right">${fmtMoney(sec?.discountAmount)}${sec?.discountReason ? `(${escapeHtml(sec.discountReason)})` : ''}</td></tr>
+  <tr><th>税额</th><td style="text-align:right">${fmtMoney(sec?.taxAmount)}</td></tr>
+  <tr><th>应收合计</th><td style="text-align:right;font-weight:bold;">${fmtMoney(sec?.total)}</td></tr>
+  <tr><th>已付</th><td style="text-align:right">${fmtMoney(sec?.paidAmount)}</td></tr>
+  <tr><th>支付方式</th><td style="text-align:right">${escapeHtml(sec?.paymentMethod ?? '-')}</td></tr>
+</table>`
 }
 
 /**
- * 生成病历预览
+ * 生成病历预览(真实 DTO 数据)
  */
-function generateMedicalRecordPreview(row: PrintJobRow): string {
+function generateMedicalRecordPreview(data: PrintData): string {
+  const sec = data.medicalRecord as MedicalRecordPrintSection | undefined
   return `
 <div class="print-header">
-  <h1>病历记录</h1>
-  <p class="sub">编号: ${row.entity_id.slice(0, 12)}</p>
+  <h1>宠物病历</h1>
+  <p class="sub">就诊时间: ${fmtDateTime(sec?.startedAt)} | 状态: ${escapeHtml(sec?.status ?? '-')}</p>
 </div>
+${renderPrintMeta(data)}
 <table class="print-table">
-  <tr><th style="width:30%">项目</th><th>内容</th></tr>
-  <tr><td>就诊编号</td><td>${row.entity_id}</td></tr>
-  <tr><td>记录时间</td><td>${row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : '-'}</td></tr>
-  <tr><td>状态</td><td>${PRINT_JOB_STATUS_LABELS[row.status] ?? row.status}</td></tr>
-  <tr><td>主诉</td><td>-</td></tr>
-  <tr><td>检查发现</td><td>-</td></tr>
-  <tr><td>诊断</td><td>-</td></tr>
-  <tr><td>治疗方案</td><td>-</td></tr>
-</table>
-<p style="text-align:center;color:#999;margin-top:20px;">实际打印时将加载完整病历数据</p>`
+  <tr><th style="width:18%">主诉</th><td>${escapeHtml(sec?.chiefComplaint ?? '-')}</td></tr>
+  <tr><th>病史</th><td>${escapeHtml(sec?.historyPresent ?? '-')}</td></tr>
+  <tr><th>检查发现</th><td>${escapeHtml(sec?.examFindings ?? '-')}</td></tr>
+  <tr><th>诊断</th><td>${escapeHtml((sec?.diagnosisCodes ?? []).join('、') || sec?.diagnosisText || '-')}</td></tr>
+  <tr><th>治疗方案</th><td>${escapeHtml(sec?.treatmentPlan ?? '-')}</td></tr>
+  <tr><th>复诊日期</th><td>${fmtDate(sec?.followUpDate)}</td></tr>
+  <tr><th>医生签署</th><td>${escapeHtml(data.doctor?.name ?? '-')}${sec?.signedAt ? ` (${fmtDateTime(sec.signedAt)})` : ''}</td></tr>
+</table>`
 }
 
 /**
- * 生成处方预览
+ * 生成处方预览(真实 DTO 数据)
  */
-function generatePrescriptionPreview(row: PrintJobRow): string {
+function generatePrescriptionPreview(data: PrintData): string {
+  const sec = data.prescription as PrescriptionPrintSection | undefined
+  const rows = (sec?.items ?? []).map(it => `
+    <tr>
+      <td>${escapeHtml(it.drugName)}</td>
+      <td>${escapeHtml(it.dosage ?? '-')}</td>
+      <td>${escapeHtml(it.frequency ?? '-')}</td>
+      <td style="text-align:center">${it.durationDays ?? '-'}</td>
+      <td style="text-align:center">${it.quantity}${it.unit ? escapeHtml(it.unit) : ''}</td>
+      <td>${escapeHtml(it.instructions ?? '-')}</td>
+    </tr>`).join('')
   return `
 <div class="print-header">
   <h1>处方笺</h1>
-  <p class="sub">编号: ${row.entity_id.slice(0, 12)}</p>
+  <p class="sub">状态: ${escapeHtml(sec?.status ?? '-')}</p>
 </div>
+${renderPrintMeta(data)}
 <table class="print-table">
-  <tr><th style="width:30%">项目</th><th>内容</th></tr>
-  <tr><td>处方编号</td><td>${row.entity_id}</td></tr>
-  <tr><td>开具时间</td><td>${row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : '-'}</td></tr>
-  <tr><td>状态</td><td>${PRINT_JOB_STATUS_LABELS[row.status] ?? row.status}</td></tr>
+  <tr><th>药品名称</th><th>剂量</th><th>频次</th><th>天数</th><th>数量</th><th>用法</th></tr>
+  ${rows || '<tr><td colspan="6" style="text-align:center;color:#999;">暂无处方明细</td></tr>'}
 </table>
-<table class="print-table">
-  <tr><th>药品名称</th><th>规格</th><th>用法用量</th><th>天数</th></tr>
-  <tr><td colspan="4" style="text-align:center;color:#999;">实际打印时将加载处方明细</td></tr>
-</table>
-<p style="text-align:center;color:#999;margin-top:20px;">实际打印时将加载完整处方数据</p>`
+<p class="print-footer-text">医师: ${escapeHtml(data.doctor?.name ?? '-')}</p>`
 }
 
 /**
- * 生成检验报告预览
+ * 生成检验报告预览(真实 DTO 数据)
  */
-function generateLabReportPreview(row: PrintJobRow): string {
+function generateLabReportPreview(data: PrintData): string {
+  const sec = data.labReport as LabReportPrintSection | undefined
+  const rows = (sec?.analytes ?? []).map(it => `
+    <tr>
+      <td>${escapeHtml(it.name)}</td>
+      <td style="text-align:center">${escapeHtml(it.resultValue ?? '-')}${it.isCritical ? ' ⚠' : it.isAbnormal ? ' *' : ''}</td>
+      <td style="text-align:center">${escapeHtml(it.unit ?? '-')}</td>
+      <td style="text-align:center">${escapeHtml(it.refRange ?? '-')}</td>
+    </tr>`).join('')
   return `
 <div class="print-header">
   <h1>检验报告</h1>
-  <p class="sub">编号: ${row.entity_id.slice(0, 12)}</p>
+  <p class="sub">申请单号: ${escapeHtml(sec?.orderNo ?? '-')} | 状态: ${escapeHtml(sec?.status ?? '-')}</p>
 </div>
+${renderPrintMeta(data)}
 <table class="print-table">
-  <tr><th style="width:30%">项目</th><th>内容</th></tr>
-  <tr><td>报告编号</td><td>${row.entity_id}</td></tr>
-  <tr><td>检验时间</td><td>${row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : '-'}</td></tr>
-  <tr><td>状态</td><td>${PRINT_JOB_STATUS_LABELS[row.status] ?? row.status}</td></tr>
+  <tr><th>检验项目</th><th>结果</th><th>单位</th><th>参考范围</th></tr>
+  ${rows || '<tr><td colspan="4" style="text-align:center;color:#999;">暂无检验结果</td></tr>'}
 </table>
-<table class="print-table">
-  <tr><th>检验项目</th><th>结果</th><th>参考范围</th><th>单位</th></tr>
-  <tr><td colspan="4" style="text-align:center;color:#999;">实际打印时将加载检验项目明细</td></tr>
-</table>
-<p style="text-align:center;color:#999;margin-top:20px;">实际打印时将加载完整检验数据</p>`
+<p class="print-footer-text">申请时间: ${fmtDateTime(sec?.requestedAt)} | 完成时间: ${fmtDateTime(sec?.completedAt)}</p>`
 }
 
 /**
- * 生成疫苗证明预览
+ * 生成疫苗证明预览(真实 DTO 数据)
  */
-function generateVaccineCertificatePreview(row: PrintJobRow): string {
+function generateVaccineCertificatePreview(data: PrintData): string {
+  const sec = data.vaccineCertificate as VaccineCertificatePrintSection | undefined
+  const rows = (sec?.vaccinations ?? []).map(it => `
+    <tr>
+      <td>${escapeHtml(it.vaccineName ?? '-')}</td>
+      <td style="text-align:center">${it.doseNo ?? '-'}</td>
+      <td style="text-align:center">${fmtDateTime(it.administeredDate)}</td>
+      <td style="text-align:center">${escapeHtml(it.batchNo ?? '-')}</td>
+      <td style="text-align:center">${escapeHtml(it.manufacturer ?? '-')}</td>
+      <td style="text-align:center">${fmtDate(it.nextDueDate)}</td>
+    </tr>`).join('')
   return `
 <div class="print-header">
-  <h1>疫苗证明</h1>
-  <p class="sub">证明编号: ${row.entity_id.slice(0, 12)}</p>
+  <h1>疫苗免疫证明</h1>
+  <p class="sub">证书编号: ${escapeHtml(sec?.certificateNo ?? '-')} | 签发时间: ${fmtDateTime(sec?.issuedDate)}</p>
 </div>
+${renderPrintMeta(data)}
 <table class="print-table">
-  <tr><th style="width:30%">项目</th><th>内容</th></tr>
-  <tr><td>证明编号</td><td>${row.entity_id}</td></tr>
-  <tr><td>签发时间</td><td>${row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : '-'}</td></tr>
-  <tr><td>状态</td><td>${PRINT_JOB_STATUS_LABELS[row.status] ?? row.status}</td></tr>
-</table>
-<table class="print-table">
-  <tr><th>疫苗名称</th><th>接种日期</th><th>有效期至</th><th>批号</th></tr>
-  <tr><td colspan="4" style="text-align:center;color:#999;">实际打印时将加载疫苗记录明细</td></tr>
-</table>
-<p style="text-align:center;color:#999;margin-top:20px;">实际打印时将加载完整疫苗记录数据</p>`
+  <tr><th>疫苗名称</th><th>剂次</th><th>接种日期</th><th>批号</th><th>生产厂家</th><th>下次接种</th></tr>
+  ${rows || '<tr><td colspan="6" style="text-align:center;color:#999;">暂无疫苗记录</td></tr>'}
+</table>`
 }
 
+/** 打印数据加载中状态 */
+const previewLoading = ref(false)
+
 /**
- * 打开打印预览弹窗
+ * 打开打印预览弹窗(P0-05:先请求服务端真实业务 DTO 再渲染)
  */
-function onPreview() {
+async function onPreview() {
   if (!detailRow.value) {
     return
   }
-  paperSize.value = getDefaultPaperSize(detailRow.value.entity_type)
-  previewContent.value = generatePreviewContent(detailRow.value)
-  previewVisible.value = true
+  const row = detailRow.value
+  previewLoading.value = true
+  try {
+    const res = await apiOperations.getPrintData(row.entity_type, row.entity_id)
+    const data = res.data as PrintData
+    paperSize.value = getDefaultPaperSize(row.entity_type)
+    previewContent.value = generatePreviewContent(data)
+    previewVisible.value = true
+  }
+  catch (e: any) {
+    useFaToast().error(e?.message ?? '加载打印数据失败')
+  }
+  finally {
+    previewLoading.value = false
+  }
 }
 
 /**
@@ -582,7 +681,7 @@ function onPrintNow() {
               </FaLabel>
             </div>
             <div v-if="PREVIEWABLE_TYPES.includes(detailRow.entity_type as PrintTemplateType)" class="pt-3 border-t flex justify-end">
-              <FaButton type="primary" @click="onPreview">
+              <FaButton type="primary" :loading="previewLoading" @click="onPreview">
                 <FaIcon name="i-ri:printer-line" />
                 打印预览
               </FaButton>

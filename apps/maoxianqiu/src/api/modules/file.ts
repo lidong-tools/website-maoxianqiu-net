@@ -10,7 +10,7 @@ import api from '../index'
  *   - 删除流程: archiveFile(软删除,延迟清理 R2 对象)
  *   - 私有医疗文件默认不公开,必须通过 getDownloadUrl 访问
  *
- * 兼容说明:旧的 /upload + /files/delete (r2_files) 保留,新业务一律走本模块。
+ * P0-03 说明:旧的 /upload + /files/delete (r2_files) 服务端接口已下线,本模块是新文件模型唯一入口。
  */
 export default {
   /**

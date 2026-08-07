@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
-import { requirePermission } from '../lib/permission'
+import { requireScopedPermission } from '../lib/permission'
 import { loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
@@ -85,13 +85,13 @@ const createProtocolSchema = z.object({
  */
 diagnosticsRoutes.post('/protocols', async (c) => {
   const input = await parseJsonBody(c, createProtocolSchema)
-  await requirePermission(c, { code: 'vaccine.manage' })
+  const scope = await requireScopedPermission(c, { code: 'vaccine.manage', tenantId: input.tenantId })
 
   const service = createServiceClient()
   const { data, error } = await service
     .from('vaccine_protocols')
     .insert({
-      tenant_id: input.tenantId,
+      tenant_id: scope.tenantId,
       code: input.code,
       name: input.name,
       species: input.species ?? 'other',
@@ -141,14 +141,14 @@ const createVaccinationSchema = z.object({
  */
 diagnosticsRoutes.post('/vaccinations', async (c) => {
   const input = await parseJsonBody(c, createVaccinationSchema)
-  await requirePermission(c, { code: 'vaccine.manage', storeId: input.storeId })
+  const scope = await requireScopedPermission(c, { code: 'vaccine.manage', tenantId: input.tenantId, storeId: input.storeId })
 
   const service = createServiceClient()
   const { data, error } = await service
     .from('vaccinations')
     .insert({
-      tenant_id: input.tenantId,
-      store_id: input.storeId ?? null,
+      tenant_id: scope.tenantId,
+      store_id: scope.storeId ?? null,
       customer_id: input.customerId,
       pet_id: input.petId,
       encounter_id: input.encounterId ?? null,
@@ -208,7 +208,7 @@ diagnosticsRoutes.post('/certificates/issue', async (c) => {
   if (vaccErr || !vacc) {
     throw err.notFound('疫苗接种记录不存在')
   }
-  await requirePermission(c, { code: 'vaccine.certificate.issue', storeId: vacc.store_id ?? undefined })
+  await requireScopedPermission(c, { code: 'vaccine.certificate.issue', tenantId: vacc.tenant_id, storeId: vacc.store_id ?? undefined })
 
   const user = c.get('user')
   const { data, error } = await service.rpc('issue_vaccine_certificate', {
@@ -242,12 +242,12 @@ const scanRemindersSchema = z.object({
  */
 diagnosticsRoutes.post('/reminders/scan', async (c) => {
   const input = await parseJsonBody(c, scanRemindersSchema)
-  await requirePermission(c, { code: 'diag_reminder.view', storeId: input.storeId })
+  const scope = await requireScopedPermission(c, { code: 'diag_reminder.view', tenantId: input.tenantId, storeId: input.storeId })
 
   const service = createServiceClient()
   const { data, error } = await service.rpc('scan_diag_reminders', {
-    p_tenant_id: input.tenantId,
-    p_store_id: input.storeId ?? null,
+    p_tenant_id: scope.tenantId,
+    p_store_id: scope.storeId ?? null,
     p_lookahead_days: input.lookaheadDays,
   })
 
@@ -286,7 +286,7 @@ const createLabOrderSchema = z.object({
  */
 diagnosticsRoutes.post('/lab-orders', async (c) => {
   const input = await parseJsonBody(c, createLabOrderSchema)
-  await requirePermission(c, { code: 'lab.request', storeId: input.storeId })
+  const scope = await requireScopedPermission(c, { code: 'lab.request', tenantId: input.tenantId, storeId: input.storeId })
 
   const orderNo = `LAB-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
 
@@ -295,8 +295,8 @@ diagnosticsRoutes.post('/lab-orders', async (c) => {
   const { data, error } = await service
     .from('lab_orders')
     .insert({
-      tenant_id: input.tenantId,
-      store_id: input.storeId ?? null,
+      tenant_id: scope.tenantId,
+      store_id: scope.storeId ?? null,
       customer_id: input.customerId,
       pet_id: input.petId,
       encounter_id: input.encounterId ?? null,
@@ -361,7 +361,7 @@ diagnosticsRoutes.post('/lab-orders/publish', async (c) => {
   if (orderErr || !order) {
     throw err.notFound('检验申请不存在')
   }
-  await requirePermission(c, { code: 'lab.result.input', storeId: order.store_id ?? undefined })
+  await requireScopedPermission(c, { code: 'lab.result.input', tenantId: order.tenant_id, storeId: order.store_id ?? undefined })
 
   const user = c.get('user')
   const { data, error } = await service.rpc('publish_lab_results', {
@@ -406,7 +406,7 @@ diagnosticsRoutes.post('/lab-orders/review', async (c) => {
   if (orderErr || !order) {
     throw err.notFound('检验申请不存在')
   }
-  await requirePermission(c, { code: 'lab.result.review', storeId: order.store_id ?? undefined })
+  await requireScopedPermission(c, { code: 'lab.result.review', tenantId: order.tenant_id, storeId: order.store_id ?? undefined })
 
   const user = c.get('user')
   const { data, error } = await service.rpc('review_lab_results', {

@@ -3,8 +3,8 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
-import { requirePermission } from '../lib/permission'
-import { loadContext } from '../lib/request-context'
+import { requireScopedPermission } from '../lib/permission'
+import { getContext, loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { parseJsonBody } from '../lib/validation'
@@ -43,12 +43,19 @@ const listSchema = z.object({
  */
 customerRoutes.get('/', async (c) => {
   const input = listSchema.parse(c.req.query())
-  await requirePermission(c, { code: 'customer.view', storeId: input.storeId })
+
+  // P0-02 scoped:tenantId 缺失时取调用者默认租户,强制按授权租户过滤
+  const scope = await requireScopedPermission(c, {
+    code: 'customer.view',
+    tenantId: getContext(c).memberships[0]?.tenant_id ?? '',
+    storeId: input.storeId,
+  })
 
   const service = createServiceClient()
   let query = service
     .from('customers')
     .select('id, customer_no, name, gender, phone, email, store_id, member_level, member_points, balance, status, created_at, updated_at, archived_at', { count: 'exact' })
+    .eq('tenant_id', scope.tenantId)
 
   if (input.status) {
     query = query.eq('status', input.status)
@@ -86,7 +93,6 @@ customerRoutes.get('/', async (c) => {
  */
 customerRoutes.get('/:id', async (c) => {
   const id = c.req.param('id')
-  await requirePermission(c, { code: 'customer.view' })
 
   const service = createServiceClient()
   const { data: customer, error } = await service
@@ -98,6 +104,13 @@ customerRoutes.get('/:id', async (c) => {
   if (error || !customer) {
     throw err.notFound('客户不存在')
   }
+
+  // P0-02 scoped:按客户租户/门店做作用域授权
+  await requireScopedPermission(c, {
+    code: 'customer.view',
+    tenantId: customer.tenant_id,
+    storeId: customer.store_id ?? undefined,
+  })
 
   // 并行查询宠物列表
   const { data: pets, error: petsError } = await service
@@ -135,13 +148,19 @@ const createSchema = z.object({
  */
 customerRoutes.post('/', async (c) => {
   const input = await parseJsonBody(c, createSchema)
-  await requirePermission(c, { code: 'customer.create', storeId: input.storeId })
+
+  // P0-02 scoped:按输入租户/门店做作用域授权
+  const scope = await requireScopedPermission(c, {
+    code: 'customer.create',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
 
   const service = createServiceClient()
   const _user = c.get('user')
   const { data, error: rpcError } = await service.rpc('create_customer', {
-    p_tenant_id: input.tenantId,
-    p_store_id: input.storeId ?? null,
+    p_tenant_id: scope.tenantId,
+    p_store_id: scope.storeId ?? null,
     p_name: input.name,
     p_gender: input.gender ?? null,
     p_phone: input.phone ?? null,
@@ -192,7 +211,6 @@ const updateSchema = z.object({
 customerRoutes.patch('/:id', async (c) => {
   const id = c.req.param('id')
   const input = await parseJsonBody(c, updateSchema)
-  await requirePermission(c, { code: 'customer.update' })
 
   const service = createServiceClient()
 
@@ -206,7 +224,12 @@ customerRoutes.patch('/:id', async (c) => {
   if (fetchError || !existing) {
     throw err.notFound('客户不存在')
   }
-  await requirePermission(c, { code: 'customer.update', storeId: existing.store_id ?? undefined })
+  // P0-02 scoped:按客户租户/门店做作用域授权
+  await requireScopedPermission(c, {
+    code: 'customer.update',
+    tenantId: existing.tenant_id,
+    storeId: existing.store_id ?? undefined,
+  })
 
   const { data, error: rpcError } = await service.rpc('update_customer', {
     p_customer_id: id,
@@ -257,7 +280,6 @@ const archiveSchema = z.object({
 customerRoutes.post('/:id/archive', async (c) => {
   const id = c.req.param('id')
   const input = await parseJsonBody(c, archiveSchema)
-  await requirePermission(c, { code: 'customer.archive' })
 
   const service = createServiceClient()
   const user = c.get('user')
@@ -271,7 +293,12 @@ customerRoutes.post('/:id/archive', async (c) => {
   if (fetchError || !existing) {
     throw err.notFound('客户不存在')
   }
-  await requirePermission(c, { code: 'customer.archive', storeId: existing.store_id ?? undefined })
+  // P0-02 scoped:按客户租户/门店做作用域授权
+  await requireScopedPermission(c, {
+    code: 'customer.archive',
+    tenantId: existing.tenant_id,
+    storeId: existing.store_id ?? undefined,
+  })
 
   const { data, error: rpcError } = await service.rpc('archive_customer', {
     p_customer_id: id,
@@ -317,10 +344,25 @@ const mergeSchema = z.object({
  */
 customerRoutes.post('/merge', async (c) => {
   const input = await parseJsonBody(c, mergeSchema)
-  await requirePermission(c, { code: 'customer.merge' })
 
   const service = createServiceClient()
   const user = c.get('user')
+
+  // P0-02 scoped:先查源客户获取租户/门店,再做作用域授权(防跨租户合并)
+  const { data: source, error: sourceError } = await service
+    .from('customers')
+    .select('id, tenant_id, store_id')
+    .eq('id', input.sourceId)
+    .maybeSingle()
+
+  if (sourceError || !source) {
+    throw err.notFound('源客户不存在')
+  }
+  await requireScopedPermission(c, {
+    code: 'customer.merge',
+    tenantId: source.tenant_id,
+    storeId: source.store_id ?? undefined,
+  })
 
   const { data, error: rpcError } = await service.rpc('merge_customers', {
     p_source_id: input.sourceId,
@@ -380,7 +422,13 @@ const batchImportSchema = z.object({
  */
 customerRoutes.post('/batch-import', async (c) => {
   const input = await parseJsonBody(c, batchImportSchema)
-  await requirePermission(c, { code: 'customer.import', storeId: input.storeId })
+
+  // P0-02 scoped:按输入租户/门店做作用域授权
+  const scope = await requireScopedPermission(c, {
+    code: 'customer.import',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
 
   const service = createServiceClient()
   const results: Array<{ rowIndex: number, success: boolean, customerId?: string, customerNo?: string, error?: string }> = []
@@ -388,8 +436,8 @@ customerRoutes.post('/batch-import', async (c) => {
   for (let i = 0; i < input.rows.length; i++) {
     const row = input.rows[i]
     const { data, error: rpcError } = await service.rpc('create_customer', {
-      p_tenant_id: input.tenantId,
-      p_store_id: input.storeId ?? null,
+      p_tenant_id: scope.tenantId,
+      p_store_id: scope.storeId ?? null,
       p_name: row.name,
       p_gender: row.gender ?? null,
       p_phone: row.phone ?? null,
@@ -438,13 +486,19 @@ const importSchema = z.object({
  */
 customerRoutes.post('/import', async (c) => {
   const input = await parseJsonBody(c, importSchema)
-  await requirePermission(c, { code: 'customer.import', storeId: input.storeId })
+
+  // P0-02 scoped:按输入租户/门店做作用域授权
+  const scope = await requireScopedPermission(c, {
+    code: 'customer.import',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
 
   const service = createServiceClient()
   const user = c.get('user')
   const { data, error: rpcError } = await service.rpc('create_import_job', {
-    p_tenant_id: input.tenantId,
-    p_store_id: input.storeId ?? null,
+    p_tenant_id: scope.tenantId,
+    p_store_id: scope.storeId ?? null,
     p_type: 'customer',
     p_total_rows: input.totalRows,
     p_source_file_id: input.fileId ?? null,
@@ -477,7 +531,6 @@ customerRoutes.post('/import', async (c) => {
  */
 customerRoutes.get('/import/:id', async (c) => {
   const id = c.req.param('id')
-  await requirePermission(c, { code: 'customer.import' })
 
   const service = createServiceClient()
   const { data: job, error } = await service
@@ -490,10 +543,12 @@ customerRoutes.get('/import/:id', async (c) => {
     throw err.notFound('导入任务不存在')
   }
 
-  // 门店范围校验
-  if (job.store_id) {
-    await requirePermission(c, { code: 'customer.import', storeId: job.store_id })
-  }
+  // P0-02 scoped:按任务租户/门店做作用域授权
+  await requireScopedPermission(c, {
+    code: 'customer.import',
+    tenantId: job.tenant_id,
+    storeId: job.store_id ?? undefined,
+  })
 
   return ok(c, job)
 })

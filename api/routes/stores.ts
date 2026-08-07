@@ -2,7 +2,7 @@ import type { AppEnv } from '../lib/types'
 import { Hono } from 'hono'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
-import { assertStoreTenant, requirePermission } from '../lib/permission'
+import { requireScopedPermission } from '../lib/permission'
 import { loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
@@ -24,14 +24,22 @@ storeRoutes.use('*', authMiddleware(), loadCaller(), loadContext())
  */
 storeRoutes.post('/:id/archive', async (c) => {
   const id = c.req.param('id')
-  await requirePermission(c, { code: 'store.archive' })
-  // MXQ-3007 跨租户防护:校验门店归属租户与调用者一致,并取租户 id 传入 RPC
-  const tenantId = await assertStoreTenant(c, id)
-
   const service = createServiceClient()
   const user = c.get('user')
+
+  // P0-02 scoped:先查门店实体,基于其租户+门店解析授权作用域(平台管理员跨租户放行)
+  const { data: store } = await service
+    .from('stores')
+    .select('tenant_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (!store) {
+    throw err.notFound('门店不存在')
+  }
+  const scope = await requireScopedPermission(c, { code: 'store.archive', tenantId: store.tenant_id, storeId: id })
+
   const { data, error } = await service.rpc('archive_store', {
-    p_tenant_id: tenantId,
+    p_tenant_id: scope.tenantId,
     p_store_id: id,
     p_archived_by: user.id,
   })
@@ -65,14 +73,22 @@ storeRoutes.post('/:id/archive', async (c) => {
  */
 storeRoutes.post('/:id/restore', async (c) => {
   const id = c.req.param('id')
-  await requirePermission(c, { code: 'store.restore' })
-  // MXQ-3007 跨租户防护:校验门店归属租户与调用者一致,并取租户 id 传入 RPC
-  const tenantId = await assertStoreTenant(c, id)
-
   const service = createServiceClient()
   const user = c.get('user')
+
+  // P0-02 scoped: 先查门店实体,基于其租户+门店解析授权作用域(平台管理员跨租户放行)
+  const { data: store } = await service
+    .from('stores')
+    .select('tenant_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (!store) {
+    throw err.notFound('门店不存在')
+  }
+  const scope = await requireScopedPermission(c, { code: 'store.restore', tenantId: store.tenant_id, storeId: id })
+
   const { data, error } = await service.rpc('restore_store', {
-    p_tenant_id: tenantId,
+    p_tenant_id: scope.tenantId,
     p_store_id: id,
     p_restored_by: user.id,
   })

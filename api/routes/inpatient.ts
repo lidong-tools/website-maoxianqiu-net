@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
 import { getRequestIdempotencyKey } from '../lib/idempotency'
-import { assertStoreTenant, assertTenantAccess, requirePermission } from '../lib/permission'
+import { requireScopedPermission } from '../lib/permission'
 import { getContext, loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
@@ -102,14 +102,19 @@ inpatientRoutes.post('/admit', async (c) => {
   if (cage.status !== 'available') {
     throw err.conflict('笼位不可用(已被占用或维护中)')
   }
-  await requirePermission(c, { code: 'inpatient.admit', storeId: input.storeId })
+  // P0-02 scoped:门店级作用域授权,替代 requirePermission
+  const scope = await requireScopedPermission(c, {
+    code: 'inpatient.admit',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
 
   const user = c.get('user')
   const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
 
   const { data, error } = await service.rpc('admit_patient', {
-    p_tenant_id: input.tenantId,
-    p_store_id: input.storeId,
+    p_tenant_id: scope.tenantId,
+    p_store_id: scope.storeId ?? null,
     p_customer_id: input.customerId,
     p_pet_id: input.petId,
     p_cage_id: input.cageId,
@@ -171,7 +176,12 @@ inpatientRoutes.post('/transfer', async (c) => {
   if (admission.status !== 'admitted') {
     throw err.conflict('住院记录不在院状态,无法换房')
   }
-  await requirePermission(c, { code: 'inpatient.transfer', storeId: admission.store_id })
+  // P0-02 scoped:按住院记录所属门店作用域授权,替代 requirePermission
+  await requireScopedPermission(c, {
+    code: 'inpatient.transfer',
+    tenantId: admission.tenant_id,
+    storeId: admission.store_id ?? undefined,
+  })
 
   // 校验新笼位归属门店
   const { data: newCage, error: newCageErr } = await service
@@ -252,7 +262,12 @@ inpatientRoutes.post('/discharge', async (c) => {
   if (admission.status !== 'admitted') {
     throw err.conflict('住院记录不在院状态,无法出院')
   }
-  await requirePermission(c, { code: 'inpatient.discharge', storeId: admission.store_id })
+  // P0-02 scoped:按住院记录所属门店作用域授权,替代 requirePermission
+  await requireScopedPermission(c, {
+    code: 'inpatient.discharge',
+    tenantId: admission.tenant_id,
+    storeId: admission.store_id ?? undefined,
+  })
 
   const user = c.get('user')
   const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
@@ -302,14 +317,19 @@ const handoverSchema = z.object({
  */
 inpatientRoutes.post('/handover', async (c) => {
   const input = await parseJsonBody(c, handoverSchema)
-  await requirePermission(c, { code: 'handover.manage', storeId: input.storeId })
+  // P0-02 scoped:门店级作用域授权,替代 requirePermission
+  const scope = await requireScopedPermission(c, {
+    code: 'handover.manage',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
 
   const service = createServiceClient()
   const user = c.get('user')
 
   const { data, error } = await service.rpc('create_handover', {
-    p_tenant_id: input.tenantId,
-    p_store_id: input.storeId,
+    p_tenant_id: scope.tenantId,
+    p_store_id: scope.storeId ?? null,
     p_shift_date: input.shiftDate,
     p_shift_type: input.shiftType,
     p_outgoing_user: input.outgoingUser ?? null,
@@ -352,12 +372,9 @@ const generateChargesSchema = z.object({
 inpatientRoutes.post('/charges/generate', async (c) => {
   const input = await parseJsonBody(c, generateChargesSchema)
 
-  // 自动计费为系统级操作,允许租户内任意门店,但需 inpatient.admit 权限(可由超管/定时任务触发)
-  await requirePermission(c, { code: 'inpatient.admit' })
-
-  // 跨租户隔离:RPC 无租户参数,路由层必须限定在调用者所在租户(取请求上下文租户)
-  const tenantId = getContext(c).tenantId
-  assertTenantAccess(c, tenantId)
+  // P0-02 scoped:自动计费为系统级操作,取调用者默认租户做作用域授权(可由超管/定时任务触发)
+  const tenantId = getContext(c).tenantId ?? getContext(c).memberships[0]?.tenant_id ?? ''
+  await requireScopedPermission(c, { code: 'inpatient.admit', tenantId })
 
   const service = createServiceClient()
 
@@ -389,22 +406,18 @@ inpatientRoutes.post('/charges/generate', async (c) => {
  * - 行为:查 inpatient_cage_status 视图,按 tenant_id/store_id 过滤
  */
 inpatientRoutes.get('/cages/status', async (c) => {
-  await requirePermission(c, { code: 'inpatient.view' })
+  // P0-02 scoped:校验 tenant 归属(缺失取调用者默认租户),并强制按 scope.tenantId 过滤
+  const tenantId = c.req.query('tenantId') ?? getContext(c).memberships[0]?.tenant_id
+  const storeId = c.req.query('storeId')
+  const scope = await requireScopedPermission(c, {
+    code: 'inpatient.view',
+    tenantId: tenantId ?? '',
+    storeId: storeId ?? undefined,
+  })
 
   const service = createServiceClient()
-  const tenantId = c.req.query('tenantId') ?? getContext(c).tenantId
-  const storeId = c.req.query('storeId')
-
-  // 跨租户隔离:query tenantId 必须与调用者成员关系一致;缺失时回退请求上下文租户,两者皆无则 400
-  assertTenantAccess(c, tenantId)
-
-  let query = service.from('inpatient_cage_status').select('*')
-  if (tenantId) {
-    query = query.eq('tenant_id', tenantId)
-  }
+  let query = service.from('inpatient_cage_status').select('*').eq('tenant_id', scope.tenantId)
   if (storeId) {
-    // 门店归属校验(内部会再次校验调用者对该门店所属租户的访问权)
-    await assertStoreTenant(c, storeId)
     query = query.eq('store_id', storeId)
   }
   const { data, error } = await query.order('room_name', { ascending: true })

@@ -6,7 +6,9 @@ import type {
   GenerateReportSnapshotInput,
   ImportTask,
   MessageTemplate,
+  PrintData,
   PrintJob,
+  ReportDataPayload,
   ReportDefinition,
   ReportSnapshot,
   ScanRemindersResult,
@@ -45,8 +47,10 @@ export function isMockProvider(): boolean {
   if (provider === 'mock') {
     return true
   }
-  /** 未配置真实供应商时，所有环境均回退 mock 模式；
-   *  生产环境中此行为会导致 sendDelivery 拒绝执行 */
+  /**
+   * 未配置真实供应商时，所有环境均回退 mock 模式；
+   *  生产环境中此行为会导致 sendDelivery 拒绝执行
+   */
   return true
 }
 
@@ -392,6 +396,17 @@ export default {
   },
 
   /**
+   * 获取打印真实业务数据(P0-05)
+   * GET /api/operations/print-data/:entityType/:entityId
+   * 服务端聚合真实业务数据并返回标准 DTO,前端模板只负责渲染。
+   * @param entityType 实体类型(invoice/medical_record/prescription/lab_report/vaccine_certificate)
+   * @param entityId 业务实体 id
+   */
+  getPrintData(entityType: string, entityId: string) {
+    return api.get<PrintData>(`operations/print-data/${entityType}/${entityId}`)
+  },
+
+  /**
    * 查询打印模板列表(浏览器直连)
    */
   async listPrintTemplates(params: { tenantId: string, onlyActive?: boolean }) {
@@ -498,6 +513,20 @@ export default {
       throw new Error(error.message)
     }
     return { status: 1, error: '', data: { list: (data ?? []) as ReportSnapshot[], total: count ?? 0 } }
+  },
+
+  /**
+   * 获取报表实时数据(P0-06 统一报表真源)
+   * GET /api/operations/report-data/:reportCode
+   * 由 Hono 服务端聚合业务表返回标准 DTO,前端只负责渲染 rows。
+   * @param reportCode 报表编码(与 report_definitions.code 一致)
+   * @param params 查询参数
+   * @param params.tenantId 租户 id(可选,缺省时按调用者成员关系解析)
+   * @param params.periodStart 起始日期 YYYY-MM-DD(可选,默认本月首日)
+   * @param params.periodEnd 结束日期 YYYY-MM-DD(可选,默认本月末日)
+   */
+  getReportData(reportCode: string, params: { tenantId?: string, periodStart?: string, periodEnd?: string }) {
+    return api.get<ReportDataPayload>(`operations/report-data/${reportCode}`, { params })
   },
 
   // ===== MXQ-12009 安全事件 =====

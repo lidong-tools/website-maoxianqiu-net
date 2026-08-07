@@ -3,8 +3,8 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
-import { assertTenantAccess, requirePermission } from '../lib/permission'
-import { loadContext, requireTenant } from '../lib/request-context'
+import { requireScopedPermission } from '../lib/permission'
+import { getContext, loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { parseJsonBody } from '../lib/validation'
@@ -40,13 +40,13 @@ const inviteSchema = z.object({
  */
 employeeRoutes.post('/invite', async (c) => {
   const input = await parseJsonBody(c, inviteSchema)
-  await requirePermission(c, { code: 'employee.invite', storeId: input.storeId })
+  // P0-02 scoped: 按请求租户+门店解析授权作用域(平台管理员跨租户放行)
+  const scope = await requireScopedPermission(c, { code: 'employee.invite', tenantId: input.tenantId, storeId: input.storeId })
 
   const service = createServiceClient()
   const user = c.get('user')
 
-  // MXQ-3007 跨租户防护:请求租户须为调用者所属租户,且 store/role 归属同一租户
-  assertTenantAccess(c, input.tenantId)
+  // MXQ-3007 跨租户防护:store/role 归属须与授权租户一致(scope 已校验调用者租户归属)
   const { data: store } = await service
     .from('stores')
     .select('tenant_id')
@@ -55,7 +55,7 @@ employeeRoutes.post('/invite', async (c) => {
   if (!store) {
     throw err.notFound('门店不存在')
   }
-  if (store.tenant_id !== input.tenantId) {
+  if (store.tenant_id !== scope.tenantId) {
     throw err.badRequest('门店不属于该租户')
   }
   const { data: role } = await service
@@ -66,8 +66,8 @@ employeeRoutes.post('/invite', async (c) => {
   if (!role) {
     throw err.notFound('角色不存在')
   }
-  // 系统角色(tenant_id 为 null)可全局分配;租户角色必须与邀请租户一致
-  if (role.tenant_id !== null && role.tenant_id !== input.tenantId) {
+  // 系统角色(tenant_id 为 null)可全局分配;租户角色必须与授权租户一致
+  if (role.tenant_id !== null && role.tenant_id !== scope.tenantId) {
     throw err.badRequest('角色不属于该租户')
   }
 
@@ -89,14 +89,14 @@ employeeRoutes.post('/invite', async (c) => {
 
   // 2) 调 invite_employee RPC(事务化)
   const { data: employee, error: rpcError } = await service.rpc('invite_employee', {
-    p_tenant_id: input.tenantId,
+    p_tenant_id: scope.tenantId,
     p_user_id: userId,
     p_employee_no: input.employeeNo,
     p_name: input.name,
     p_phone: input.phone ?? null,
     p_email: input.email || null,
     p_title: input.title ?? null,
-    p_store_id: input.storeId,
+    p_store_id: scope.storeId ?? null,
     p_role_id: input.roleId,
     p_is_primary: input.isPrimary ?? false,
     p_invited_by: user.id,
@@ -139,7 +139,6 @@ const setStatusSchema = z.object({
 employeeRoutes.post('/set-status', async (c) => {
   const input = await parseJsonBody(c, setStatusSchema)
   const permissionCode = input.status === 'active' ? 'employee.enable' : 'employee.disable'
-  await requirePermission(c, { code: permissionCode })
 
   const service = createServiceClient()
   const user = c.get('user')
@@ -153,7 +152,8 @@ employeeRoutes.post('/set-status', async (c) => {
   if (!employee) {
     throw err.notFound('员工不存在')
   }
-  assertTenantAccess(c, employee.tenant_id)
+  // P0-02 scoped: 基于实体租户解析授权作用域(平台管理员跨租户放行)
+  await requireScopedPermission(c, { code: permissionCode, tenantId: employee.tenant_id })
 
   const { data, error } = await service.rpc('set_employee_status', {
     p_employee_id: input.employeeId,
@@ -195,14 +195,16 @@ const assignStoreSchema = z.object({
  */
 employeeRoutes.post('/assign-store', async (c) => {
   const input = await parseJsonBody(c, assignStoreSchema)
-  await requirePermission(c, { code: 'employee.assignStore', storeId: input.storeId })
-  const tenantId = requireTenant(c)
-  // MXQ-3007 跨租户防护:调用者须属于上下文租户
-  assertTenantAccess(c, tenantId)
-
   const service = createServiceClient()
 
-  // MXQ-3007 跨租户防护:员工与门店须归属同一租户(即上下文租户)
+  // P0-02 scoped: 以调用者默认租户为授权目标租户(平台管理员跨租户放行)
+  const tenantId = getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无权访问该租户的数据')
+  }
+  const scope = await requireScopedPermission(c, { code: 'employee.assignStore', tenantId, storeId: input.storeId })
+
+  // MXQ-3007 跨租户防护:员工与门店须归属同一租户(即授权租户)
   const [empRes, storeRes] = await Promise.all([
     service.from('employees').select('tenant_id').eq('id', input.employeeId).maybeSingle(),
     service.from('stores').select('tenant_id').eq('id', input.storeId).maybeSingle(),
@@ -215,16 +217,16 @@ employeeRoutes.post('/assign-store', async (c) => {
   if (!store) {
     throw err.notFound('门店不存在')
   }
-  if (employee.tenant_id !== tenantId || store.tenant_id !== tenantId) {
+  if (employee.tenant_id !== scope.tenantId || store.tenant_id !== scope.tenantId) {
     throw err.forbidden('无权操作该租户的员工或门店')
   }
 
   const { error } = await service
     .from('employee_store_assignments')
     .upsert({
-      tenant_id: tenantId,
+      tenant_id: scope.tenantId,
       employee_id: input.employeeId,
-      store_id: input.storeId,
+      store_id: scope.storeId ?? input.storeId,
       is_primary: input.isPrimary ?? false,
     }, {
       onConflict: 'employee_id,store_id',
@@ -239,7 +241,7 @@ employeeRoutes.post('/assign-store', async (c) => {
     entityType: 'employee',
     entityId: input.employeeId,
     storeId: input.storeId,
-    tenantId,
+    tenantId: scope.tenantId,
   })
 
   return ok(c, { isSuccess: true })
@@ -256,14 +258,24 @@ const removeStoreSchema = z.object({
  */
 employeeRoutes.post('/remove-store', async (c) => {
   const input = await parseJsonBody(c, removeStoreSchema)
-  await requirePermission(c, { code: 'employee.assignStore', storeId: input.storeId })
-
   const service = createServiceClient()
+
+  // P0-02 scoped: 先查员工实体,基于其租户+门店解析授权作用域(平台管理员跨租户放行)
+  const { data: employee } = await service
+    .from('employees')
+    .select('tenant_id')
+    .eq('id', input.employeeId)
+    .maybeSingle()
+  if (!employee) {
+    throw err.notFound('员工不存在')
+  }
+  const scope = await requireScopedPermission(c, { code: 'employee.assignStore', tenantId: employee.tenant_id, storeId: input.storeId })
+
   const { error } = await service
     .from('employee_store_assignments')
     .delete()
     .eq('employee_id', input.employeeId)
-    .eq('store_id', input.storeId)
+    .eq('store_id', scope.storeId ?? input.storeId)
 
   if (error) {
     throw err.unprocessable('取消门店分配失败', { _root: [error.message] })
@@ -292,17 +304,20 @@ const changeRoleSchema = z.object({
  */
 employeeRoutes.post('/change-role', async (c) => {
   const input = await parseJsonBody(c, changeRoleSchema)
-  await requirePermission(c, {
-    code: 'employee.changeRole',
-    storeId: input.storeId,
-  })
-  const tenantId = requireTenant(c)
-  // MXQ-3007 跨租户防护:调用者须属于上下文租户
-  assertTenantAccess(c, tenantId)
-
   const service = createServiceClient()
 
-  // MXQ-3007 跨租户防护:员工与角色须归属上下文租户(系统角色 tenant_id 为 null,可全局分配)
+  // P0-02 scoped: 以调用者默认租户为授权目标租户(平台管理员跨租户放行)
+  const tenantId = getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无权访问该租户的数据')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'employee.changeRole',
+    tenantId,
+    storeId: input.storeId,
+  })
+
+  // MXQ-3007 跨租户防护:员工与角色须归属授权租户(系统角色 tenant_id 为 null,可全局分配)
   const [empRes, roleRes] = await Promise.all([
     service.from('employees').select('tenant_id').eq('id', input.employeeId).maybeSingle(),
     service.from('roles').select('tenant_id').eq('id', input.roleId).maybeSingle(),
@@ -315,7 +330,7 @@ employeeRoutes.post('/change-role', async (c) => {
   if (!role) {
     throw err.notFound('角色不存在')
   }
-  if (employee.tenant_id !== tenantId || (role.tenant_id !== null && role.tenant_id !== tenantId)) {
+  if (employee.tenant_id !== scope.tenantId || (role.tenant_id !== null && role.tenant_id !== scope.tenantId)) {
     throw err.forbidden('无权操作该租户的员工或角色')
   }
 
@@ -339,10 +354,10 @@ employeeRoutes.post('/change-role', async (c) => {
   const { error } = await service
     .from('employee_role_assignments')
     .insert({
-      tenant_id: tenantId,
+      tenant_id: scope.tenantId,
       employee_id: input.employeeId,
       role_id: input.roleId,
-      store_id: input.storeId ?? null,
+      store_id: scope.storeId ?? null,
     })
 
   if (error) {
@@ -354,7 +369,7 @@ employeeRoutes.post('/change-role', async (c) => {
     entityType: 'employee',
     entityId: input.employeeId,
     storeId: input.storeId,
-    tenantId,
+    tenantId: scope.tenantId,
     metadata: { roleId: input.roleId },
   })
 

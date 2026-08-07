@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
-import { requirePermission } from '../lib/permission'
+import { requireScopedPermission } from '../lib/permission'
 import { loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
@@ -41,7 +41,6 @@ const listSchema = z.object({
  */
 petRoutes.get('/', async (c) => {
   const input = listSchema.parse(c.req.query())
-  await requirePermission(c, { code: 'pet.view' })
 
   const service = createServiceClient()
 
@@ -55,12 +54,18 @@ petRoutes.get('/', async (c) => {
   if (custError || !customer) {
     throw err.notFound('客户不存在')
   }
-  await requirePermission(c, { code: 'pet.view', storeId: customer.store_id ?? undefined })
+  // P0-02 scoped:按客户租户/门店做作用域授权
+  const scope = await requireScopedPermission(c, {
+    code: 'pet.view',
+    tenantId: customer.tenant_id,
+    storeId: customer.store_id ?? undefined,
+  })
 
   let query = service
     .from('pets')
     .select('*')
     .eq('customer_id', input.customerId)
+    .eq('tenant_id', scope.tenantId)
 
   if (input.status) {
     query = query.eq('status', input.status)
@@ -85,7 +90,6 @@ petRoutes.get('/', async (c) => {
  */
 petRoutes.get('/:id', async (c) => {
   const id = c.req.param('id')
-  await requirePermission(c, { code: 'pet.view' })
 
   const service = createServiceClient()
   const { data: pet, error } = await service
@@ -105,9 +109,12 @@ petRoutes.get('/:id', async (c) => {
     .eq('id', pet.customer_id)
     .maybeSingle()
 
-  if (customer) {
-    await requirePermission(c, { code: 'pet.view', storeId: customer.store_id ?? undefined })
-  }
+  // P0-02 scoped:按宠物租户/门店做作用域授权(客户缺失时仍校验租户)
+  await requireScopedPermission(c, {
+    code: 'pet.view',
+    tenantId: pet.tenant_id,
+    storeId: customer?.store_id ?? undefined,
+  })
 
   // 最近 30 条体重记录(按时间倒序)
   const { data: weights, error: weightsError } = await service
@@ -149,7 +156,6 @@ const createSchema = z.object({
  */
 petRoutes.post('/', async (c) => {
   const input = await parseJsonBody(c, createSchema)
-  await requirePermission(c, { code: 'pet.create' })
 
   const service = createServiceClient()
 
@@ -166,10 +172,15 @@ petRoutes.post('/', async (c) => {
   if (customer.status !== 'active') {
     throw err.conflict('客户已归档或已合并,不可新增宠物')
   }
-  await requirePermission(c, { code: 'pet.create', storeId: customer.store_id ?? undefined })
+  // P0-02 scoped:按输入租户 + 客户门店做作用域授权
+  const scope = await requireScopedPermission(c, {
+    code: 'pet.create',
+    tenantId: input.tenantId,
+    storeId: customer.store_id ?? undefined,
+  })
 
   const { data, error: rpcError } = await service.rpc('create_pet', {
-    p_tenant_id: input.tenantId,
+    p_tenant_id: scope.tenantId,
     p_customer_id: input.customerId,
     p_name: input.name,
     p_species: input.species ?? null,
@@ -234,7 +245,6 @@ const updateSchema = z.object({
 petRoutes.patch('/:id', async (c) => {
   const id = c.req.param('id')
   const input = await parseJsonBody(c, updateSchema)
-  await requirePermission(c, { code: 'pet.update' })
 
   const service = createServiceClient()
 
@@ -253,9 +263,12 @@ petRoutes.patch('/:id', async (c) => {
     .select('id, store_id')
     .eq('id', existing.customer_id)
     .maybeSingle()
-  if (customer) {
-    await requirePermission(c, { code: 'pet.update', storeId: customer.store_id ?? undefined })
-  }
+  // P0-02 scoped:按宠物租户/门店做作用域授权
+  await requireScopedPermission(c, {
+    code: 'pet.update',
+    tenantId: existing.tenant_id,
+    storeId: customer?.store_id ?? undefined,
+  })
 
   const { data, error: rpcError } = await service.rpc('update_pet', {
     p_pet_id: id,
@@ -309,7 +322,6 @@ const archiveSchema = z.object({
 petRoutes.post('/:id/archive', async (c) => {
   const id = c.req.param('id')
   const input = await parseJsonBody(c, archiveSchema)
-  await requirePermission(c, { code: 'pet.update' })
 
   const service = createServiceClient()
   const user = c.get('user')
@@ -330,9 +342,12 @@ petRoutes.post('/:id/archive', async (c) => {
     .select('id, store_id')
     .eq('id', existing.customer_id)
     .maybeSingle()
-  if (customer) {
-    await requirePermission(c, { code: 'pet.update', storeId: customer.store_id ?? undefined })
-  }
+  // P0-02 scoped:按宠物租户/门店做作用域授权
+  await requireScopedPermission(c, {
+    code: 'pet.update',
+    tenantId: existing.tenant_id,
+    storeId: customer?.store_id ?? undefined,
+  })
 
   const { data, error: rpcError } = await service.rpc('archive_pet', {
     p_pet_id: id,
