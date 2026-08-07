@@ -204,13 +204,12 @@ function handleCopy() {
           </div>
           <FaSwitch v-model="appSettingsStore.settings.toolbar.menuSearch.enable" />
         </div>
-        <div class="ps-8 space-y-4">
-          <div class="setting-item">
-            <div class="label" :class="{ 'op-50': !appSettingsStore.settings.toolbar.menuSearch.enable }">
-              快捷键
-            </div>
-            <FaSwitch v-model="appSettingsStore.settings.toolbar.menuSearch.hotkeys" :disabled="!appSettingsStore.settings.toolbar.menuSearch.enable" />
+        <div class="setting-item">
+          <div class="label" :class="{ 'op-50': !appSettingsStore.settings.toolbar.menuSearch.enable }">
+            <FaIcon name="i-ri:keyboard-line" />
+            快捷键
           </div>
+          <FaSwitch v-model="appSettingsStore.settings.toolbar.menuSearch.hotkeys" :disabled="!appSettingsStore.settings.toolbar.menuSearch.enable" />
         </div>
         <div v-if="appSettingsStore.mode === 'pc'" class="setting-item">
           <div class="label">
