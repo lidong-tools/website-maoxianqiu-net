@@ -4,6 +4,7 @@ import type { NursingPlan, NursingTask, NursingTaskStatus } from '@/types/inpati
 import apiInpatient from '@/api/modules/inpatient'
 import BusinessAdmissionPicker from '@/components/business/AdmissionPicker/index.vue'
 import BusinessEmployeePicker from '@/components/business/EmployeePicker/index.vue'
+import BusinessPetPicker from '@/components/business/PetPicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import {
   NURSING_FREQUENCY_LABELS,
@@ -139,7 +140,7 @@ async function loadData() {
 /** 创建护理计划 */
 async function onCreatePlan() {
   if (!selectedAdmissionId.value || !newPlan.planName || !newPlan.petId) {
-    useFaToast().warning('请填写住院 ID、宠物 ID 与计划名称')
+    useFaToast().warning('请选择住院记录、宠物并填写计划名称')
     return
   }
   if (!tenantStore.currentTenantId || !tenantStore.currentStoreId) {
@@ -174,7 +175,7 @@ async function onCreatePlan() {
 /** 创建护理任务 */
 async function onCreateTask() {
   if (!selectedAdmissionId.value || !newTask.scheduledAt) {
-    useFaToast().warning('请填写住院 ID 与计划时间')
+    useFaToast().warning('请选择住院记录并填写计划时间')
     return
   }
   if (!tenantStore.currentTenantId || !tenantStore.currentStoreId) {
@@ -186,7 +187,7 @@ async function onCreateTask() {
     // 从护理计划中取 pet_id(若没有计划,需要用户填写;此处从已加载的计划取第一条)
     const petId = plans.value[0]?.pet_id ?? ''
     if (!petId) {
-      useFaToast().warning('请先创建护理计划或填写宠物 ID')
+      useFaToast().warning('请先创建护理计划或选择宠物')
       return
     }
     await apiInpatient.createNursingTask({
@@ -283,7 +284,7 @@ onMounted(() => {
       <!-- 选择住院记录 -->
       <div class="mb-4 p-4 border rounded-lg bg-muted/30">
         <div class="gap-3 grid grid-cols-1 items-end md:grid-cols-3">
-          <FaLabel label="住院 ID">
+          <FaLabel label="住院记录">
             <BusinessAdmissionPicker v-model="selectedAdmissionId" placeholder="搜索选择住院记录" />
           </FaLabel>
           <div class="flex gap-2">
@@ -306,8 +307,8 @@ onMounted(() => {
             <FaLabel label="计划名称">
               <FaInput v-model="newPlan.planName" placeholder="如:术后观察" class="w-full" />
             </FaLabel>
-            <FaLabel label="宠物 ID">
-              <FaInput v-model="newPlan.petId" placeholder="宠物 UUID" class="w-full" />
+            <FaLabel label="宠物">
+              <BusinessPetPicker v-model="newPlan.petId" placeholder="搜索选择宠物" class="w-full" />
             </FaLabel>
             <FaLabel label="频率">
               <FaSelect v-model="newPlan.frequency" class="w-full" :options="Object.entries(NURSING_FREQUENCY_LABELS).map(([value, label]) => ({ label, value }))" />

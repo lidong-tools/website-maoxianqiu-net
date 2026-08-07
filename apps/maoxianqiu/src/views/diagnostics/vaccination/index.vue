@@ -142,7 +142,7 @@ async function loadCertificates() {
 /** 提交创建疫苗接种 */
 async function onCreate() {
   if (!vaccForm.customerId || !vaccForm.petId) {
-    useFaToast().warning('请填写客户 ID 与宠物 ID')
+    useFaToast().warning('请选择客户与宠物')
     return
   }
   if (!tenantStore.currentTenantId) {
@@ -268,10 +268,10 @@ onMounted(async () => {
           <span class="text-xs text-muted-foreground">(RLS 须 vaccine.manage 权限)</span>
         </div>
         <div class="gap-3 grid grid-cols-1 md:grid-cols-3">
-          <FaLabel label="客户 ID">
+          <FaLabel label="客户">
             <BusinessCustomerPicker v-model="vaccForm.customerId" placeholder="搜索选择客户" />
           </FaLabel>
-          <FaLabel label="宠物 ID">
+          <FaLabel label="宠物">
             <BusinessPetPicker v-model="vaccForm.petId" :customer-id="vaccForm.customerId || undefined" placeholder="搜索选择宠物" />
           </FaLabel>
           <FaLabel label="剂次">
@@ -315,7 +315,7 @@ onMounted(async () => {
                 @change="loadVaccinations()"
               />
             </FaLabel>
-            <FaLabel label="宠物 ID" class="col-span-1">
+            <FaLabel label="宠物" class="col-span-1">
               <BusinessPetPicker v-model="search.petId" placeholder="按宠物筛选" />
             </FaLabel>
             <div class="flex gap-2 col-end--1 justify-end">

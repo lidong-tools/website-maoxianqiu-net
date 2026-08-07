@@ -4,12 +4,6 @@
 
 ## P1 — 发布后尽快修复
 
-### P1-01 前端 vue-tsc 遗留类型错误（reports/index.vue 等）
-- 现象：`npx vue-tsc -b` 报约 20 个 TS2307 相关错误（受增量缓存影响，改用 `--noEmit -p apps/maoxianqiu/tsconfig.app.json` 验证）。
-- 说明：`views/operations/reports/index.vue` 存在既有类型错误，属 P0-06 之前的存量问题，非报表统一改造引入。
-- 影响：前端 `pnpm lint`（vue-tsc -b）无法全绿。
-- 建议：单独任务修复 reports/index.vue 及关联类型定义。
-
 ### P1-04 打印能力项未补齐
 依据 v0.5 第 1088-1094 行，以下打印项仍为待办：
 - Puppeteer/Chromium 生成 PDF；
@@ -32,7 +26,7 @@
 | 项目 | 说明 | 关联 |
 | --- | --- | --- |
 | migration 空库/旧库升级 | 仅本地开发库验证，未做空库从 0 到 25 及旧库升级演练 | P0-08 migration 25 |
-| RLS / RPC 全量验证 | supabase/tests 未在 staging 执行 | DEV-000 |
+| RLS / RPC 全量验证 | supabase/tests 未在 staging 执行（含新增 rls_inventory_reserve.sql） | DEV-000 / AUD-007 |
 | 并发 / 幂等 / 回滚 | reserve/confirm、admit/transfer/discharge 等并发场景未实测 | P0-08 / inpatient |
 | 闭环 A/B/C 真实执行 | 代码与 tsc 通过，未在真实环境跑通 | P0-09 |
 | 多角色授权矩阵 | 仅 system_admin 实测，store_manager / doctor / nurse 未逐角色验证 | P0-01/P0-02 |
@@ -49,3 +43,11 @@
 | 发票/处方取消不释放预留 | ✅ 已关闭 | P0-08 billing.ts |
 | 根 package.json 缺 test:e2e 脚本 | ✅ 已关闭 | P0-10 |
 | AGENTS.md 技术栈过时 | ✅ 已关闭 | P0-10 重写为毛线球规则 |
+| 前端 vue-tsc 遗留类型错误 | ✅ 已关闭 | S3.0 AUD-010：`vue-tsc -b` 全绿 |
+| scoped permission 作用域串用 | ✅ 已关闭 | S3.0 AUD-002：区分 tenant-wide / store-scoped 分配，`allowedStoreIds` 收敛 |
+| report-data 报表数据越权 | ✅ 已关闭 | S3.0 AUD-003：5 类报表按门店集合查询层强制过滤 |
+| 过期预留确认缺陷（自身过期不拒 + stale loop 自释放） | ✅ 已关闭 | S3.0 AUD-007：RESERVATION_EXPIRED + 排除当前 id，附回归测试 |
+| 正式表单手填 UUID / 误导性「XX ID」标签 | ✅ 已关闭 | S3.0 AUD-005：业务 Picker 全覆盖 |
+| 打印实体 ID 手填（lab_report/vaccine_certificate） | ✅ 已关闭 | S3.0 AUD-006：DiagnosticOrderPicker 收口 |
+| 核心 E2E 缺 seed 静默 skip | ✅ 已关闭 | S3.0 AUD-008：缺 seed = FAIL |
+| 闭环 A 先发药后收费（测试擅自决定） | ✅ 已关闭 | S3.0 AUD-009：按默认建议 prescription → invoice → payment → dispense |

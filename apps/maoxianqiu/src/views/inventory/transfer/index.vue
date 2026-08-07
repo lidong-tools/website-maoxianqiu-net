@@ -79,7 +79,7 @@ async function onSubmit() {
     return
   }
   if (!form.catalogItemId) {
-    useFaToast().warning('请输入商品 ID')
+    useFaToast().warning('请选择商品')
     return
   }
   if (form.quantity <= 0) {
@@ -151,7 +151,7 @@ onMounted(loadWarehouses)
               :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
             />
           </FaLabel>
-          <FaLabel label="商品 ID" class="col-span-1">
+          <FaLabel label="商品" class="col-span-1">
             <BusinessCatalogItemPicker v-model="form.catalogItemId" placeholder="搜索选择服务/药品" />
           </FaLabel>
           <FaLabel label="数量" class="col-span-1">

@@ -19,6 +19,7 @@
 | P0-08 | 库存一致性 | ✅ 完成 | migration 25：FEFO 批次扣减 + reserved_until 自动/批量释放 + 处方发药/取消联动 |
 | P0-09 | 真实闭环 E2E | ✅ 代码完成 / ⏳ 待 staging 执行 | 闭环 A/B/C 已编写并通过 tsc；需 staging 环境实际执行 |
 | P0-10 | 文档与命令修正 | ✅ 完成 | 根 package.json 补 test:e2e 脚本；AGENTS.md 重写；新增本组文档 |
+| S3.0 | Stage02 审计收口 | ✅ 完成 | AUD-001~011 全部落地（明细见下文「S3.0 审计收口」） |
 
 ## 已交付任务明细
 
@@ -81,15 +82,56 @@
 - `AGENTS.md` 重写为毛线球项目规则（Vue 3.5.40 / Fantastic Admin + Reka UI / 禁新增 Element Plus / Command 走 Hono / service role 必须 scoped authorization / example 页面不视为产品功能）。
 - 本目录（`document/current/`）新增 IMPLEMENTATION_STATUS / KNOWN_GAPS / RELEASE_CHECKLIST。
 
+## S3.0 审计收口
+
+> 依据：`document/stage-02/毛线球-Stage02源码审计与Stage03执行指导-v1.1.md` 第 18 章 S3.0 任务清单。11 个 AUD 任务全部落地，代码与文档已对齐。
+
+| AUD | 内容 | 状态 | 说明 |
+| --- | --- | --- | --- |
+| AUD-001 | 基线证明 | ✅ 完成 | S3.0 全部改动待一次 commit 关联（见提交说明） |
+| AUD-002 | scoped permission 作用域串用 | ✅ 完成 | `api/lib/permission.ts`：区分 tenant-wide（store_id IS NULL）与 store-scoped 角色分配；`AccessScope` 新增 `allowedStoreIds`；平台管理员判定收紧为 `is_system && scope='system'` |
+| AUD-003 | report-data 门店数据范围 | ✅ 完成 | `api/routes/report-data.ts`：引入 `ReportQuery.allowedStoreIds`，5 类报表在查询层按门店集合强制过滤（refunds 按发票归属、inventory 按仓库归属） |
+| AUD-004 | 宠物新增 UI | ✅ 完成 | 新增 `PetForm`、`PetCreateDrawer` 业务组件；客户详情页接入「新增宠物」入口并刷新 |
+| AUD-005 | 清理正式表单手填 ID | ✅ 完成 | 全部正式表单替换/统一为业务 Picker，误导性「XX ID」标签与提示文案业务化 |
+| AUD-006 | 打印选择器收尾 | ✅ 完成 | `operations/print`：lab_report/vaccine_certificate 接入 `DiagnosticOrderPicker`，移除实体 ID 手填兜底 |
+| AUD-007 | inventory 过期预留确认缺陷 | ✅ 完成 | migration 25 修复：确认时自身预留已过期直接拒绝（RESERVATION_EXPIRED）；stale loop 排除当前确认 id；新增 RLS 回归测试 `supabase/tests/rls_inventory_reserve.sql` |
+| AUD-008 | E2E 禁止核心 skip | ✅ 完成 | 闭环 A/B/C 缺 seed（drug 商品/仓库/笼位）由 skip 改为 FAIL；清理过时 `.spec.js` 编译产物避免双跑 |
+| AUD-009 | 闭环 A 顺序确认 | ✅ 完成 | 按默认建议 prescription → invoice → payment → dispense 调整；不再由测试代码擅自先发药后收费 |
+| AUD-010 | typecheck/lint/build 全绿 | ✅ 完成 | 前端 `vue-tsc -b`、api `tsc --noEmit`、e2e `tsc`、ESLint、`vite build` 全部通过 |
+| AUD-011 | current 文档与源码重新对齐 | ✅ 完成 | 本文件 + KNOWN_GAPS + RELEASE_CHECKLIST 同步更新；关闭 P1-01 等已修复缺口 |
+
+### AUD-002 scoped permission 修复明细
+- `api/lib/permission.ts`：
+  - `RoleRow` 增加 `is_system`；`AccessScope` 增加 `allowedStoreIds: string[]`。
+  - 新增 `collectRolePermissions()` 从 role_permissions 关联表 + roles.permissions 聚合权限码。
+  - `ScopedRequirement` 支持 `dataScope?: boolean`（报表只读聚合模式）。
+  - 匹配逻辑：传 storeId 时允许 `store_id === storeId || null`；命令模式（未传 storeId）仅匹配 tenant-wide 分配。
+  - 平台管理员纵深防御：`code==='system_admin' && is_system && scope==='system'` 并组装全租户门店为 allowedStoreIds。
+
+### AUD-003 report-data 修复明细
+- `api/routes/report-data.ts`：
+  - 5 类报表（收入/退款/库存/客户/医疗）查询统一注入 `query.allowedStoreIds`。
+  - refunds 无 store_id：先按允许门店收敛 invoice id 集合再查 refunds。
+  - inventory_balances 无 store_id：先按 `warehouses.store_id` 收敛 warehouse id 集合；空集合直接返回空报表。
+  - 路由 handler 显式传 storeId 时，`allowedStoreIds` 收敛到该门店。
+
+### AUD-007 库存一致性修复明细
+- migration `20260807000025_inventory_reserve_consistency.sql`：
+  - `confirm_inventory_reservation`：当前预留 `reserved_until < now()` 直接抛 `RESERVATION_EXPIRED`（防重复检查之后、扣减之前）。
+  - stale loop 查询排除当前确认的 `m.id <> v_reserve.id`，避免确认自身被重复 release。
+- API：`api/routes/inventory.ts` 新增 RESERVATION_EXPIRED → 409「该预留已过期,请重新预留或释放」映射。
+- 测试：`supabase/tests/rls_inventory_reserve.sql`（R1~R6 覆盖过期确认拒绝、并发释放、重复确认、库存竞争、stale loop 回归）。
+
 ## 基线 / 验证说明
 
 - API 目录 `api/`：`tsc --noEmit` 通过。
 - E2E 目录 `e2e/`：`tsc -p e2e/tsconfig.json --noEmit` 通过；`playwright test --list` 通过。
-- 前端 `apps/maoxianqiu`：`vue-tsc` 存在既有 P1-01 遗留错误（见 KNOWN_GAPS），非本次任务引入。
+- 前端 `apps/maoxianqiu`：`vue-tsc -b` 通过（S3.0 AUD-010 起全绿）；`vite build` 通过。
 - 本地环境未执行：migration 空库/旧库升级、RLS/RPC 全量验证、闭环 A/B/C 真实运行（依赖 staging）。
 
 ## 更新记录
 
 | 日期 | 更新内容 |
 | --- | --- |
+| 2026-08-07 | S3.0 审计收口：记录 AUD-001~011 落地明细，同步 KNOWN_GAPS / RELEASE_CHECKLIST |
 | 2026-08-07 | 初始化：汇总 DEV-000 ~ P0-10 实施状态 |

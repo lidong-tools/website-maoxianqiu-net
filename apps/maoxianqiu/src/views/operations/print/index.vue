@@ -12,6 +12,7 @@ import type {
 } from '@/types/operations'
 import apiOperations from '@/api/modules/operations'
 import apiStore from '@/api/modules/store'
+import BusinessDiagnosticOrderPicker from '@/components/business/DiagnosticOrderPicker/index.vue'
 import BusinessEncounterPicker from '@/components/business/EncounterPicker/index.vue'
 import BusinessInvoicePicker from '@/components/business/InvoicePicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
@@ -197,7 +198,7 @@ function onSubmitPrint() {
     return
   }
   if (!printForm.value.entityId.trim()) {
-    useFaToast().warning('请填写业务 id')
+    useFaToast().warning('请选择业务单据')
     return
   }
   printSubmitting.value = true
@@ -634,13 +635,12 @@ function onPrintNow() {
               class="w-full"
             />
           </FaLabel>
-          <FaLabel label="业务 id">
+          <FaLabel label="业务单据">
             <BusinessInvoicePicker v-if="printForm.entityType === 'invoice'" v-model="printForm.entityId" placeholder="搜索选择发票" />
             <BusinessEncounterPicker v-else-if="printForm.entityType === 'medical_record' || printForm.entityType === 'prescription'" v-model="printForm.entityId" placeholder="搜索选择就诊记录" />
+            <BusinessDiagnosticOrderPicker v-else-if="printForm.entityType === 'lab_report'" v-model="printForm.entityId" order-type="lab" placeholder="搜索选择检验申请" />
+            <BusinessDiagnosticOrderPicker v-else-if="printForm.entityType === 'vaccine_certificate'" v-model="printForm.entityId" order-type="vaccination" placeholder="搜索选择疫苗记录" />
             <FaInput v-else v-model="printForm.entityId" placeholder="输入实体 ID" />
-            <p v-if="printForm.entityType === 'lab_report' || printForm.entityType === 'vaccine_certificate'" class="text-xs text-muted-foreground mt-1">
-              检验报告/疫苗证明暂使用实体ID关联，后续将扩展专用选择器
-            </p>
           </FaLabel>
         </div>
       </FaModal>

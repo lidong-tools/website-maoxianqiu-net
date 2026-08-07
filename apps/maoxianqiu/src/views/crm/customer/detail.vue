@@ -31,6 +31,9 @@ const customer = ref<CustomerRecord | null>(null)
 const pets = ref<PetRecord[]>([])
 const attachments = ref<AttachmentWithFile[]>([])
 
+/** 新增宠物抽屉显隐(AUD-004 客户 → 宠物建档) */
+const petDrawerVisible = ref(false)
+
 /** 编辑表单数据 */
 const formData = ref({
   name: '',
@@ -164,6 +167,13 @@ function onViewPet(pet: PetRecord) {
 }
 
 /**
+ * 宠物建档成功回调:刷新宠物列表
+ */
+function onPetCreated() {
+  loadDetail()
+}
+
+/**
  * 返回列表
  */
 function onBack() {
@@ -287,7 +297,13 @@ onMounted(loadDetail)
 
       <!-- 宠物列表 -->
       <FaCard v-if="!isNew" title="宠物列表" class="mt-4">
-        <FaEmptyState v-if="pets.length === 0" description="暂无宠物" />
+        <template #extra>
+          <FaButton variant="outline" size="sm" @click="petDrawerVisible = true">
+            <FaIcon name="i-ri:add-line" />
+            新增宠物
+          </FaButton>
+        </template>
+        <FaEmptyState v-if="pets.length === 0" description="暂无宠物,点击右上角「新增宠物」建档" />
         <div v-else class="gap-3 grid grid-cols-1 lg:grid-cols-3 md:grid-cols-2">
           <div
             v-for="pet in pets"
@@ -321,6 +337,15 @@ onMounted(loadDetail)
       <FaCard v-if="!isNew" title="附件" class="mt-4">
         <BusinessFilePreview :attachments="attachments" readonly />
       </FaCard>
+
+      <!-- 新增宠物抽屉(AUD-004) -->
+      <BusinessPetCreateDrawer
+        v-if="customer && !isNew"
+        v-model="petDrawerVisible"
+        :customer-id="customer.id"
+        :tenant-id="customer.tenant_id"
+        @created="onPetCreated"
+      />
     </FaPageMain>
   </div>
 </template>

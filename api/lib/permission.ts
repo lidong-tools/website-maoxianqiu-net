@@ -12,6 +12,7 @@ interface RoleRow {
   id: string
   code: string
   scope: string
+  is_system: boolean
   permissions: string[] | null
 }
 
@@ -37,6 +38,8 @@ export interface AccessScope {
   employeeId: string
   tenantId: string
   storeId?: string
+  /** 调用者在目标租户下被授权可访问的门店 id 集合(P0-06 报表数据范围) */
+  allowedStoreIds: string[]
   roleIds: string[]
   permissions: string[]
   isPlatformAdmin: boolean
@@ -168,6 +171,56 @@ export async function assertStoreTenant(
 }
 
 /**
+ * 从角色 id 列表聚合权限码(role_permissions 关联表 + roles.permissions 旧模型兼容)
+ * @param service supabase service client
+ * @param roleIds 目标角色 id 列表
+ * @param roles 已加载的角色行(用于旧模型数组权限)
+ * @returns 去重后的权限码集合
+ */
+async function collectRolePermissions(
+  service: ReturnType<typeof createServiceClient>,
+  roleIds: string[],
+  roles: RoleRow[],
+): Promise<string[]> {
+  if (roleIds.length === 0) {
+    return []
+  }
+  const { data: rpRows, error: rpError } = await service
+    .from('role_permissions')
+    .select('permission_id, permissions(code)')
+    .in('role_id', roleIds)
+  if (rpError) {
+    throw err.internal(`查询角色权限失败: ${rpError.message}`)
+  }
+  const rpPerms = ((rpRows as RolePermissionRow[] | null) ?? []).flatMap((row) => {
+    if (!row.permissions) {
+      return []
+    }
+    return Array.isArray(row.permissions)
+      ? row.permissions.map(p => p.code)
+      : [row.permissions.code]
+  })
+  const roleIdSet = new Set(roleIds)
+  const legacyPerms = roles
+    .filter(r => roleIdSet.has(r.id))
+    .flatMap(r => r.permissions ?? [])
+  return [...new Set([...rpPerms, ...legacyPerms])]
+}
+
+export interface ScopedRequirement {
+  code: string
+  tenantId: string
+  storeId?: string
+  /**
+   * 数据范围模式(报表等只读聚合):
+   * - 未传 storeId 时允许门店级角色参与授权(而不要求 tenant-wide role),
+   *   但实际数据范围由 scope.allowedStoreIds 收敛到被授权门店;
+   * - 默认(命令模式)未传 storeId 时只允许 tenant-wide role,禁止门店角色越权。
+   */
+  dataScope?: boolean
+}
+
+/**
  * 解析调用者在"目标租户 + 目标门店"下的真实授权作用域(P0-01)
  *
  * 处理顺序:
@@ -176,17 +229,16 @@ export async function assertStoreTenant(
  * 2. 根据 auth.uid() 查目标租户下 active employee;
  * 3. 查该员工在目标租户下的 role assignment;
  * 4. 门店命令只匹配:store_id = 目标门店 或 明确 tenant-wide role(store_id is null);
+ *    未传 storeId 的命令只允许 tenant-wide role(审计 4.2,禁止 store role 越权);
+ *    数据范围模式(dataScope)允许门店级角色,但通过 allowedStoreIds 收敛;
  * 5. 只加载匹配 role IDs 的 permissions(role_permissions 关联表 + roles.permissions 兼容);
  * 6. 校验目标门店确实属于目标租户;
- * 7. 返回已确认的授权作用域。
+ * 7. 计算 allowedStoreIds:tenant-wide 权限 → 全租户门店;否则 → 被授权门店集合;
+ * 8. 返回已确认的授权作用域。
  */
 export async function resolveScopedAccess(
   c: Context<AppEnv>,
-  requirement: {
-    code: string
-    tenantId: string
-    storeId?: string
-  },
+  requirement: ScopedRequirement,
 ): Promise<AccessScope> {
   const user = c.get('user')
   const service = createServiceClient()
@@ -214,13 +266,16 @@ export async function resolveScopedAccess(
     if (allRoleIds.length > 0) {
       const { data: allRoles, error: rolesAllError } = await service
         .from('roles')
-        .select('id, code, scope, permissions')
+        .select('id, code, scope, is_system, permissions')
         .in('id', allRoleIds)
       if (rolesAllError) {
         throw err.internal(`查询角色失败: ${rolesAllError.message}`)
       }
       const rolesAll = (allRoles as RoleRow[] | null) ?? []
-      const isPlatformAdmin = rolesAll.some(r => r.code === PLATFORM_ADMIN_ROLE)
+      // 平台管理员纵深防御:code = system_admin AND is_system = true AND scope = system(审计 4.3)
+      const isPlatformAdmin = rolesAll.some(r =>
+        r.code === PLATFORM_ADMIN_ROLE && r.is_system === true && r.scope === 'system',
+      )
       if (isPlatformAdmin) {
         // 平台管理员权限集:system_admin 角色(新模型关联表 + 旧模型数组)
         const adminRoleIds = rolesAll.filter(r => r.code === PLATFORM_ADMIN_ROLE).map(r => r.id)
@@ -260,11 +315,20 @@ export async function resolveScopedAccess(
             throw err.forbidden('门店不属于该租户')
           }
         }
+        // 平台管理员可访问目标租户下全部门店
+        const { data: tenantStores, error: tenantStoresError } = await service
+          .from('stores')
+          .select('id')
+          .eq('tenant_id', requirement.tenantId)
+        if (tenantStoresError) {
+          throw err.internal(`查询门店失败: ${tenantStoresError.message}`)
+        }
         return {
           userId: user.id,
           employeeId: allEmpIds[0],
           tenantId: requirement.tenantId,
           storeId: requirement.storeId,
+          allowedStoreIds: (tenantStores as { id: string }[] | null ?? []).map(s => s.id),
           roleIds: adminRoleIds,
           permissions,
           isPlatformAdmin: true,
@@ -300,19 +364,31 @@ export async function resolveScopedAccess(
   if (assignError) {
     throw err.internal(`查询角色分配失败: ${assignError.message}`)
   }
+  const assignRows = ((assignments as EmployeeRoleAssignmentRow[] | null) ?? [])
+  const tenantWideAssigns = assignRows.filter(a => a.store_id === null)
+  const storeAssigns = assignRows.filter(a => a.store_id !== null)
 
-  // 2c) 门店命令只匹配目标门店或 tenant-wide role
-  const matched = ((assignments as EmployeeRoleAssignmentRow[] | null) ?? []).filter((a) => {
-    if (!requirement.storeId) {
+  // 2c) 角色分配必须区分 tenant-wide role 与 store-scoped role(P0-01 修复):
+  // - 传了 storeId(门店命令):匹配 store_id = 目标门店 或 tenant-wide role(store_id is null);
+  // - 未传 storeId:
+  //     command 模式:只允许明确 tenant-wide assignment(store_id is null),
+  //       禁止把某门店的 store role 提升为 tenant-wide 权限(审计 4.2);
+  //     dataScope 模式(报表):允许门店级角色参与授权,数据范围由 allowedStoreIds 收敛(审计 5.2)。
+  const matched = assignRows.filter((a) => {
+    if (requirement.storeId) {
+      return a.store_id === requirement.storeId || a.store_id === null
+    }
+    if (requirement.dataScope) {
       return true
     }
-    return a.store_id === requirement.storeId || a.store_id === null
+    return a.store_id === null
   })
   if (matched.length === 0) {
     throw err.forbidden('无权访问该门店的数据')
   }
 
   const roleIds = [...new Set(matched.map(a => a.role_id))]
+  const tenantWideRoleIds = [...new Set(tenantWideAssigns.map(a => a.role_id))]
 
   // 2d) 校验目标门店确实属于目标租户
   if (requirement.storeId) {
@@ -332,48 +408,71 @@ export async function resolveScopedAccess(
   // 2e) 只加载匹配 role IDs 的 permissions
   const { data: roleRows, error: roleError } = await service
     .from('roles')
-    .select('id, code, scope, permissions')
+    .select('id, code, scope, is_system, permissions')
     .in('id', roleIds)
   if (roleError) {
     throw err.internal(`查询角色失败: ${roleError.message}`)
   }
   const roles = (roleRows as RoleRow[] | null) ?? []
 
-  // 2e-1) 新模型:role_permissions 关联表
-  const { data: rpRows, error: rpError } = await service
-    .from('role_permissions')
-    .select('permission_id, permissions(code)')
-    .in('role_id', roleIds)
-  if (rpError) {
-    throw err.internal(`查询角色权限失败: ${rpError.message}`)
-  }
-  const rpPerms = ((rpRows as RolePermissionRow[] | null) ?? []).flatMap((row) => {
-    if (!row.permissions) {
-      return []
-    }
-    return Array.isArray(row.permissions)
-      ? row.permissions.map(p => p.code)
-      : [row.permissions.code]
-  })
-
-  // 2e-2) 旧模型兼容:roles.permissions 数组
-  const legacyPerms = roles.flatMap(r => r.permissions ?? [])
-
-  const permissions = [...new Set([...rpPerms, ...legacyPerms])]
+  // 2e-1) 新模型 role_permissions 关联表 + 旧模型 roles.permissions 数组
+  const permissions = await collectRolePermissions(service, roleIds, roles)
 
   // 权限码校验
   if (!permissions.includes(requirement.code)) {
     throw err.forbidden(`缺少权限: ${requirement.code}`)
   }
 
-  // 平台管理员:仅当角色是系统级(scope = 'system')且为 system_admin 角色时成立
-  const isPlatformAdmin = roles.some(r => r.code === PLATFORM_ADMIN_ROLE)
+  // 2e-3) 计算允许门店集合 allowedStoreIds(P0-06 报表数据范围):
+  // a) 若存在有效的 tenant-wide role(scope = system/tenant)且其权限包含该 code
+  //    → 授予全租户数据范围;
+  // b) 否则 → 只包含"被分配了含该权限码角色"的门店集合(store-scoped 收敛)。
+  let allowedStoreIds: string[] = []
+  // 仅 scope ∈ (system, tenant) 的角色可作为 tenant-wide(审计 4.2:校验角色 scope)
+  const validTenantWideRoleIds = tenantWideRoleIds.filter((id) => {
+    const r = roles.find(x => x.id === id)
+    return !!r && (r.scope === 'system' || r.scope === 'tenant')
+  })
+  if (validTenantWideRoleIds.length > 0) {
+    const twPerms = await collectRolePermissions(service, validTenantWideRoleIds, roles)
+    if (twPerms.includes(requirement.code)) {
+      const { data: stores } = await service
+        .from('stores')
+        .select('id')
+        .eq('tenant_id', requirement.tenantId)
+      allowedStoreIds = (stores as { id: string }[] | null ?? []).map(s => s.id)
+    }
+  }
+  if (allowedStoreIds.length === 0) {
+    // store-scoped:按门店分组角色,仅保留"角色权限包含该 code"的门店
+    const storeRoleByStore = new Map<string, string[]>()
+    for (const a of storeAssigns) {
+      if (!a.store_id) {
+        continue
+      }
+      const arr = storeRoleByStore.get(a.store_id) ?? []
+      arr.push(a.role_id)
+      storeRoleByStore.set(a.store_id, arr)
+    }
+    for (const [storeId, sRoleIds] of storeRoleByStore) {
+      const sPerms = await collectRolePermissions(service, sRoleIds, roles)
+      if (sPerms.includes(requirement.code)) {
+        allowedStoreIds.push(storeId)
+      }
+    }
+  }
+
+  // 平台管理员:仅当角色是系统级(scope = 'system')且为 system_admin 角色时成立(审计 4.3)
+  const isPlatformAdmin = roles.some(r =>
+    r.code === PLATFORM_ADMIN_ROLE && r.is_system === true && r.scope === 'system',
+  )
 
   return {
     userId: user.id,
     employeeId: employee.id,
     tenantId: requirement.tenantId,
     storeId: requirement.storeId,
+    allowedStoreIds,
     roleIds,
     permissions,
     isPlatformAdmin,
@@ -387,11 +486,7 @@ export async function resolveScopedAccess(
  */
 export async function requireScopedPermission(
   c: Context<AppEnv>,
-  requirement: {
-    code: string
-    tenantId: string
-    storeId?: string
-  },
+  requirement: ScopedRequirement,
 ): Promise<AccessScope> {
   return resolveScopedAccess(c, requirement)
 }

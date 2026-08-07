@@ -64,6 +64,9 @@ function mapRpcError(error: { message: string }) {
   if (msg.includes('RESERVATION_ALREADY_RELEASED')) {
     return err.conflict('该预留已被释放')
   }
+  if (msg.includes('RESERVATION_EXPIRED')) {
+    return err.conflict('该预留已过期,请重新预留或释放')
+  }
   if (msg.includes('INVALID_QUANTITY') || msg.includes('EMPTY_ITEMS') || msg.includes('SAME_WAREHOUSE')) {
     return err.badRequest(msg.replace(/^ERROR:\s*/, ''))
   }

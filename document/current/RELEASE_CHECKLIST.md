@@ -5,7 +5,7 @@
 
 ## 0. 文档一致性
 
-- [ ] `document/current/IMPLEMENTATION_STATUS.md` 与当前代码对齐
+- [ ] `document/current/IMPLEMENTATION_STATUS.md` 与当前代码对齐（含 S3.0 审计收口记录）
 - [ ] `document/current/KNOWN_GAPS.md` 缺口已确认无阻断项
 - [ ] 本次发布对应的 commit 已记录（health commit 对齐）
 
@@ -32,13 +32,15 @@
 ## 3. 代码完成定义检查（v0.5 第 23 节）
 
 - [ ] P0 代码任务全部完成（P0-01 ~ P0-10）
-- [ ] `pnpm lint` / typecheck / build 通过（前端 vue-tsc 已知缺口见 KNOWN_GAPS P1-01）
-- [ ] 无已知跨租户授权缺陷（service role 路由均 scoped authorization）
+- [ ] S3.0 审计收口全部完成（AUD-001 ~ AUD-011，见 IMPLEMENTATION_STATUS「S3.0 审计收口」）
+- [ ] `pnpm lint` / typecheck / build 通过（前端 vue-tsc、api tsc、e2e tsc、ESLint、vite build 全绿，S3.0 AUD-010 确认）
+- [ ] 无已知跨租户授权缺陷（service role 路由均 scoped authorization，含报表 allowedStoreIds 数据范围）
 - [ ] 无旧公共文件接口（旧 /api/upload、/api/files 已下线）
-- [ ] 无正式页面手填 UUID（业务交互均走 Picker）
+- [ ] 无正式页面手填 UUID（业务交互均走 Picker，含打印 lab_report/vaccine_certificate 选择器）
 - [ ] 打印使用真实业务 DTO（非演示数据）
 - [ ] 报表口径明确（Hono report-data，浏览器无跨表聚合）
 - [ ] 生产消息策略明确（方案 A：消息退出 MVP，无 Mock sent）
+- [ ] 核心闭环 E2E 缺 seed 时失败而非跳过（AUD-008）
 
 ## 4. 集成验证（v0.5 第 24 节）
 

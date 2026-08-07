@@ -116,25 +116,34 @@ async function resolveCategory(
 }
 
 /**
+ * 报表查询上下文(P0-06 数据范围)
+ * allowedStoreIds 由 requireScopedPermission 解析的 scope 提供,
+ * 所有 builder 必须在查询层强制 store_id ∈ allowedStoreIds,不得只过滤 tenant。
+ */
+interface ReportQuery {
+  tenantId: string
+  allowedStoreIds: string[]
+  start: string
+  end: string
+}
+
+/**
  * 收入报表:按日期+门店分组汇总(排除草稿/已取消,含合计行)
  * @param service supabase service client
- * @param tenantId 租户 id
- * @param start 起始时间
- * @param end 结束时间
+ * @param query 报表查询上下文(含允许门店集合)
  * @returns 明细行(含合计)
  */
 async function buildRevenueRows(
   service: ReturnType<typeof createServiceClient>,
-  tenantId: string,
-  start: string,
-  end: string,
+  query: ReportQuery,
 ): Promise<ReportRow[]> {
   const { data, error } = await service
     .from('invoices')
     .select('id, store_id, total, paid_amount, status, created_at')
-    .eq('tenant_id', tenantId)
-    .gte('created_at', start)
-    .lte('created_at', end)
+    .eq('tenant_id', query.tenantId)
+    .in('store_id', query.allowedStoreIds)
+    .gte('created_at', query.start)
+    .lte('created_at', query.end)
   if (error) {
     throw err.internal(`收入报表查询失败: ${error.message}`)
   }
@@ -195,26 +204,41 @@ async function buildRevenueRows(
 
 /**
  * 退款报表:按日期分组汇总 refunds 表(含合计行)
+ * refunds 无 store_id 字段,通过 invoices 的 store_id 收敛数据范围(审计 5.2)
  * @param service supabase service client
- * @param tenantId 租户 id
- * @param start 起始时间
- * @param end 结束时间
+ * @param query 报表查询上下文(含允许门店集合)
  * @returns 明细行(含合计)
  */
 async function buildRefundRows(
   service: ReturnType<typeof createServiceClient>,
-  tenantId: string,
-  start: string,
-  end: string,
+  query: ReportQuery,
 ): Promise<ReportRow[]> {
-  const { data, error } = await service
-    .from('refunds')
-    .select('amount, reason, created_at')
-    .eq('tenant_id', tenantId)
-    .gte('created_at', start)
-    .lte('created_at', end)
-  if (error) {
-    throw err.internal(`退款报表查询失败: ${error.message}`)
+  // 先按允许门店收敛 invoice id 集合
+  const { data: invData, error: invError } = await service
+    .from('invoices')
+    .select('id')
+    .eq('tenant_id', query.tenantId)
+    .in('store_id', query.allowedStoreIds)
+    .gte('created_at', query.start)
+    .lte('created_at', query.end)
+  if (invError) {
+    throw err.internal(`退款报表查询失败: ${invError.message}`)
+  }
+  const invoiceIds = ((invData as { id: string }[] | null) ?? []).map(i => i.id)
+
+  let data: Array<{ amount: unknown, reason: string | null, created_at: string }> | null = []
+  if (invoiceIds.length > 0) {
+    const { data: refunds, error } = await service
+      .from('refunds')
+      .select('amount, reason, created_at')
+      .eq('tenant_id', query.tenantId)
+      .in('invoice_id', invoiceIds)
+      .gte('created_at', query.start)
+      .lte('created_at', query.end)
+    if (error) {
+      throw err.internal(`退款报表查询失败: ${error.message}`)
+    }
+    data = refunds
   }
 
   const dailyMap = new Map<string, { 日期: string, 退款笔数: number, 退款总额: number, reasons: Set<string> }>()
@@ -252,18 +276,32 @@ async function buildRefundRows(
 
 /**
  * 库存报表:库存余额 × 目录项 × 仓库(含合计行)
+ * inventory_balances 无 store_id,通过 warehouses.store_id 收敛数据范围(审计 5.2)
  * @param service supabase service client
- * @param tenantId 租户 id
+ * @param query 报表查询上下文(含允许门店集合)
  * @returns 明细行(含合计)
  */
 async function buildInventoryRows(
   service: ReturnType<typeof createServiceClient>,
-  tenantId: string,
+  query: ReportQuery,
 ): Promise<ReportRow[]> {
-  const [balRes, catRes, whRes] = await Promise.all([
-    service.from('inventory_balances').select('*').eq('tenant_id', tenantId),
-    service.from('catalog_items').select('id, code, name, description, unit, cost_price').eq('tenant_id', tenantId),
-    service.from('warehouses').select('id, name, code').eq('tenant_id', tenantId),
+  // 1) 按允许门店收敛仓库 id 集合
+  const { data: whData, error: whError } = await service
+    .from('warehouses')
+    .select('id, name, code')
+    .eq('tenant_id', query.tenantId)
+    .in('store_id', query.allowedStoreIds)
+  if (whError) {
+    throw err.internal(`仓库查询失败: ${whError.message}`)
+  }
+  const warehouseIds = ((whData as Array<{ id: string }> | null) ?? []).map(w => w.id)
+
+  // 2) 余额/目录/仓库查询(空仓库集合直接返回空报表)
+  const [balRes, catRes] = await Promise.all([
+    warehouseIds.length > 0
+      ? service.from('inventory_balances').select('*').eq('tenant_id', query.tenantId).in('warehouse_id', warehouseIds)
+      : Promise.resolve({ data: [], error: null }),
+    service.from('catalog_items').select('id, code, name, description, unit, cost_price').eq('tenant_id', query.tenantId),
   ])
 
   if (balRes.error) {
@@ -278,7 +316,7 @@ async function buildInventoryRows(
     catalogMap.set(c.id, { code: c.code, name: c.name, description: c.description, unit: c.unit, cost_price: toNum(c.cost_price) })
   }
   const warehouseMap = new Map<string, string>()
-  for (const w of (whRes.data ?? [])) {
+  for (const w of (whData ?? [])) {
     warehouseMap.set(w.id, w.name ?? w.code ?? w.id.slice(0, 8))
   }
 
@@ -327,20 +365,20 @@ async function buildInventoryRows(
 /**
  * 客户报表:客户总量/新增/活跃/分级/欠款/有宠物(汇总行)
  * @param service supabase service client
- * @param tenantId 租户 id
+ * @param query 报表查询上下文(含允许门店集合)
  * @returns 汇总明细行
  */
 async function buildCustomerRows(
   service: ReturnType<typeof createServiceClient>,
-  tenantId: string,
+  query: ReportQuery,
 ): Promise<ReportRow[]> {
   const now = new Date()
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
   const [custRes, encRes] = await Promise.all([
-    service.from('customers').select('id, member_level, balance, status, created_at').eq('tenant_id', tenantId),
-    service.from('encounters').select('customer_id').eq('tenant_id', tenantId).gte('created_at', thirtyDaysAgo),
+    service.from('customers').select('id, member_level, balance, status, created_at').eq('tenant_id', query.tenantId).in('store_id', query.allowedStoreIds),
+    service.from('encounters').select('customer_id').eq('tenant_id', query.tenantId).in('store_id', query.allowedStoreIds).gte('created_at', thirtyDaysAgo),
   ])
   if (custRes.error) {
     throw err.internal(`客户报表查询失败: ${custRes.error.message}`)
@@ -369,7 +407,7 @@ async function buildCustomerRows(
     const { data: pets, error: petErr } = await service
       .from('pets')
       .select('customer_id')
-      .eq('tenant_id', tenantId)
+      .eq('tenant_id', query.tenantId)
       .in('customer_id', custIds)
     if (!petErr) {
       petOwnerCount = new Set((pets ?? []).map(p => p.customer_id)).size
@@ -392,23 +430,20 @@ async function buildCustomerRows(
 /**
  * 医疗工作量报表:按日期+医生分组(就诊/处方/检验/疫苗,含合计行)
  * @param service supabase service client
- * @param tenantId 租户 id
- * @param start 起始时间
- * @param end 结束时间
+ * @param query 报表查询上下文(含允许门店集合)
  * @returns 明细行(含合计)
  */
 async function buildMedicalRows(
   service: ReturnType<typeof createServiceClient>,
-  tenantId: string,
-  start: string,
-  end: string,
+  query: ReportQuery,
 ): Promise<ReportRow[]> {
   const { data: encounters, error: encErr } = await service
     .from('encounters')
     .select('id, doctor_id, created_at')
-    .eq('tenant_id', tenantId)
-    .gte('created_at', start)
-    .lte('created_at', end)
+    .eq('tenant_id', query.tenantId)
+    .in('store_id', query.allowedStoreIds)
+    .gte('created_at', query.start)
+    .lte('created_at', query.end)
   if (encErr) {
     throw err.internal(`医疗报表查询失败: ${encErr.message}`)
   }
@@ -425,7 +460,7 @@ async function buildMedicalRows(
     const { data: employees } = await service
       .from('employees')
       .select('user_id, name')
-      .eq('tenant_id', tenantId)
+      .eq('tenant_id', query.tenantId)
       .in('user_id', doctorIds)
     for (const emp of (employees ?? [])) {
       doctorMap.set(emp.user_id, emp.name ?? emp.user_id.slice(0, 8))
@@ -513,32 +548,46 @@ reportDataRoutes.get('/:reportCode', async (c) => {
   const periodEnd = c.req.query('periodEnd')
 
   // 租户归属校验:tenantId 缺失时回退调用者首个成员关系
+  // dataScope 模式:允许门店级角色查看其被授权门店的报表数据(审计 5.2)
   const scope = await requireScopedPermission(c, {
     code: 'reports.view',
     tenantId: tenantId ?? (getContext(c).memberships[0]?.tenant_id ?? ''),
     storeId: storeId ?? undefined,
+    dataScope: true,
   })
 
   const period = resolvePeriod(periodStart, periodEnd)
   const service = createServiceClient()
   const category = await resolveCategory(service, scope.tenantId, reportCode)
 
+  // 数据范围:显式传 storeId 时只查询该门店,避免跨门店数据泄漏(审计 5.2)
+  const allowedStoreIds = storeId
+    ? scope.allowedStoreIds.filter(id => id === storeId)
+    : scope.allowedStoreIds
+
+  const query: ReportQuery = {
+    tenantId: scope.tenantId,
+    allowedStoreIds,
+    start: period.start,
+    end: period.end,
+  }
+
   let rows: ReportRow[]
   switch (category) {
     case 'revenue':
-      rows = await buildRevenueRows(service, scope.tenantId, period.start, period.end)
+      rows = await buildRevenueRows(service, query)
       break
     case 'refund':
-      rows = await buildRefundRows(service, scope.tenantId, period.start, period.end)
+      rows = await buildRefundRows(service, query)
       break
     case 'inventory':
-      rows = await buildInventoryRows(service, scope.tenantId)
+      rows = await buildInventoryRows(service, query)
       break
     case 'customer':
-      rows = await buildCustomerRows(service, scope.tenantId)
+      rows = await buildCustomerRows(service, query)
       break
     case 'medical':
-      rows = await buildMedicalRows(service, scope.tenantId, period.start, period.end)
+      rows = await buildMedicalRows(service, query)
       break
     default:
       rows = []

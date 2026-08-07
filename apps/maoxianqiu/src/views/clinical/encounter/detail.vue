@@ -107,7 +107,7 @@ async function onSign() {
     return
   }
   if (!signDoctorId.value) {
-    useFaToast().warning('请输入医生 ID')
+    useFaToast().warning('请选择医生')
     return
   }
   try {
@@ -343,7 +343,7 @@ onMounted(loadData)
         <p class="text-sm text-gray-600">
           签署后病历将变为终态,不可直接修改,如需修改请使用修订功能。
         </p>
-        <FaLabel label="医生 ID">
+        <FaLabel label="医生">
           <BusinessEmployeePicker v-model="signDoctorId" placeholder="选择主治医生" />
         </FaLabel>
       </div>

@@ -150,7 +150,7 @@ async function loadAdmissions() {
 /** 提交入院(MXQ-11003,走 Hono Command + admit_patient RPC) */
 async function onAdmit() {
   if (!admitForm.customerId || !admitForm.petId || !admitForm.cageId) {
-    useFaToast().warning('请填写客户 ID、宠物 ID 与笼位')
+    useFaToast().warning('请选择客户、宠物并填写笼位')
     return
   }
   if (!tenantStore.currentTenantId || !tenantStore.currentStoreId) {
@@ -280,13 +280,13 @@ onMounted(async () => {
           </span>
         </div>
         <div class="gap-3 grid grid-cols-1 md:grid-cols-3">
-          <FaLabel label="客户 ID">
+          <FaLabel label="客户">
             <CustomerPicker v-model="admitForm.customerId" placeholder="搜索选择客户" />
           </FaLabel>
-          <FaLabel label="宠物 ID">
+          <FaLabel label="宠物">
             <PetPicker v-model="admitForm.petId" :customer-id="admitForm.customerId" placeholder="搜索选择宠物" />
           </FaLabel>
-          <FaLabel label="主治医生 ID(可选)">
+          <FaLabel label="主治医生(可选)">
             <BusinessEmployeePicker v-model="admitForm.doctorId" placeholder="搜索选择医生" />
           </FaLabel>
           <FaLabel label="选择笼位">

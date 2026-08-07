@@ -146,7 +146,7 @@ async function loadCriticalAlerts() {
 /** 创建检验申请 */
 async function onCreate() {
   if (!labForm.customerId || !labForm.petId) {
-    useFaToast().warning('请填写客户 ID 与宠物 ID')
+    useFaToast().warning('请选择客户与宠物')
     return
   }
   if (!tenantStore.currentTenantId) {
@@ -365,10 +365,10 @@ onMounted(async () => {
           <span class="text-xs text-muted-foreground">(RLS 须 lab.request 权限)</span>
         </div>
         <div class="gap-3 grid grid-cols-1 md:grid-cols-3">
-          <FaLabel label="客户 ID">
+          <FaLabel label="客户">
             <BusinessCustomerPicker v-model="labForm.customerId" placeholder="搜索选择客户" />
           </FaLabel>
-          <FaLabel label="宠物 ID">
+          <FaLabel label="宠物">
             <BusinessPetPicker v-model="labForm.petId" :customer-id="labForm.customerId || undefined" placeholder="搜索选择宠物" />
           </FaLabel>
           <FaLabel label="备注">
@@ -400,7 +400,7 @@ onMounted(async () => {
                 @change="loadLabOrders()"
               />
             </FaLabel>
-            <FaLabel label="宠物 ID" class="col-span-1">
+            <FaLabel label="宠物" class="col-span-1">
               <BusinessPetPicker v-model="search.petId" placeholder="按宠物筛选" />
             </FaLabel>
             <div class="flex gap-2 col-end--1 justify-end">

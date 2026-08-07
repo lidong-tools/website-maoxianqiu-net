@@ -56,15 +56,13 @@ test.describe('闭环 C — 住院闭环(串行)', () => {
     const storeId = stores[0].id
 
     // 前置:至少 2 个 available 笼位(优先高费率,便于计费断言)
+    // AUD-008:缺 seed(可用笼位不足)视为环境不完整,直接失败而非跳过
     const cages = (await supabaseSelect<{ id: string, name: string, daily_rate: number }[]>(
       page,
       'cages',
       `select=id,name,daily_rate&store_id=eq.${storeId}&status=eq.available&order=daily_rate.desc&limit=2`,
     ))
-    if (cages.length < 2) {
-      test.skip(true, '当前门店可用笼位不足 2 个,跳过住院闭环')
-      return
-    }
+    expect(cages.length).toBeGreaterThanOrEqual(2)
     const [cageA, cageB] = cages
 
     /* ========== 1. 客户 + 宠物:API 创建 ========== */

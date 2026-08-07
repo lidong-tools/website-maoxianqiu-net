@@ -54,16 +54,13 @@ test.describe('闭环 B — 库存闭环(串行)', () => {
     expect(warehouses.length).toBeGreaterThanOrEqual(2)
     const [warehouseA, warehouseB] = warehouses
 
-    // 商品:使用 seed 中的 drug 类目录商品;若不存在则跳过(避免依赖目录写权限)
+    // 商品:使用 seed 中的 drug 类目录商品(AUD-008:缺 seed 直接失败,不允许跳过)
     const drugs = (await supabaseSelect<{ id: string, name: string }[]>(
       page,
       'catalog_items',
       `select=id,name&billing_type=eq.drug&limit=1`,
     ))
-    if (drugs.length === 0) {
-      test.skip(true, '无 drug 类目录商品,跳过库存闭环')
-      return
-    }
+    expect(drugs.length).toBeGreaterThan(0)
     const item = drugs[0]
 
     /* ========== 1. 入库 50 → 余额断言 + receive 流水 ========== */

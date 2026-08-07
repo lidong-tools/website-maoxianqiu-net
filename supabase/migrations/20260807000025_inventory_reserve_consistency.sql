@@ -212,6 +212,12 @@ begin
     raise exception 'RESERVATION_ALREADY_RELEASED' using errcode = 'P0003';
   end if;
 
+  -- P0-08 修复:当前预留自身已过期时,拒绝确认(过期即拒绝)
+  -- 过期预留由 release_expired_reservations 统一批量释放,避免同一预留同时出现 release + confirm
+  if v_reserve.reserved_until is not null and v_reserve.reserved_until < now() then
+    raise exception 'RESERVATION_EXPIRED' using errcode = 'P0003';
+  end if;
+
   v_amount := abs(v_reserve.quantity);
 
   -- 锁余额行,校验预留量充足(防止数据不一致导致扣成负数)
@@ -224,6 +230,7 @@ begin
 
   -- P0-08:确认前自动释放同仓库同商品已过期的未处理预留(状态转换自动释放)
   -- 只处理 reserved_until 早于当前时间且未被 confirm/release 的 reserve 流水
+  -- 修复:必须排除当前正在确认的 v_reserve.id,防止过期预留自身被 release + confirm 双重处理
   for v_stale in
     select m.id, abs(m.quantity) as amt
     from public.inventory_movements m
@@ -233,6 +240,7 @@ begin
       and m.movement_type = 'reserve'
       and m.reserved_until is not null
       and m.reserved_until < now()
+      and m.id <> v_reserve.id
       and not exists (
         select 1 from public.inventory_movements mm
         where mm.reference_type = 'inventory_reservation'

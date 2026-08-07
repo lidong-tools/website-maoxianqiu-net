@@ -12,6 +12,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AdmissionPicker: typeof import('./../components/business/AdmissionPicker/index.vue')['default']
     AppAccountButton: typeof import('./../components/AppAccountButton/index.vue')['default']
     AppAuth: typeof import('./../components/AppAuth/index.vue')['default']
     AppBackToTop: typeof import('./../components/AppBackToTop/index.vue')['default']
@@ -19,9 +20,15 @@ declare module 'vue' {
     AppNotAllowed: typeof import('./../components/AppNotAllowed/index.vue')['default']
     AppNotSupportedMobile: typeof import('./../components/AppNotSupportedMobile/index.vue')['default']
     AppSystemInfo: typeof import('./../components/AppSystemInfo/index.vue')['default']
+    CatalogItemPicker: typeof import('./../components/business/CatalogItemPicker/index.vue')['default']
     ConflictState: typeof import('./../components/business/ConflictState/index.vue')['default']
+    CustomerPicker: typeof import('./../components/business/CustomerPicker/index.vue')['default']
     DateTimeText: typeof import('./../components/business/DateTimeText/index.vue')['default']
+    DiagnosticOrderPicker: typeof import('./../components/business/DiagnosticOrderPicker/index.vue')['default']
+    DoctorPicker: typeof import('./../components/business/DoctorPicker/index.vue')['default']
+    EmployeePicker: typeof import('./../components/business/EmployeePicker/index.vue')['default']
     EmptyState: typeof import('./../components/business/EmptyState/index.vue')['default']
+    EncounterPicker: typeof import('./../components/business/EncounterPicker/index.vue')['default']
     EntityDetailShell: typeof import('./../components/business/EntityDetailShell/index.vue')['default']
     EntityListShell: typeof import('./../components/business/EntityListShell/index.vue')['default']
     EntityPageHeader: typeof import('./../components/business/EntityPageHeader/index.vue')['default']
@@ -77,14 +84,20 @@ declare module 'vue' {
     FaTrend: typeof import('@fantastic-admin/components')['FaTrend']
     FilePreview: typeof import('./../components/business/FilePreview/index.vue')['default']
     FileUploader: typeof import('./../components/business/FileUploader/index.vue')['default']
+    InvoicePicker: typeof import('./../components/business/InvoicePicker/index.vue')['default']
     MoneyText: typeof import('./../components/business/MoneyText/index.vue')['default']
     PermissionButton: typeof import('./../components/business/PermissionButton/index.vue')['default']
+    PetCreateDrawer: typeof import('./../components/business/PetCreateDrawer/index.vue')['default']
+    PetForm: typeof import('./../components/business/PetForm/index.vue')['default']
+    PetPicker: typeof import('./../components/business/PetPicker/index.vue')['default']
+    StorePicker: typeof import('./../components/business/StorePicker/index.vue')['default']
     StoreSelector: typeof import('./../components/business/StoreSelector/index.vue')['default']
   }
 }
 
 // For TSX support
 declare global {
+  const AdmissionPicker: typeof import('./../components/business/AdmissionPicker/index.vue')['default']
   const AppAccountButton: typeof import('./../components/AppAccountButton/index.vue')['default']
   const AppAuth: typeof import('./../components/AppAuth/index.vue')['default']
   const AppBackToTop: typeof import('./../components/AppBackToTop/index.vue')['default']
@@ -92,9 +105,15 @@ declare global {
   const AppNotAllowed: typeof import('./../components/AppNotAllowed/index.vue')['default']
   const AppNotSupportedMobile: typeof import('./../components/AppNotSupportedMobile/index.vue')['default']
   const AppSystemInfo: typeof import('./../components/AppSystemInfo/index.vue')['default']
+  const CatalogItemPicker: typeof import('./../components/business/CatalogItemPicker/index.vue')['default']
   const ConflictState: typeof import('./../components/business/ConflictState/index.vue')['default']
+  const CustomerPicker: typeof import('./../components/business/CustomerPicker/index.vue')['default']
   const DateTimeText: typeof import('./../components/business/DateTimeText/index.vue')['default']
+  const DiagnosticOrderPicker: typeof import('./../components/business/DiagnosticOrderPicker/index.vue')['default']
+  const DoctorPicker: typeof import('./../components/business/DoctorPicker/index.vue')['default']
+  const EmployeePicker: typeof import('./../components/business/EmployeePicker/index.vue')['default']
   const EmptyState: typeof import('./../components/business/EmptyState/index.vue')['default']
+  const EncounterPicker: typeof import('./../components/business/EncounterPicker/index.vue')['default']
   const EntityDetailShell: typeof import('./../components/business/EntityDetailShell/index.vue')['default']
   const EntityListShell: typeof import('./../components/business/EntityListShell/index.vue')['default']
   const EntityPageHeader: typeof import('./../components/business/EntityPageHeader/index.vue')['default']
@@ -150,7 +169,12 @@ declare global {
   const FaTrend: typeof import('@fantastic-admin/components')['FaTrend']
   const FilePreview: typeof import('./../components/business/FilePreview/index.vue')['default']
   const FileUploader: typeof import('./../components/business/FileUploader/index.vue')['default']
+  const InvoicePicker: typeof import('./../components/business/InvoicePicker/index.vue')['default']
   const MoneyText: typeof import('./../components/business/MoneyText/index.vue')['default']
   const PermissionButton: typeof import('./../components/business/PermissionButton/index.vue')['default']
+  const PetCreateDrawer: typeof import('./../components/business/PetCreateDrawer/index.vue')['default']
+  const PetForm: typeof import('./../components/business/PetForm/index.vue')['default']
+  const PetPicker: typeof import('./../components/business/PetPicker/index.vue')['default']
+  const StorePicker: typeof import('./../components/business/StorePicker/index.vue')['default']
   const StoreSelector: typeof import('./../components/business/StoreSelector/index.vue')['default']
 }

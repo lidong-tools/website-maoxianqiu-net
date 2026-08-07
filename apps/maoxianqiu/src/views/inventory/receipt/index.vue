@@ -152,7 +152,7 @@ async function onSubmit() {
     return
   }
   if (!form.catalogItemId) {
-    useFaToast().warning('请输入商品 ID')
+    useFaToast().warning('请选择商品')
     return
   }
   if (form.quantity <= 0) {
@@ -320,7 +320,7 @@ onMounted(loadWarehouses)
               :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
             />
           </FaLabel>
-          <FaLabel label="商品 ID" class="col-span-1">
+          <FaLabel label="商品" class="col-span-1">
             <BusinessCatalogItemPicker v-model="form.catalogItemId" placeholder="搜索选择服务/药品" />
           </FaLabel>
           <FaLabel label="批次号" class="col-span-1">
@@ -382,7 +382,7 @@ onMounted(loadWarehouses)
           预留冻结库存
         </div>
         <div class="gap-x-8 gap-y-3 grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
-          <FaLabel label="商品 ID" class="col-span-1">
+          <FaLabel label="商品" class="col-span-1">
             <FaInput
               v-model="reserveForm.catalogItemId"
               placeholder="点击余额表「预留」自动填充"

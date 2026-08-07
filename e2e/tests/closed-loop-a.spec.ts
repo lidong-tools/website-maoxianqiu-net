@@ -14,7 +14,10 @@ import { ensureChromium } from '../helpers/browser'
 test.skip(!ensureChromium(), 'Chromium 浏览器未安装且未设置 E2E_OPTIONAL=true')
 
 /**
- * 闭环 A: 客户 → 宠物 → 预约 → 候诊 → 就诊 → 病历 → 处方 → 发药 → 收费 → 库存扣减
+ * 闭环 A: 客户 → 宠物 → 预约 → 候诊 → 就诊 → 病历 → 处方 → 收费 → 发药 → 库存扣减
+ *
+ * AUD-009 顺序依据(默认建议):prescription → invoice → payment → dispense;
+ * 不允许测试代码擅自先发药后收费。发药步骤在病历详情页 UI 操作。
  *
  * P0-09 改造:
  *   - test.describe.configure({ mode: 'serial' }):同一流程内串行,前序失败后续跳过
@@ -148,11 +151,9 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
     /* ========== 6. 药品库存准备:目录药品 + 仓库 + 入库 ========== */
     console.log('[闭环A] 步骤6 准备药品库存')
     const drugRes = await prepareDrugStock(page, api, tenantId, storeId, runId)
-    if (!drugRes) {
-      test.skip(true, '未找到 drug 类目录商品,跳过库存扣减断言')
-      return
-    }
-    const { drugItem, warehouseId, balanceBefore } = drugRes
+    // AUD-008:缺 seed(drug 类商品/仓库)视为环境不完整,直接失败而非跳过
+    expect(drugRes).toBeTruthy()
+    const { drugItem, warehouseId, balanceBefore } = drugRes!
 
     /* ========== 7. 处方:API 保存(带目录商品,触发库存扣减)========== */
     console.log('[闭环A] 步骤7 保存处方')
@@ -178,32 +179,8 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
     expect(rxs.length).toBe(1)
     expect(rxs[0].status).toBe('draft')
 
-    /* ========== 8. 发药:UI 病历详情页操作 + 库存断言 ========== */
-    console.log('[闭环A] 步骤8 发药')
-    await page.goto(`/#/clinical/encounter/${encounterId}`, { waitUntil: 'domcontentloaded' })
-    // 处方行出现"发药"按钮(处方 id 前 8 位)
-    await expect(page.getByRole('button', { name: '发药' }).first()).toBeVisible({ timeout: 15_000 })
-    await page.getByRole('button', { name: '发药' }).first().click()
-    await clickConfirmInDialog(page)
-    await expect(page.getByText('发药成功').first()).toBeVisible({ timeout: 15_000 })
-    // 数据库断言:处方 dispensed + 库存减少 + confirm 流水生成
-    const rxs2 = (await supabaseSelect<{ status: string }[]>(
-      page,
-      'prescriptions',
-      `select=status&id=eq.${prescriptionId}`,
-    ))
-    expect(rxs2[0].status).toBe('dispensed')
-    const balanceAfter = await getBalance(page, warehouseId, drugItem.id)
-    expect(balanceAfter.quantity_on_hand).toBe(balanceBefore.quantity_on_hand - 1)
-    const movements = (await supabaseSelect<{ movement_type: string, reference_id: string }[]>(
-      page,
-      'inventory_movements',
-      `select=movement_type,reference_id&warehouse_id=eq.${warehouseId}&catalog_item_id=eq.${drugItem.id}&movement_type=eq.confirm&order=created_at.desc&limit=3`,
-    ))
-    expect(movements.length).toBeGreaterThan(0)
-
-    /* ========== 9. 收银:API 创建发票 + 确认 + 支付 + 断言 ========== */
-    console.log('[闭环A] 步骤9 收费与支付')
+    /* ========== 8. 收银:API 创建发票 + 确认 + 支付 + 断言 ========== */
+    console.log('[闭环A] 步骤8 收费与支付')
     const unitPrice = 10
     const invoiceRes = (await api.post('/billing/invoices', {
       tenantId,
@@ -249,6 +226,30 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
       `select=id&invoice_id=eq.${invoiceId}`,
     ))
     expect(payments.length).toBe(1)
+
+    /* ========== 9. 发药:UI 病历详情页操作 + 库存断言 ========== */
+    console.log('[闭环A] 步骤9 发药')
+    await page.goto(`/#/clinical/encounter/${encounterId}`, { waitUntil: 'domcontentloaded' })
+    // 处方行出现"发药"按钮(处方 id 前 8 位)
+    await expect(page.getByRole('button', { name: '发药' }).first()).toBeVisible({ timeout: 15_000 })
+    await page.getByRole('button', { name: '发药' }).first().click()
+    await clickConfirmInDialog(page)
+    await expect(page.getByText('发药成功').first()).toBeVisible({ timeout: 15_000 })
+    // 数据库断言:处方 dispensed + 库存减少 + confirm 流水生成
+    const rxs2 = (await supabaseSelect<{ status: string }[]>(
+      page,
+      'prescriptions',
+      `select=status&id=eq.${prescriptionId}`,
+    ))
+    expect(rxs2[0].status).toBe('dispensed')
+    const balanceAfter = await getBalance(page, warehouseId, drugItem.id)
+    expect(balanceAfter.quantity_on_hand).toBe(balanceBefore.quantity_on_hand - 1)
+    const movements = (await supabaseSelect<{ movement_type: string, reference_id: string }[]>(
+      page,
+      'inventory_movements',
+      `select=movement_type,reference_id&warehouse_id=eq.${warehouseId}&catalog_item_id=eq.${drugItem.id}&movement_type=eq.confirm&order=created_at.desc&limit=3`,
+    ))
+    expect(movements.length).toBeGreaterThan(0)
 
     /* ========== 10. 病历签署 + 只读断言 ========== */
     console.log('[闭环A] 步骤10 签署病历')

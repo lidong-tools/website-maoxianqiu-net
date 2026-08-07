@@ -346,10 +346,10 @@ onMounted(loadCatalog)
 
           <!-- 客户信息 -->
           <div class="mb-3 gap-x-4 gap-y-2 grid grid-cols-2">
-            <FaLabel label="客户 ID" class="col-span-1">
+            <FaLabel label="客户" class="col-span-1">
               <BusinessCustomerPicker v-model="form.customerId" placeholder="搜索选择客户(可选)" />
             </FaLabel>
-            <FaLabel label="宠物 ID" class="col-span-1">
+            <FaLabel label="宠物" class="col-span-1">
               <BusinessPetPicker v-model="form.petId" :customer-id="form.customerId || undefined" placeholder="搜索选择宠物(可选)" />
             </FaLabel>
           </div>

@@ -108,7 +108,7 @@ function searchReset() {
  */
 async function onCreate() {
   if (!createForm.petId || !createForm.description) {
-    useFaToast().warning('请填写宠物 ID 和任务描述')
+    useFaToast().warning('请选择宠物并填写任务描述')
     return
   }
   creating.value = true
@@ -316,7 +316,7 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
       <!-- 新建任务弹窗 -->
       <FaModal v-model:visible="createVisible" title="新建护士任务" :loading="creating" @confirm="onCreate">
         <div class="space-y-3">
-          <FaLabel label="宠物 ID">
+          <FaLabel label="宠物">
             <BusinessPetPicker v-model="createForm.petId" placeholder="搜索选择宠物" />
           </FaLabel>
           <FaLabel label="任务类型">
