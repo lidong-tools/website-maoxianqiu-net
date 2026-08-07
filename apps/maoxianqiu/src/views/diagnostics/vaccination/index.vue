@@ -2,6 +2,8 @@
 import type { TableColumn } from '@fantastic-admin/components'
 import type { VaccinationRecord, VaccineCertificate } from '@/types/diagnostics'
 import apiDiagnostics from '@/api/modules/diagnostics'
+import BusinessCustomerPicker from '@/components/business/CustomerPicker/index.vue'
+import BusinessPetPicker from '@/components/business/PetPicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { VACCINATION_STATUS_COLORS, VACCINATION_STATUS_LABELS } from '@/types/diagnostics'
 
@@ -37,42 +39,42 @@ const tableColumns = computed<TableColumn<VaccinationRow>[]>(() => [
   {
     accessorKey: 'pet_id',
     header: '宠物 ID',
-    cell: (info: any) => info.getValue()?.slice(0, 8),
+    cell: info => info.getValue()?.slice(0, 8),
   },
   {
     accessorKey: 'customer_id',
     header: '客户 ID',
-    cell: (info: any) => info.getValue()?.slice(0, 8),
+    cell: info => info.getValue()?.slice(0, 8),
   },
   {
     accessorKey: 'dose_no',
     header: '剂次',
-    cell: (info: any) => `第 ${info.getValue()} 针`,
+    cell: info => `第 ${info.getValue()} 针`,
   },
   {
     accessorKey: 'scheduled_date',
     header: '计划日期',
-    cell: (info: any) => info.getValue() ? new Date(info.getValue()).toLocaleDateString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleDateString('zh-CN') : '-',
   },
   {
     accessorKey: 'administered_date',
     header: '接种日期',
-    cell: (info: any) => info.getValue() ? new Date(info.getValue()).toLocaleDateString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleDateString('zh-CN') : '-',
   },
   {
     accessorKey: 'batch_no',
     header: '批号',
-    cell: (info: any) => info.getValue() ?? '-',
+    cell: info => info.getValue() ?? '-',
   },
   {
     accessorKey: 'manufacturer',
     header: '厂家',
-    cell: (info: any) => info.getValue() ?? '-',
+    cell: info => info.getValue() ?? '-',
   },
   {
     accessorKey: 'status',
     header: '状态',
-    cell: (info: any) => {
+    cell: (info) => {
       const v = info.getValue() as VaccinationRecord['status']
       const label = VACCINATION_STATUS_LABELS[v] ?? v
       const color = VACCINATION_STATUS_COLORS[v] ?? 'default'
@@ -84,7 +86,7 @@ const tableColumns = computed<TableColumn<VaccinationRow>[]>(() => [
   {
     accessorKey: 'next_due_date',
     header: '下次到期',
-    cell: (info: any) => info.getValue() ? new Date(info.getValue()).toLocaleDateString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleDateString('zh-CN') : '-',
   },
   {
     id: 'operation',
@@ -116,7 +118,7 @@ async function loadVaccinations() {
     })
     dataList.value = res.data.list as VaccinationRow[]
   }
-  catch (e: any) {
+  catch (e: unknown) {
     useFaToast().error(e?.message || '加载疫苗接种列表失败')
   }
   finally {
@@ -267,10 +269,10 @@ onMounted(async () => {
         </div>
         <div class="gap-3 grid grid-cols-1 md:grid-cols-3">
           <FaLabel label="客户 ID">
-            <FaInput v-model="vaccForm.customerId" placeholder="客户 UUID" class="w-full" />
+            <BusinessCustomerPicker v-model="vaccForm.customerId" placeholder="搜索选择客户" />
           </FaLabel>
           <FaLabel label="宠物 ID">
-            <FaInput v-model="vaccForm.petId" placeholder="宠物 UUID" class="w-full" />
+            <BusinessPetPicker v-model="vaccForm.petId" :customer-id="vaccForm.customerId || undefined" placeholder="搜索选择宠物" />
           </FaLabel>
           <FaLabel label="剂次">
             <FaInput v-model.number="vaccForm.doseNo" type="number" min="1" class="w-full" />
@@ -314,7 +316,7 @@ onMounted(async () => {
               />
             </FaLabel>
             <FaLabel label="宠物 ID" class="col-span-1">
-              <FaInput v-model="search.petId" placeholder="按宠物 ID 筛选" class="w-full" />
+              <BusinessPetPicker v-model="search.petId" placeholder="按宠物筛选" />
             </FaLabel>
             <div class="flex gap-2 col-end--1 justify-end">
               <FaButton type="primary" @click="loadVaccinations">

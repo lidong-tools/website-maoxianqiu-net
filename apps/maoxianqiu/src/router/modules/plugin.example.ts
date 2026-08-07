@@ -19,6 +19,7 @@ const routes: RouteRecordRaw = {
       component: () => import('@/views/plugin_example/hooks.plus.vue'),
       meta: {
         title: 'VueHooks Plus',
+        // TODO: 旧品牌引用(VueHooks Plus logo)，上线前需替换
         icon: 'https://inhiblabcore.github.io/docs/hooks/logo.svg',
       },
     },

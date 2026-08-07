@@ -23,7 +23,32 @@ import api from '../index'
  *   - 简单 CRUD(模板、报表定义等)直连 Supabase,RLS 兜底
  *   - 安全事件仅超管可读,通过 Hono 路由代理(service_role 写入)
  *   - 幂等:积分调整支持 idempotency-key 头部
+ *
+ * 消息发送(MXQ-12005)说明:
+ *   - sendDelivery 通过 Hono Command + send_delivery RPC 触发
+ *   - RPC 内部当前使用 Mock Provider(开发/测试阶段)
+ *   - 正式上线前需替换为真实消息供应商(阿里云短信/SendGrid 邮件/微信模板消息等)
+ *   - 通过 isMockProvider() 可运行时判断当前是否为 Mock 模式
  */
+
+/**
+ * 检查当前消息服务是否使用 Mock Provider
+ * Mock 模式下消息不会真正发送到终端用户，仅标记为 sent
+ * 正式上线配置真实供应商后返回 false
+ */
+export function isMockProvider(): boolean {
+  /** 开发环境默认使用 Mock Provider；可通过 VITE_MESSAGE_PROVIDER 环境变量显式指定 */
+  const provider = import.meta.env.VITE_MESSAGE_PROVIDER as string | undefined
+  if (provider === 'real') {
+    return false
+  }
+  if (provider === 'mock') {
+    return true
+  }
+  /** 未配置时，开发环境默认 mock */
+  return !!import.meta.env.DEV
+}
+
 export default {
   // ===== MXQ-12001 会员等级 =====
 
@@ -222,11 +247,13 @@ export default {
   // ===== MXQ-12005 发送适配器 =====
 
   /**
-   * 查询发送任务列表(浏览器直连)
+   * 查询发送任务列表(浏览器直连,RLS 兜底)。
+   * @param params - 查询参数(tenantId/status/channel/from/limit)
    */
   async listDeliveries(params: {
     tenantId: string
     status?: string
+    channel?: string
     from?: number
     limit?: number
   }) {
@@ -236,6 +263,9 @@ export default {
       .eq('tenant_id', params.tenantId)
     if (params.status) {
       query = query.eq('status', params.status)
+    }
+    if (params.channel) {
+      query = query.eq('channel', params.channel)
     }
     if (params.from !== undefined && params.limit !== undefined) {
       query = query.range(params.from, params.from + params.limit - 1)
@@ -249,9 +279,21 @@ export default {
 
   /**
    * 触发发送(MXQ-12005)
-   * 走 Hono Command + send_delivery RPC,模拟发送标记 sent
+   *
+   * ⚠️ 当前使用 Mock Provider:
+   *   - 走 Hono Command + send_delivery RPC
+   *   - RPC 内部仅将 delivery 状态标记为 sent,不会实际发送消息
+   *   - 正式上线前需在后端配置真实消息供应商
+   *   - 前端可调用 isMockProvider() 获取当前是否为 Mock 模式
+   *
+   * @param deliveryId 投递记录 id
+   * @returns 发送结果(状态标记)
    */
   sendDelivery(deliveryId: string) {
+    /** 发送前检查 provider 配置,记录 Mock 标记到调用方 */
+    if (isMockProvider()) {
+      console.warn(`[operations] sendDelivery(${deliveryId}): 当前使用 Mock Provider,消息不会实际发送`)
+    }
     return api.post(`operations/deliveries/${deliveryId}/send`, {})
   },
 

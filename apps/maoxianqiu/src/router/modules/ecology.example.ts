@@ -20,6 +20,7 @@ const routes: RouteRecordRaw[] = [
         name: 'officialFantasticStartkit',
         meta: {
           title: 'Fantastic-startkit 项目启动套件',
+          // TODO: 旧品牌引用(Vue.js logo)，上线前需替换
           icon: 'https://cn.vuejs.org/logo.svg',
           link: 'https://hooray.github.io/fantastic-startkit/',
         },

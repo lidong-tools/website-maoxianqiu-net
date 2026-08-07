@@ -7,6 +7,8 @@ import type {
   ReceiptData,
 } from '@/types/billing'
 import apiBilling, { generateIdempotencyKey } from '@/api/modules/billing'
+import BusinessCustomerPicker from '@/components/business/CustomerPicker/index.vue'
+import BusinessPetPicker from '@/components/business/PetPicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import {
   INVOICE_ITEM_CATEGORY_LABELS,
@@ -60,12 +62,12 @@ const cartColumns = computed<TableColumn<CartItem>[]>(() => [
   {
     accessorKey: 'category',
     header: '分类',
-    cell: (info: any) => INVOICE_ITEM_CATEGORY_LABELS[info.getValue() as InvoiceItemCategory] ?? info.getValue(),
+    cell: info => INVOICE_ITEM_CATEGORY_LABELS[info.getValue() as InvoiceItemCategory] ?? info.getValue(),
   },
-  { accessorKey: 'unitPrice', header: '单价', cell: (info: any) => formatMoney(info.getValue()) },
+  { accessorKey: 'unitPrice', header: '单价', cell: info => formatMoney(info.getValue()) },
   { accessorKey: 'quantity', header: '数量' },
-  { accessorKey: 'discountAmount', header: '折扣', cell: (info: any) => formatMoney(info.getValue()) },
-  { accessorKey: 'amount', header: '小计', cell: (info: any) => formatMoney(info.getValue()) },
+  { accessorKey: 'discountAmount', header: '折扣', cell: info => formatMoney(info.getValue()) },
+  { accessorKey: 'amount', header: '小计', cell: info => formatMoney(info.getValue()) },
   {
     id: 'operation',
     header: '操作',
@@ -107,7 +109,7 @@ async function loadCatalog() {
       throw new Error(error.message)
     }
 
-    catalogList.value = (data ?? []).map((row: any) => ({
+    catalogList.value = (data ?? []).map(row => ({
       id: row.catalog_item_id,
       name: row.custom_name || row.catalog?.name || '未命名',
       default_price: row.custom_price !== null ? Number(row.custom_price) : Number(row.catalog?.default_price ?? 0),
@@ -115,7 +117,7 @@ async function loadCatalog() {
       billing_type: row.catalog?.billing_type ?? 'service',
     }))
   }
-  catch (e: any) {
+  catch (e: unknown) {
     useFaToast().error(e?.message || '加载目录失败')
   }
   finally {
@@ -274,7 +276,7 @@ async function showReceipt(invoiceId: string) {
     const res = await apiBilling.generateReceipt(invoiceId)
     receiptData.value = (res as any).data
   }
-  catch (e: any) {
+  catch (e: unknown) {
     useFaToast().error(e?.message || '生成小票失败')
   }
   finally {
@@ -345,18 +347,10 @@ onMounted(loadCatalog)
           <!-- 客户信息 -->
           <div class="mb-3 gap-x-4 gap-y-2 grid grid-cols-2">
             <FaLabel label="客户 ID" class="col-span-1">
-              <FaInput
-                v-model="form.customerId"
-                placeholder="客户 uuid(可选)"
-                class="w-full"
-              />
+              <BusinessCustomerPicker v-model="form.customerId" placeholder="搜索选择客户(可选)" />
             </FaLabel>
             <FaLabel label="宠物 ID" class="col-span-1">
-              <FaInput
-                v-model="form.petId"
-                placeholder="宠物 uuid(可选)"
-                class="w-full"
-              />
+              <BusinessPetPicker v-model="form.petId" :customer-id="form.customerId || undefined" placeholder="搜索选择宠物(可选)" />
             </FaLabel>
           </div>
 

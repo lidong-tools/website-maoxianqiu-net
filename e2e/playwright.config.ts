@@ -73,6 +73,7 @@ export default defineConfig({
   reporter: [
     ['list'],
     ['html', { open: 'never' }],
+    ['junit', { outputFile: 'test-results/junit.xml' }],
   ],
   // 测试产物输出目录
   outputDir: 'test-results',

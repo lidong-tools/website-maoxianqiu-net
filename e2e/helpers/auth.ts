@@ -1,19 +1,41 @@
 import type { Page } from '@playwright/test'
 import process from 'node:process'
 
+// 是否在 E2E_OPTIONAL 模式下(显式设置才允许跳过,默认必须失败)
+function isOptional(): boolean {
+  return process.env.E2E_OPTIONAL === 'true'
+}
+
 /**
  * 从环境变量读取真实 Supabase 登录凭据。
- * 使用方式:在运行测试前设置 E2E_USERNAME / E2E_PASSWORD(见 e2e/README.md)。
  * @returns 凭据对象;未配置时返回 undefined
  */
 export function getCredentials(): { account: string, password: string } | undefined {
   const account = process.env.E2E_USERNAME
   const password = process.env.E2E_PASSWORD
-  // 两者都配置才视为有效凭据
   if (account && password) {
     return { account, password }
   }
   return undefined
+}
+
+/**
+ * 获取必需的 Supabase 登录凭据。未设置 E2E_OPTIONAL=true 时凭据缺失将抛出错误,
+ * 仅 E2E_OPTIONAL=true 时返回 undefined 允许调用方 skip。
+ * @returns 凭据对象;E2E_OPTIONAL 模式下无凭据时返回 undefined
+ */
+export function requireCredentials(): { account: string, password: string } | undefined {
+  const creds = getCredentials()
+  if (creds) {
+    return creds
+  }
+  if (isOptional()) {
+    return undefined
+  }
+  throw new Error(
+    '缺少 E2E_USERNAME / E2E_PASSWORD 环境变量,核心 E2E 测试必须执行。'
+    + '请设置环境变量或设置 E2E_OPTIONAL=true 显式跳过需登录的测试。',
+  )
 }
 
 /**
@@ -45,12 +67,13 @@ export async function loginViaUI(page: Page, account: string, password: string):
 }
 
 /**
- * 统一的登录入口:配置了真实凭据则执行 UI 登录,否则返回 false 供调用方 skip。
+ * 统一的登录入口。默认模式下凭据缺失将抛出错误;
+ * 仅 E2E_OPTIONAL=true 且无凭据时返回 false 供调用方 skip。
  * @param page Playwright 页面实例
  * @returns 是否成功建立登录态(true 表示已登录)
  */
 export async function ensureLogin(page: Page): Promise<boolean> {
-  const credentials = getCredentials()
+  const credentials = requireCredentials()
   if (!credentials) {
     return false
   }

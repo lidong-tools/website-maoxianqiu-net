@@ -2,6 +2,7 @@
 import type { TableColumn } from '@fantastic-admin/components'
 import type { InventoryBalance, InventoryMovement, Warehouse } from '@/types/inventory'
 import apiInventory, { generateIdempotencyKey } from '@/api/modules/inventory'
+import BusinessCatalogItemPicker from '@/components/business/CatalogItemPicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { INVENTORY_PERMISSIONS, MOVEMENT_TYPE_LABELS } from '@/types/inventory'
 
@@ -320,11 +321,7 @@ onMounted(loadWarehouses)
             />
           </FaLabel>
           <FaLabel label="商品 ID" class="col-span-1">
-            <FaInput
-              v-model="form.catalogItemId"
-              placeholder="catalog item uuid"
-              class="w-full"
-            />
+            <BusinessCatalogItemPicker v-model="form.catalogItemId" placeholder="搜索选择服务/药品" />
           </FaLabel>
           <FaLabel label="批次号" class="col-span-1">
             <FaInput

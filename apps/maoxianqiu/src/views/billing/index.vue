@@ -50,7 +50,7 @@ const tableColumns = computed<TableColumn<InvoiceRow>[]>(() => [
   {
     accessorKey: 'status',
     header: '状态',
-    cell: (info: any) => {
+    cell: (info) => {
       const status = info.getValue() as InvoiceStatus
       return h('span', { class: `fa-tag fa-tag-${INVOICE_STATUS_COLORS[status]}` }, INVOICE_STATUS_LABELS[status])
     },
@@ -58,27 +58,27 @@ const tableColumns = computed<TableColumn<InvoiceRow>[]>(() => [
   {
     accessorKey: 'subtotal',
     header: '小计',
-    cell: (info: any) => formatMoney(info.getValue()),
+    cell: info => formatMoney(info.getValue()),
   },
   {
     accessorKey: 'discount_amount',
     header: '折扣',
-    cell: (info: any) => formatMoney(info.getValue()),
+    cell: info => formatMoney(info.getValue()),
   },
   {
     accessorKey: 'total',
     header: '应收',
-    cell: (info: any) => formatMoney(info.getValue()),
+    cell: info => formatMoney(info.getValue()),
   },
   {
     accessorKey: 'paid_amount',
     header: '已收',
-    cell: (info: any) => formatMoney(info.getValue()),
+    cell: info => formatMoney(info.getValue()),
   },
   {
     accessorKey: 'payment_method',
     header: '支付方式',
-    cell: (info: any) => {
+    cell: (info) => {
       const v = info.getValue() as PaymentMethod | null
       return v ? PAYMENT_METHOD_LABELS[v] : '-'
     },
@@ -86,7 +86,7 @@ const tableColumns = computed<TableColumn<InvoiceRow>[]>(() => [
   {
     accessorKey: 'created_at',
     header: '创建时间',
-    cell: (info: any) => info.getValue()?.slice(0, 19).replace('T', ' '),
+    cell: info => info.getValue()?.slice(0, 19).replace('T', ' '),
   },
   {
     id: 'operation',

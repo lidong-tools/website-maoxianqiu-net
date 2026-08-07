@@ -342,6 +342,7 @@ onMounted(loadData)
         <p class="text-sm text-gray-600">
           签署后病历将变为终态,不可直接修改,如需修改请使用修订功能。
         </p>
+        <!-- TODO: 待替换为 EmployeePicker / StaffPicker 组件，当前暂用手动输入 -->
         <FaLabel label="医生 ID">
           <FaInput v-model="signDoctorId" placeholder="当前主治医生 ID" class="w-full" />
         </FaLabel>

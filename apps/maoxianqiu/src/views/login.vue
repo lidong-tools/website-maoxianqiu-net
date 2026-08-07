@@ -58,6 +58,7 @@ function handleLogin() {
   <div class="login-box" :class="layoutAlign">
     <div class="login-banner">
       <img src="@/assets/images/logo.svg" class="rounded h-8 inset-s-4 inset-t-4 absolute">
+      <!-- TODO: 替换为毛线球专属 banner 图片 -->
       <img src="@/assets/images/login-banner.png" class="banner">
       <AppCopyright v-if="appSettingsStore.mode === 'pc' && ['left', 'right'].includes(layoutAlign)" class="w-full bottom-0 absolute" />
     </div>

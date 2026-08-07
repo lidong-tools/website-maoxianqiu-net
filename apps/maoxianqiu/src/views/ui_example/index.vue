@@ -52,6 +52,7 @@ const previewItems = [
 ] satisfies PreviewItem[]
 
 const previewSources = computed(() => previewItems.map(item => item.src))
+// TODO: 旧品牌引用，上线前需替换为毛线球文档链接
 const guideUrl = 'https://fantastic-admin.hurui.me/guide/with-ui-libraries.html'
 const { open: openImagePreview } = useFaImagePreview()
 

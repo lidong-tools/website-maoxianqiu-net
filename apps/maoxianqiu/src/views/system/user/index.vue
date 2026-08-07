@@ -135,27 +135,27 @@ const tableColumns = computed<TableColumn<DisplayRow>[]>(() => [
   {
     accessorKey: 'name',
     header: '姓名',
-    cell: (info: any) => info.getValue() ?? '-',
+    cell: info => info.getValue() ?? '-',
   },
   {
     accessorKey: 'phone',
     header: '手机号',
-    cell: (info: any) => info.getValue() ?? '-',
+    cell: info => info.getValue() ?? '-',
   },
   {
     accessorKey: 'storeName',
     header: '门店',
-    cell: (info: any) => info.getValue() ?? '-',
+    cell: info => info.getValue() ?? '-',
   },
   {
     accessorKey: 'roleName',
     header: '角色',
-    cell: (info: any) => info.getValue() ?? '-',
+    cell: info => info.getValue() ?? '-',
   },
   {
     accessorKey: 'status',
     header: '状态',
-    cell: (info: any) => {
+    cell: (info) => {
       const v = info.getValue()
       const map: Record<string, string> = {
         active: '启用',
@@ -179,7 +179,7 @@ onMounted(async () => {
   const res: any = await apiApp.profile()
   const memberships = res.data.memberships ?? []
   // 兼容新模型 memberships(含 roles 数组对象)与旧模型(roles 是 {code,name})
-  isAdmin.value = memberships.some((item: any) => {
+  isAdmin.value = memberships.some((item) => {
     const roleCode = item.roles?.code ?? (Array.isArray(item.roles) ? item.roles[0]?.code : null)
     return roleCode === 'system_admin'
   })
@@ -190,16 +190,16 @@ onMounted(async () => {
     const stores = storeRes.data.list ?? []
     storeOptions.value = [
       { label: '全部门店', value: '' },
-      ...stores.map((store: any) => ({ label: store.name, value: store.id })),
+      ...stores.map(store => ({ label: store.name, value: store.id })),
     ]
   }
   else {
     storeOptions.value = memberships
-      .filter((item: any) => {
+      .filter((item) => {
         const roleCode = item.roles?.code ?? (Array.isArray(item.roles) ? item.roles[0]?.code : null)
         return roleCode === 'store_manager' || roleCode === 'tenant_manager'
       })
-      .map((item: any) => ({ label: item.stores?.name ?? '', value: item.store_id }))
+    memberships.map(item => ({ label: item.stores?.name ?? '', value: item.store_id }))
   }
 
   currentStoreId.value = storeOptions.value[0]?.value ?? ''

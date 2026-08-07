@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
 import { ensureLogin } from '../helpers/auth'
-import { isChromiumAvailable } from '../helpers/browser'
+import { ensureChromium } from '../helpers/browser'
 
-// 浏览器内核缺失时整文件跳过(保证 --list 可识别、CI 无浏览器环境不失败)
-test.skip(!isChromiumAvailable(), 'Chromium 浏览器未安装,跳过核心业务流程测试')
+// 浏览器内核缺失时,除非 E2E_OPTIONAL=true,否则失败(保证核心测试必须执行)
+test.skip(!ensureChromium(), 'Chromium 浏览器未安装且未设置 E2E_OPTIONAL=true')
 
 /**
  * 核心业务流程 E2E 测试

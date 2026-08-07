@@ -1,55 +1,40 @@
-**中文** | [English](./README.EN.md)
-<a href="https://fantastic-admin.hurui.me" target="_blank"><img src="https://fantastic-admin.hurui.me/logo.svg" align="right" height="80" alt="logo" /></a>
+# 毛线球 — 宠物医院 SaaS 管理系统
 
-# Fantastic-admin
+毛线球（Maoxianqiu）是一套面向宠物医院的 SaaS 管理系统，覆盖宠物医院日常运营的完整业务闭环。
 
-面向 **AI** 的管理系统框架
+## 技术栈
 
-<p>
-  <a href="https://fantastic-admin.hurui.me" target="_blank">官网</a>
-  <span>&nbsp;|&nbsp;</span>
-  <a href="https://fantastic-admin.pages.dev" target="_blank">备用地址</a>
-</p>
+- **前端**: Vue 3 + TypeScript + Pinia + Vite
+- **后端服务**: Hono (Edge-first TypeScript 框架)
+- **数据库 / 认证**: Supabase
+- **端到端测试**: Playwright
 
-<p>
-  <a href="###"><img src="https://img.shields.io/github/license/fantastic-admin/basic?label=%E5%BC%80%E6%BA%90%E5%8D%8F%E8%AE%AE&style=flat-square" alt="" /></a>
-  <a href="https://github.com/fantastic-admin/basic/releases" target="_blank"><img src="https://img.shields.io/github/v/release/fantastic-admin/basic?label=%E5%BD%93%E5%89%8D%E7%89%88%E6%9C%AC&style=flat-square" alt="" /></a>
-</p>
+## 功能模块
 
-![hero](https://fantastic-admin.hurui.me/hero_preview.png)
+| 模块 | 说明 |
+|------|------|
+| 客户管理 | 客户档案、联系人、地址管理 |
+| 宠物管理 | 宠物档案、品种、体重记录 |
+| 预约候诊 | 预约排班、候诊队列、分诊导诊 |
+| 诊疗核心 | 挂号、问诊、诊断、处方、病历 |
+| 收费收银 | 发票、支付、退款、小票打印 |
+| 库存管理 | 药品/商品进销存、效期预警 |
+| 住院管理 | 入院登记、护理计划、任务执行 |
+| 疫苗检验 | 疫苗接种计划、检验申请、结果审核 |
+| 运营管理 | 报表中心、打印中心、批量导入 |
 
-## 特点
+## 快速开始
 
-> 部分为专业版能力
+```bash
+# 安装依赖
+pnpm install
 
-- AI 友好的工程底座，内置多个 Skills
-- 一流的技术栈：Vue 3.6 / Vite 8 / Pinia / UnoCSS / VueUse / TypeScript / ESLint / Stylelint / ...
-- 自由选择喜爱的三方 UI 库
-- 18 套默认主题方案且可扩展，给不同行业提供专属品牌气质
-- 7 款导航菜单模式，匹配产品发展的各个阶段
-- 精细可控的页面保活策略
-- 全方位权限验证
-- 国际化、RTL支持
-- 19 处预留插槽，灵活扩展产品内容
+# 启动开发服务器
+pnpm dev
 
-## 下载
+# 构建生产版本
+pnpm build
 
-> 本仓库为基础版
-
-直接拉取源码可能会包含未发布的内容，推荐去 [Github Releases](https://github.com/fantastic-admin/basic/releases) 页面下载稳定版本的压缩包。
-
-## 支持
-
-如果觉得 Fantastic-admin 这个框架不错，或者已经在使用了，希望你可以在 **Github** / **Gitee** / **GitCode** 帮我点个 ⭐ ，这将对本产品的推广有极大帮助。
-
-[![star](https://img.shields.io/github/stars/fantastic-admin/basic?style=social)](https://github.com/fantastic-admin/basic)
-
-[![star](https://gitee.com/fantastic-admin/basic/badge/star.svg?theme=dark)](https://gitee.com/fantastic-admin/basic)
-
-[![star](https://atomgit.com/fantastic-admin/basic/star/badge.svg)](https://atomgit.com/fantastic-admin/basic)
-
-## 生态
-
-- [`Fantastic-startkit`](https://hooray.github.io/fantastic-startkit/) - 简单好用的 Vue3 项目启动套件
-- [`Fantastic-mobile`](https://fantastic-mobile.hurui.me/) - 让你的 H5 项目拥有稳固的工程底座
-- [`One-step Console`](https://one-step-admin.hurui.me) - 像导播一样编排你的工作现场
+# 运行端到端测试
+pnpm test:e2e
+```

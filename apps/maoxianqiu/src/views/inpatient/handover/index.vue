@@ -202,6 +202,7 @@ onMounted(async () => {
             />
           </FaLabel>
           <FaLabel label="交班人 ID">
+            <!-- TODO: 替换为 EmployeePicker/StaffPicker -->
             <FaInput
               v-model="form.outgoingUser"
               placeholder="员工 UUID"
@@ -209,6 +210,7 @@ onMounted(async () => {
             />
           </FaLabel>
           <FaLabel label="接班人 ID">
+            <!-- TODO: 替换为 EmployeePicker/StaffPicker -->
             <FaInput
               v-model="form.incomingUser"
               placeholder="员工 UUID"

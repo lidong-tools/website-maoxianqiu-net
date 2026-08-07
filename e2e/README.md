@@ -44,13 +44,15 @@ pnpm exec playwright install chromium
 
 ## 环境变量配置
 
-测试通过环境变量读取真实登录凭据,未配置时**登录流程与冒烟/核心流程测试自动跳过**(登录页渲染测试仍会执行)。
+测试通过环境变量读取真实登录凭据,**默认模式下凭据缺失测试将失败**(不再静默跳过)。
+仅当显式设置 `E2E_OPTIONAL=true` 时才允许跳过需要凭据/浏览器的测试。
 
 | 变量名 | 必填 | 说明 |
 | --- | --- | --- |
-| `E2E_USERNAME` | 登录流程/冒烟/核心流程必填 | Supabase Auth 登录邮箱(建议使用管理员账号,以拥有各业务模块权限) |
-| `E2E_PASSWORD` | 登录流程/冒烟/核心流程必填 | 对应密码 |
-| `E2E_BASE_URL` | 可选 | 覆盖前端基地址,默认读取 `apps/maoxianqiu/.env.development` 后回退到 `http://localhost:9000` |
+| `E2E_USERNAME` | CI 必填 | Supabase Auth 登录邮箱 |
+| `E2E_PASSWORD` | CI 必填 | 对应密码 |
+| `E2E_BASE_URL` | 可选 | 覆盖前端基地址 |
+| `E2E_OPTIONAL` | 可选 | 设为 `true` 时,凭据/浏览器缺失不报错(仅本地开发用) |
 
 配置方式(任选):
 
@@ -59,10 +61,8 @@ pnpm exec playwright install chromium
 $env:E2E_USERNAME = "admin@example.com"
 $env:E2E_PASSWORD = "your-password"
 
-# 或复制 .env 文件
-# 仓库根目录创建 .env.local(已被 .gitignore 忽略),内容:
-# E2E_USERNAME=admin@example.com
-# E2E_PASSWORD=your-password
+# 本地开发时可设置 E2E_OPTIONAL 跳过
+$env:E2E_OPTIONAL = "true"
 ```
 
 > 注意:playwright.config.ts 已把 `apps/maoxianqiu/.env.development` 中的 `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`
@@ -101,9 +101,8 @@ pnpm exec playwright show-report
   测试断言与导航均使用 `/#/xxx` 形式。
 - **登录态**:冒烟/核心流程测试依赖真实登录态。每个用例独立浏览器上下文,通过 UI 表单登录
   (Supabase `signInWithPassword`),未配置凭据时整组 `test.skip`。
-- **降级策略**:`helpers/browser.ts` 检测 Chromium 内核是否安装,缺失时整组 `test.skip`;
-  凭据缺失时同样 `test.skip`。两条保护保证用例可被 `--list` 识别,且在无浏览器/无凭据的
-  CI 环境中不会失败。
+- **降级策略**:默认模式下凭据/浏览器缺失将**抛出错误**(测试失败,非静默跳过)。
+  仅设置 `$env:E2E_OPTIONAL='true'` 时才恢复旧有的跳过行为,适用于本地开发环境。
 
 ## 用例说明
 

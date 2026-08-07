@@ -44,23 +44,23 @@ const itemColumns = computed<TableColumn<CatalogItemWithRelations>[]>(() => [
   {
     accessorKey: 'category',
     header: '类目',
-    cell: (info: any) => info.getValue()?.name ?? '未分类',
+    cell: info => info.getValue()?.name ?? '未分类',
   },
   {
     accessorKey: 'billing_type',
     header: '收费类型',
-    cell: (info: any) => BILLING_TYPE_LABELS[info.getValue() as BillingType] ?? info.getValue(),
+    cell: info => BILLING_TYPE_LABELS[info.getValue() as BillingType] ?? info.getValue(),
   },
-  { accessorKey: 'unit', header: '单位', cell: (info: any) => info.getValue() ?? '-' },
+  { accessorKey: 'unit', header: '单位', cell: info => info.getValue() ?? '-' },
   {
     accessorKey: 'default_price',
     header: '默认售价',
-    cell: (info: any) => `¥${Number(info.getValue() ?? 0).toFixed(2)}`,
+    cell: info => `¥${Number(info.getValue() ?? 0).toFixed(2)}`,
   },
   {
     accessorKey: 'is_active',
     header: '状态',
-    cell: (info: any) => info.getValue() ? '启用' : '停用',
+    cell: info => info.getValue() ? '启用' : '停用',
   },
   {
     id: 'operation',
@@ -216,22 +216,22 @@ const storeItemColumns = computed<TableColumn<StoreCatalogItemWithCatalog>[]>(()
   {
     accessorKey: 'catalog_item',
     header: '编码',
-    cell: (info: any) => info.getValue()?.code ?? '-',
+    cell: info => info.getValue()?.code ?? '-',
   },
   {
     accessorKey: 'catalog_item',
     header: '名称',
-    cell: (info: any) => info.getValue()?.name ?? '-',
+    cell: info => info.getValue()?.name ?? '-',
   },
   {
     accessorKey: 'custom_name',
     header: '门店自定义名称',
-    cell: (info: any) => info.getValue() ?? '-',
+    cell: info => info.getValue() ?? '-',
   },
   {
     accessorKey: 'custom_price',
     header: '门店价格',
-    cell: (info: any) => {
+    cell: (info) => {
       const v = info.getValue()
       return v != null ? `¥${Number(v).toFixed(2)}` : '-'
     },
@@ -239,7 +239,7 @@ const storeItemColumns = computed<TableColumn<StoreCatalogItemWithCatalog>[]>(()
   {
     accessorKey: 'catalog_item',
     header: '默认售价',
-    cell: (info: any) => {
+    cell: (info) => {
       const v = info.getValue()?.default_price
       return v != null ? `¥${Number(v).toFixed(2)}` : '-'
     },
@@ -247,7 +247,7 @@ const storeItemColumns = computed<TableColumn<StoreCatalogItemWithCatalog>[]>(()
   {
     accessorKey: 'is_active',
     header: '状态',
-    cell: (info: any) => info.getValue() ? '启用' : '停用',
+    cell: info => info.getValue() ? '启用' : '停用',
   },
   {
     id: 'operation',
@@ -405,7 +405,7 @@ const intakeColumns = computed<TableColumn<IntakeQuestion>[]>(() => [
   {
     accessorKey: 'is_active',
     header: '状态',
-    cell: (info: any) => info.getValue() ? '启用' : '停用',
+    cell: info => info.getValue() ? '启用' : '停用',
   },
   {
     id: 'operation',
@@ -500,11 +500,11 @@ const diagnosisFilters = ref({ keyword: '', category: '', isActive: '' as string
 const diagnosisColumns = computed<TableColumn<DiagnosisDict>[]>(() => [
   { accessorKey: 'code', header: '编码', width: 120 },
   { accessorKey: 'name', header: '名称' },
-  { accessorKey: 'category', header: '分类', width: 120, cell: (info: any) => info.getValue() ?? '-' },
+  { accessorKey: 'category', header: '分类', width: 120, cell: info => info.getValue() ?? '-' },
   {
     accessorKey: 'is_active',
     header: '状态',
-    cell: (info: any) => info.getValue() ? '启用' : '停用',
+    cell: info => info.getValue() ? '启用' : '停用',
   },
   {
     id: 'operation',
@@ -605,13 +605,13 @@ const labPanelColumns = computed<TableColumn<LabPanel>[]>(() => [
   {
     accessorKey: 'category',
     header: '分类',
-    cell: (info: any) => LAB_PANEL_CATEGORY_LABELS[info.getValue() as LabPanelCategory] ?? info.getValue(),
+    cell: info => LAB_PANEL_CATEGORY_LABELS[info.getValue() as LabPanelCategory] ?? info.getValue(),
   },
-  { accessorKey: 'sample_type', header: '样本类型', cell: (info: any) => info.getValue() ?? '-' },
+  { accessorKey: 'sample_type', header: '样本类型', cell: info => info.getValue() ?? '-' },
   {
     accessorKey: 'is_active',
     header: '状态',
-    cell: (info: any) => info.getValue() ? '启用' : '停用',
+    cell: info => info.getValue() ? '启用' : '停用',
   },
   {
     id: 'operation',

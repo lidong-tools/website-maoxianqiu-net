@@ -9,6 +9,7 @@ export default defineFakeRoute([
         error: '',
         status: 1,
         data: {
+          // TODO: 旧品牌引用，上线前需替换为毛线球 logo
           url: 'https://fantastic-admin.hurui.me/logo.svg',
         },
       }

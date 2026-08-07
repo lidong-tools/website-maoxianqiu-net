@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { getCredentials, loginViaUI } from '../helpers/auth'
+import { loginViaUI, requireCredentials } from '../helpers/auth'
 
 /**
  * 登录页渲染与登录流程 E2E 测试
@@ -25,9 +25,9 @@ test.describe('登录页', () => {
   })
 
   test('登录流程:使用 Supabase 凭据登录并进入工作台', async ({ page }) => {
-    // 读取环境变量中的真实凭据,缺失时跳过
-    const credentials = getCredentials()
-    test.skip(!credentials, '未配置 E2E_USERNAME / E2E_PASSWORD,跳过真实登录流程测试')
+    // 获取必需凭据:未经 E2E_OPTIONAL=true 时缺失将报错而非静默跳过
+    const credentials = requireCredentials()
+    test.skip(!credentials, '未配置 E2E_USERNAME / E2E_PASSWORD 且未设置 E2E_OPTIONAL=true')
 
     // 通过 UI 完成登录
     await loginViaUI(page, credentials!.account, credentials!.password)

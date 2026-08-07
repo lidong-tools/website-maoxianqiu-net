@@ -2,6 +2,7 @@
 import type { TableColumn } from '@fantastic-admin/components'
 import type { NursingPlan, NursingTask, NursingTaskStatus } from '@/types/inpatient'
 import apiInpatient from '@/api/modules/inpatient'
+import EncounterPicker from '@/components/business/EncounterPicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import {
   NURSING_FREQUENCY_LABELS,
@@ -29,18 +30,18 @@ const planColumns = computed<TableColumn<NursingPlan>[]>(() => [
   {
     accessorKey: 'frequency',
     header: '频率',
-    cell: (info: any) => NURSING_FREQUENCY_LABELS[info.getValue() as keyof typeof NURSING_FREQUENCY_LABELS] ?? info.getValue(),
+    cell: info => NURSING_FREQUENCY_LABELS[info.getValue() as keyof typeof NURSING_FREQUENCY_LABELS] ?? info.getValue(),
   },
   { accessorKey: 'start_date', header: '开始日期' },
   {
     accessorKey: 'end_date',
     header: '结束日期',
-    cell: (info: any) => info.getValue() ?? '-',
+    cell: info => info.getValue() ?? '-',
   },
   {
     accessorKey: 'is_active',
     header: '启用',
-    cell: (info: any) => info.getValue() ? '是' : '否',
+    cell: info => info.getValue() ? '是' : '否',
   },
 ])
 
@@ -48,27 +49,27 @@ const taskColumns = computed<TableColumn<NursingTask>[]>(() => [
   {
     accessorKey: 'scheduled_at',
     header: '计划时间',
-    cell: (info: any) => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
   },
   {
     accessorKey: 'task_type',
     header: '任务类型',
-    cell: (info: any) => NURSING_TASK_TYPE_LABELS[info.getValue() as keyof typeof NURSING_TASK_TYPE_LABELS] ?? info.getValue(),
+    cell: info => NURSING_TASK_TYPE_LABELS[info.getValue() as keyof typeof NURSING_TASK_TYPE_LABELS] ?? info.getValue(),
   },
   {
     accessorKey: 'description',
     header: '描述',
-    cell: (info: any) => info.getValue() ?? '-',
+    cell: info => info.getValue() ?? '-',
   },
   {
     accessorKey: 'assigned_to',
     header: '负责人',
-    cell: (info: any) => info.getValue() ? info.getValue().slice(0, 8) : '-',
+    cell: info => info.getValue() ? info.getValue().slice(0, 8) : '-',
   },
   {
     accessorKey: 'status',
     header: '状态',
-    cell: (info: any) => {
+    cell: (info) => {
       const v = info.getValue() as NursingTaskStatus
       const label = NURSING_TASK_STATUS_LABELS[v] ?? v
       const colorMap: Record<string, string> = {
@@ -85,7 +86,7 @@ const taskColumns = computed<TableColumn<NursingTask>[]>(() => [
   {
     accessorKey: 'completed_at',
     header: '完成时间',
-    cell: (info: any) => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
   },
   {
     id: 'operation',
@@ -126,7 +127,7 @@ async function loadData() {
     plans.value = plansRes.data.list
     tasks.value = tasksRes.data.list
   }
-  catch (e: any) {
+  catch (e: unknown) {
     useFaToast().error(e?.message || '加载护理数据失败')
   }
   finally {
@@ -282,12 +283,7 @@ onMounted(() => {
       <div class="mb-4 p-4 border rounded-lg bg-muted/30">
         <div class="gap-3 grid grid-cols-1 items-end md:grid-cols-3">
           <FaLabel label="住院 ID">
-            <FaInput
-              v-model="selectedAdmissionId"
-              placeholder="输入住院记录 UUID"
-              class="w-full"
-              @keydown.enter="loadData"
-            />
+            <EncounterPicker v-model="selectedAdmissionId" placeholder="搜索选择就诊记录" />
           </FaLabel>
           <div class="flex gap-2">
             <FaButton type="primary" @click="loadData">
@@ -360,6 +356,7 @@ onMounted(() => {
               <FaInput v-model="newTask.scheduledAt" type="datetime-local" class="w-full" />
             </FaLabel>
             <FaLabel label="负责人 ID(可选)">
+              <!-- TODO: 替换为 EmployeePicker/StaffPicker -->
               <FaInput v-model="newTask.assignedTo" placeholder="员工 UUID" class="w-full" />
             </FaLabel>
             <FaLabel label="描述">

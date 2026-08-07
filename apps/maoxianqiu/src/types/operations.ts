@@ -231,7 +231,7 @@ export function canTransitionImportTaskStatus(from: ImportTaskStatus, to: Import
 // ===== MXQ-12007 打印 =====
 
 /** 打印模板类型 */
-export type PrintTemplateType = 'invoice' | 'prescription' | 'medical_record' | 'label' | 'other'
+export type PrintTemplateType = 'invoice' | 'prescription' | 'medical_record' | 'lab_report' | 'vaccine_certificate' | 'label' | 'other'
 
 /** 打印模板记录 */
 export interface PrintTemplate {
@@ -407,6 +407,8 @@ export const PRINT_TEMPLATE_TYPE_LABELS: Record<PrintTemplateType, string> = {
   invoice: '收据',
   prescription: '处方',
   medical_record: '病历',
+  lab_report: '检验报告',
+  vaccine_certificate: '疫苗证明',
   label: '标签',
   other: '其他',
 }

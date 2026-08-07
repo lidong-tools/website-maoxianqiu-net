@@ -11,11 +11,15 @@ function Layout() {
  *   /operations/imports   导入中心
  *   /operations/print     打印中心
  *   /operations/reports   报表中心
+ *   /operations/message   消息管理
+ *     /templates           消息模板管理
+ *     /deliveries          消息投递记录
  *
  * 权限:
  *   - imports 权限码:imports.manage
  *   - print 权限码:print.manage
  *   - reports 权限码:reports.view
+ *   - message 权限码:message.manage
  *   - 父级菜单 visibleByQuery 权限:operations.*
  */
 const routes: RouteRecordRaw[] = [
@@ -74,6 +78,36 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/operations/reports/index.vue'),
         meta: {
           title: '报表中心',
+          breadcrumb: false,
+        },
+      },
+    ],
+  },
+  {
+    path: '/operations/message',
+    component: Layout,
+    name: 'operationsMessage',
+    meta: {
+      title: '消息管理',
+      icon: 'i-ri:message-2-line',
+      auth: 'message.manage',
+    },
+    children: [
+      {
+        path: 'templates',
+        name: 'operationsMessageTemplates',
+        component: () => import('@/views/operations/message/templates.vue'),
+        meta: {
+          title: '消息模板管理',
+          breadcrumb: false,
+        },
+      },
+      {
+        path: 'deliveries',
+        name: 'operationsMessageDeliveries',
+        component: () => import('@/views/operations/message/deliveries.vue'),
+        meta: {
+          title: '消息投递记录',
           breadcrumb: false,
         },
       },

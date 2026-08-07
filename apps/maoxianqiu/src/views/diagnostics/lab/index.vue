@@ -2,6 +2,8 @@
 import type { TableColumn } from '@fantastic-admin/components'
 import type { CriticalValueAlert, LabOrderAnalyte, LabOrderRecord, LabSpecimen } from '@/types/diagnostics'
 import apiDiagnostics from '@/api/modules/diagnostics'
+import BusinessCustomerPicker from '@/components/business/CustomerPicker/index.vue'
+import BusinessPetPicker from '@/components/business/PetPicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { LAB_ORDER_STATUS_COLORS, LAB_ORDER_STATUS_LABELS } from '@/types/diagnostics'
 
@@ -54,37 +56,37 @@ const tableColumns = computed<TableColumn<LabOrderRow>[]>(() => [
   {
     accessorKey: 'order_no',
     header: '申请单号',
-    cell: (info: any) => info.getValue(),
+    cell: info => info.getValue(),
   },
   {
     accessorKey: 'pet_id',
     header: '宠物 ID',
-    cell: (info: any) => info.getValue()?.slice(0, 8),
+    cell: info => info.getValue()?.slice(0, 8),
   },
   {
     accessorKey: 'customer_id',
     header: '客户 ID',
-    cell: (info: any) => info.getValue()?.slice(0, 8),
+    cell: info => info.getValue()?.slice(0, 8),
   },
   {
     accessorKey: 'requested_at',
     header: '申请时间',
-    cell: (info: any) => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
   },
   {
     accessorKey: 'collected_at',
     header: '采集时间',
-    cell: (info: any) => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
   },
   {
     accessorKey: 'completed_at',
     header: '完成时间',
-    cell: (info: any) => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
   },
   {
     accessorKey: 'status',
     header: '状态',
-    cell: (info: any) => {
+    cell: (info) => {
       const v = info.getValue() as LabOrderRecord['status']
       const label = LAB_ORDER_STATUS_LABELS[v] ?? v
       const color = LAB_ORDER_STATUS_COLORS[v] ?? 'default'
@@ -119,7 +121,7 @@ async function loadLabOrders() {
     })
     dataList.value = res.data.list as LabOrderRow[]
   }
-  catch (e: any) {
+  catch (e: unknown) {
     useFaToast().error(e?.message || '加载检验申请列表失败')
   }
   finally {
@@ -364,10 +366,10 @@ onMounted(async () => {
         </div>
         <div class="gap-3 grid grid-cols-1 md:grid-cols-3">
           <FaLabel label="客户 ID">
-            <FaInput v-model="labForm.customerId" placeholder="客户 UUID" class="w-full" />
+            <BusinessCustomerPicker v-model="labForm.customerId" placeholder="搜索选择客户" />
           </FaLabel>
           <FaLabel label="宠物 ID">
-            <FaInput v-model="labForm.petId" placeholder="宠物 UUID" class="w-full" />
+            <BusinessPetPicker v-model="labForm.petId" :customer-id="labForm.customerId || undefined" placeholder="搜索选择宠物" />
           </FaLabel>
           <FaLabel label="备注">
             <FaInput v-model="labForm.remark" placeholder="备注信息" class="w-full" />
@@ -399,7 +401,7 @@ onMounted(async () => {
               />
             </FaLabel>
             <FaLabel label="宠物 ID" class="col-span-1">
-              <FaInput v-model="search.petId" placeholder="按宠物 ID 筛选" class="w-full" />
+              <BusinessPetPicker v-model="search.petId" placeholder="按宠物筛选" />
             </FaLabel>
             <div class="flex gap-2 col-end--1 justify-end">
               <FaButton type="primary" @click="loadLabOrders">

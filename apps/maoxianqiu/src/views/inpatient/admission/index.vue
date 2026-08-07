@@ -2,6 +2,8 @@
 import type { TableColumn } from '@fantastic-admin/components'
 import type { Admission, Cage, Room } from '@/types/inpatient'
 import apiInpatient, { generateIdempotencyKey } from '@/api/modules/inpatient'
+import CustomerPicker from '@/components/business/CustomerPicker/index.vue'
+import PetPicker from '@/components/business/PetPicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { ADMISSION_STATUS_LABELS } from '@/types/inpatient'
 
@@ -37,27 +39,27 @@ const tableColumns = computed<TableColumn<AdmissionRow>[]>(() => [
   {
     accessorKey: 'pet_id',
     header: '宠物 ID',
-    cell: (info: any) => info.getValue()?.slice(0, 8),
+    cell: info => info.getValue()?.slice(0, 8),
   },
   {
     accessorKey: 'customer_id',
     header: '客户 ID',
-    cell: (info: any) => info.getValue()?.slice(0, 8),
+    cell: info => info.getValue()?.slice(0, 8),
   },
   {
     accessorKey: 'admission_reason',
     header: '入院原因',
-    cell: (info: any) => info.getValue() ?? '-',
+    cell: info => info.getValue() ?? '-',
   },
   {
     accessorKey: 'admitted_at',
     header: '入院时间',
-    cell: (info: any) => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
   },
   {
     accessorKey: 'status',
     header: '状态',
-    cell: (info: any) => {
+    cell: (info) => {
       const v = info.getValue() as Admission['status']
       const label = ADMISSION_STATUS_LABELS[v] ?? v
       const colorMap: Record<string, string> = {
@@ -73,12 +75,12 @@ const tableColumns = computed<TableColumn<AdmissionRow>[]>(() => [
   {
     accessorKey: 'total_charge',
     header: '总费用',
-    cell: (info: any) => `¥${info.getValue()?.toFixed(2) ?? '0.00'}`,
+    cell: info => `¥${info.getValue()?.toFixed(2) ?? '0.00'}`,
   },
   {
     accessorKey: 'discharged_at',
     header: '出院时间',
-    cell: (info: any) => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
   },
   {
     id: 'operation',
@@ -106,7 +108,7 @@ async function loadRooms() {
       await loadCages()
     }
   }
-  catch (e: any) {
+  catch (e: unknown) {
     useFaToast().error(e?.message || '加载房间失败')
   }
 }
@@ -121,7 +123,7 @@ async function loadCages() {
     )
     cages.value = res.data.list
   }
-  catch (e: any) {
+  catch (e: unknown) {
     useFaToast().error(e?.message || '加载笼位失败')
   }
 }
@@ -136,7 +138,7 @@ async function loadAdmissions() {
     )
     dataList.value = res.data.list as AdmissionRow[]
   }
-  catch (e: any) {
+  catch (e: unknown) {
     useFaToast().error(e?.message || '加载住院记录失败')
   }
   finally {
@@ -278,20 +280,13 @@ onMounted(async () => {
         </div>
         <div class="gap-3 grid grid-cols-1 md:grid-cols-3">
           <FaLabel label="客户 ID">
-            <FaInput
-              v-model="admitForm.customerId"
-              placeholder="客户 UUID"
-              class="w-full"
-            />
+            <CustomerPicker v-model="admitForm.customerId" placeholder="搜索选择客户" />
           </FaLabel>
           <FaLabel label="宠物 ID">
-            <FaInput
-              v-model="admitForm.petId"
-              placeholder="宠物 UUID"
-              class="w-full"
-            />
+            <PetPicker v-model="admitForm.petId" :customer-id="admitForm.customerId" placeholder="搜索选择宠物" />
           </FaLabel>
           <FaLabel label="主治医生 ID(可选)">
+            <!-- TODO: 替换为 EmployeePicker/StaffPicker -->
             <FaInput
               v-model="admitForm.doctorId"
               placeholder="医生 UUID"

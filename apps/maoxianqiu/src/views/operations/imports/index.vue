@@ -65,7 +65,7 @@ async function loadStoreOptions() {
     const stores = res.data.list ?? []
     storeOptions.value = [
       { label: '全部门店', value: '' },
-      ...stores.map((s: any) => ({ label: s.name, value: s.id })),
+      ...stores.map(s => ({ label: s.name, value: s.id })),
     ]
   }
   catch {
@@ -118,12 +118,12 @@ const tableColumns = computed<TableColumn<ImportRow>[]>(() => [
   {
     accessorKey: 'type',
     header: '类型',
-    cell: (info: any) => IMPORT_TYPE_LABELS[info.getValue() as ImportType] ?? info.getValue(),
+    cell: info => IMPORT_TYPE_LABELS[info.getValue() as ImportType] ?? info.getValue(),
   },
   {
     accessorKey: 'status',
     header: '状态',
-    cell: (info: any) => {
+    cell: (info) => {
       const v = info.getValue() as ImportTaskStatus
       return IMPORT_TASK_STATUS_LABELS[v] ?? v
     },
@@ -131,22 +131,22 @@ const tableColumns = computed<TableColumn<ImportRow>[]>(() => [
   {
     accessorKey: 'total_rows',
     header: '总行数',
-    cell: (info: any) => info.getValue() ?? 0,
+    cell: info => info.getValue() ?? 0,
   },
   {
     accessorKey: 'success_count',
     header: '成功',
-    cell: (info: any) => info.getValue() ?? 0,
+    cell: info => info.getValue() ?? 0,
   },
   {
     accessorKey: 'failed_count',
     header: '失败',
-    cell: (info: any) => info.getValue() ?? 0,
+    cell: info => info.getValue() ?? 0,
   },
   {
     accessorKey: 'created_at',
     header: '创建时间',
-    cell: (info: any) => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
   },
   {
     id: 'operation',
