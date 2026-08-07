@@ -907,37 +907,6 @@ async function findPendingPrescriptionReservations(
 }
 
 /**
- * 确认处方预留(预留转正式扣减,confirm 内含 FEFO 批次扣减)
- * 已处理的预留跳过(并发幂等),其余错误上抛
- * @param service supabase service client
- * @param tenantId 租户 id
- * @param prescriptionId 处方 id
- * @param operatorId 操作人 id
- */
-async function confirmPrescriptionReservations(
-  service: ReturnType<typeof createServiceClient>,
-  tenantId: string,
-  prescriptionId: string,
-  operatorId: string,
-) {
-  const pending = await findPendingPrescriptionReservations(service, tenantId, prescriptionId)
-  for (const rsv of pending) {
-    const { error: confErr } = await service.rpc('confirm_inventory_reservation', {
-      p_tenant_id: tenantId,
-      p_reservation_id: rsv.id,
-      p_operator_id: operatorId,
-    })
-    if (confErr && !confErr.message.includes('RESERVATION_ALREADY')) {
-      if (confErr.message.includes('INSUFFICIENT_STOCK')) {
-        throw err.conflict('发药库存不足')
-      }
-      throw err.internal(`确认预留失败: ${confErr.message}`)
-    }
-  }
-  return pending.length
-}
-
-/**
  * 释放处方预留(取消处方时调用,防止库存永久占用)
  * @param service supabase service client
  * @param tenantId 租户 id
@@ -966,74 +935,12 @@ async function releasePrescriptionReservations(
 }
 
 /**
- * 处方无预留时按明细即时发药(FEFO 扣减,取门店默认仓库)
- * 仅处理带 catalog_item_id 的药品条目,手工药名条目跳过
- * @param service supabase service client
- * @param prescription 处方行
- * @param operatorId 操作人 id
- * @returns { dispensed, skipped } 扣减条目数与跳过条目数
- */
-async function dispensePrescriptionItems(
-  service: ReturnType<typeof createServiceClient>,
-  prescription: { id: string, tenant_id: string, store_id: string | null },
-  operatorId: string,
-) {
-  const { data: items, error: itemErr } = await service
-    .from('prescription_items')
-    .select('catalog_item_id, quantity, drug_name')
-    .eq('prescription_id', prescription.id)
-  if (itemErr) {
-    throw err.internal(`查询处方明细失败: ${itemErr.message}`)
-  }
-
-  const drugItems = (items ?? []).filter(i => i.catalog_item_id)
-  if (drugItems.length === 0) {
-    return { dispensed: 0, skipped: (items ?? []).length }
-  }
-
-  // 取门店默认仓库(优先同门店,其次租户下任意启用仓库);无仓库则跳过库存扣减
-  let whQuery = service
-    .from('warehouses')
-    .select('id')
-    .eq('tenant_id', prescription.tenant_id)
-    .eq('is_active', true)
-  if (prescription.store_id) {
-    whQuery = whQuery.eq('store_id', prescription.store_id)
-  }
-  const { data: wh } = await whQuery.limit(1).maybeSingle()
-  if (!wh) {
-    return { dispensed: 0, skipped: (items ?? []).length }
-  }
-
-  let dispensed = 0
-  for (const item of drugItems) {
-    const { error: dErr } = await service.rpc('dispense_inventory', {
-      p_tenant_id: prescription.tenant_id,
-      p_warehouse_id: wh.id,
-      p_catalog_item_id: item.catalog_item_id,
-      p_quantity: item.quantity,
-      p_reference_type: 'prescription',
-      p_reference_id: prescription.id,
-      p_operator_id: operatorId,
-    })
-    if (dErr) {
-      if (dErr.message.includes('INSUFFICIENT_STOCK')) {
-        throw err.conflict(`「${item.drug_name ?? ''}」库存不足`)
-      }
-      throw err.internal(`发药扣减失败: ${dErr.message}`)
-    }
-    dispensed += 1
-  }
-  return { dispensed, skipped: (items ?? []).length - drugItems.length }
-}
-
-/**
- * 发药(MXQ-7006)
+ * 发药(MXQ-7006,审计反馈 R05 重写)
  * - 权限:prescription.dispense
- * - P0-08 统一发药路径:
- *   1. 处方有关联预留(reserve) → 逐个 confirm(预留转正式扣减,含 FEFO 批次扣减)
- *   2. 无预留 → 对带 catalog_item_id 的明细即时 dispense(门店默认仓库,FEFO 扣减)
- * - 随后调 dispense_prescription RPC 转状态:draft→dispensed
+ * - R05:发药 = 处方校验 + 库存扣减 + 状态变更 + 审计,全部收敛到
+ *   dispense_prescription 单个 PostgreSQL 事务(plpgsql)内原子提交/回滚;
+ *   Hono 层不再串联多个独立 RPC(旧两步编排:先扣库存再转状态,非原子且会重复扣减)。
+ * - R04:仅 issued 处方可发药,draft 必须先开具(PRESCRIPTION_NOT_DISPENSABLE)
  */
 clinicalRoutes.post('/prescriptions/:id/dispense', async (c) => {
   const id = c.req.param('id')
@@ -1053,12 +960,7 @@ clinicalRoutes.post('/prescriptions/:id/dispense', async (c) => {
   // P0-02 scoped:实体租户/门店作用域授权
   await requireScopedPermission(c, { code: 'prescription.dispense', tenantId: existing.tenant_id, storeId: existing.store_id ?? undefined })
 
-  // P0-08:先完成库存扣减(确认预留或即时发药),再转处方状态
-  const confirmed = await confirmPrescriptionReservations(service, existing.tenant_id, id, user.id)
-  if (confirmed === 0) {
-    await dispensePrescriptionItems(service, existing, user.id)
-  }
-
+  // R05:单事务 RPC(校验 issued/未过期 → 逐项扣减库存(预留确认或即时 FEFO) → 状态 issued→dispensed → 审计)
   const { data, error: rpcError } = await service.rpc('dispense_prescription', {
     p_prescription_id: id,
     p_operator_id: user.id,
@@ -1068,8 +970,14 @@ clinicalRoutes.post('/prescriptions/:id/dispense', async (c) => {
     if (rpcError.message.includes('PRESCRIPTION_NOT_FOUND')) {
       throw err.notFound('处方不存在')
     }
-    if (rpcError.message.includes('PRESCRIPTION_NOT_DRAFT')) {
-      throw err.conflict('仅待发药处方可发药')
+    if (rpcError.message.includes('PRESCRIPTION_NOT_DISPENSABLE')) {
+      throw err.conflict('仅已开具(issued)处方可发药,草稿处方请先开具')
+    }
+    if (rpcError.message.includes('PRESCRIPTION_EXPIRED')) {
+      throw err.conflict('处方已过期,禁止发药')
+    }
+    if (rpcError.message.includes('INSUFFICIENT_STOCK')) {
+      throw err.conflict('发药库存不足')
     }
     throw err.internal(`发药失败: ${rpcError.message}`)
   }

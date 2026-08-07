@@ -621,7 +621,7 @@ onMounted(loadData)
                 <FaButton v-if="rx.status === 'draft' && auth('prescription.issue')" variant="outline" size="sm" @click="openIssue(rx)">
                   开具处方
                 </FaButton>
-                <FaButton v-if="rx.status === 'draft'" variant="outline" size="sm" @click="onDispense(rx)">
+                <FaButton v-if="rx.status === 'issued' && auth('prescription.dispense')" variant="outline" size="sm" @click="onDispense(rx)">
                   发药
                 </FaButton>
                 <FaButton v-if="rx.status === 'issued' && auth('prescription.extend_validity')" variant="outline" size="sm" @click="openExtend(rx)">

@@ -361,7 +361,8 @@ export default {
   },
 
   /**
-   * 发药(走 Hono Command,服务端调 dispense_prescription RPC:draft→dispensed)
+   * 发药(走 Hono Command,服务端调 dispense_prescription RPC 单事务:
+   * 处方校验 + 库存扣减 + 状态 issued→dispensed + 审计,R04 禁止 draft 直发)
    */
   dispensePrescription(id: string) {
     return api.post(`clinical/prescriptions/${id}/dispense`, {}) as Promise<{ data: PrescriptionRecord }>
