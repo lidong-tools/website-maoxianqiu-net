@@ -109,76 +109,64 @@
   box-sizing: content-box;
 }
 
-.loading-container .loading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
+/* From Uiverse.io by AbanoubMagdy1 */
+.loading-container .loader {
+  --dim: 3rem;
+  width: var(--dim);
+  height: var(--dim);
+  position: relative;
+  animation: spin988 2s linear infinite;
 }
 
-.loading-container .loading .square {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
+.loading-container .loader .circle {
+  --color: var(--rainbow-color);
+  --dim: 1.2rem;
+  width: var(--dim);
+  height: var(--dim);
+  background-color: var(--color);
+  border-radius: 50%;
+  position: absolute;
 }
 
-.loading-container .loading .square::before {
-  width: 10px;
-  height: 10px;
-  content: "";
-  border: 3px solid var(--rainbow-color);
-  border-radius: 15%;
-  animation: square-to-dot-animation 2s linear infinite;
+.loading-container .loader .circle:nth-child(1) {
+  top: 0;
+  left: 0;
 }
 
-.loading-container .loading .square:nth-child(1)::before {
-  animation-delay: calc(150ms * 1);
+.loading-container .loader .circle:nth-child(2) {
+  top: 0;
+  right: 0;
 }
 
-.loading-container .loading .square:nth-child(2)::before {
-  animation-delay: calc(150ms * 2);
+.loading-container .loader .circle:nth-child(3) {
+  bottom: 0;
+  left: 0;
 }
 
-.loading-container .loading .square:nth-child(3)::before {
-  animation-delay: calc(150ms * 3);
+.loading-container .loader .circle:nth-child(4) {
+  bottom: 0;
+  right: 0;
 }
 
-.loading-container .loading .square:nth-child(4)::before {
-  animation-delay: calc(150ms * 4);
-}
-
-@keyframes square-to-dot-animation {
-  0%,
-  33.33% {
-    width: 10px;
-    height: 10px;
-    margin: initial;
-    border-width: 3px;
-    border-radius: 15%;
-    transform: rotate(0deg);
+@keyframes spin988 {
+  0% {
+    transform: scale(1) rotate(0);
   }
 
-  50%,
-  83.33% {
-    width: 0;
-    height: 0;
-    margin: 5px;
-    border-width: 5px;
-    border-radius: 100%;
-    transform: rotate(180deg);
+  20%, 25% {
+    transform: scale(1.3) rotate(90deg);
   }
 
-  100% {
-    width: 10px;
-    height: 10px;
-    margin: initial;
-    border-width: 3px;
-    border-radius: 15%;
-    transform: rotate(360deg);
+  45%, 50% {
+    transform: scale(1) rotate(180deg);
+  }
+
+  70%, 75% {
+    transform: scale(1.3) rotate(270deg);
+  }
+
+  95%, 100% {
+    transform: scale(1) rotate(360deg);
   }
 }
 
@@ -205,11 +193,12 @@
 </style>
 
 <div class="loading-container">
-  <div class="loading">
-    <div class="square"></div>
-    <div class="square"></div>
-    <div class="square"></div>
-    <div class="square"></div>
+  <!-- From Uiverse.io by AbanoubMagdy1 -->
+  <div class="loader">
+    <div class="circle"></div>
+    <div class="circle"></div>
+    <div class="circle"></div>
+    <div class="circle"></div>
   </div>
   <div class="name">%VITE_APP_TITLE%</div>
   <div class="tips">载入中</div>
