@@ -14,10 +14,13 @@ interface StoreItem {
   address: string
   phone: string
   status: string
+  archived_at: string | null
+  tenant_id?: string
 }
 
 const loading = ref(false)
 const dataList = ref<StoreItem[]>([])
+const includeArchived = ref(false)
 const search = ref({
   keyword: '',
 })
@@ -30,12 +33,18 @@ const tableColumns = computed<TableColumn<StoreItem>[]>(() => [
   {
     accessorKey: 'status',
     header: '状态',
-    cell: (info: any) => (info.getValue() === 'active' ? '启用' : '停用'),
+    cell: (info: any) => {
+      const v = info.getValue()
+      if (v === 'archived' || info.row.original.archived_at) {
+        return '已归档'
+      }
+      return v === 'active' ? '启用' : '停用'
+    },
   },
   {
     id: 'operation',
     header: '操作',
-    width: 120,
+    width: 140,
     align: 'center',
     fixed: 'right',
   },
@@ -45,6 +54,7 @@ function getDataList() {
   loading.value = true
   apiStore.list({
     keyword: search.value.keyword,
+    includeArchived: includeArchived.value,
   }).then((res: any) => {
     loading.value = false
     dataList.value = res.data.list ?? []
@@ -96,14 +106,35 @@ function onEdit(row: StoreItem) {
   openModal()
 }
 
-function onDel(row: StoreItem) {
+/**
+ * MXQ-3008:归档门店(替代物理删除)
+ * 走 Hono Command + archive_store RPC
+ */
+function onArchive(row: StoreItem) {
   useFaModal().confirm({
-    title: '确认信息',
-    content: `确认删除店铺「${row.name}」吗？`,
+    title: '确认归档',
+    content: `确认归档店铺「${row.name}」吗？归档后不可用于业务,可在"显示已归档"中恢复。`,
     onConfirm: () => {
-      apiStore.delete(row.id).then(() => {
+      apiStore.archive(row.id).then(() => {
         getDataList()
-        useFaToast().success('删除成功')
+        useFaToast().success('已归档')
+      })
+    },
+  })
+}
+
+/**
+ * MXQ-3008:恢复门店
+ * 走 Hono Command + restore_store RPC
+ */
+function onRestore(row: StoreItem) {
+  useFaModal().confirm({
+    title: '确认恢复',
+    content: `确认恢复店铺「${row.name}」吗？`,
+    onConfirm: () => {
+      apiStore.restore(row.id).then(() => {
+        getDataList()
+        useFaToast().success('已恢复')
       })
     },
   })
@@ -114,7 +145,7 @@ function onDel(row: StoreItem) {
   <div>
     <FaPageHeader title="店铺管理" class="mb-0">
       <template #description>
-        管理各宠物医院门店信息
+        管理各宠物医院门店信息;归档门店不可用于业务,可恢复
       </template>
     </FaPageHeader>
     <FaPageMain>
@@ -130,6 +161,9 @@ function onDel(row: StoreItem) {
                 @keydown.enter="getDataList"
                 @clear="getDataList"
               />
+            </FaLabel>
+            <FaLabel label="显示已归档" class="col-span-1">
+              <FaSwitch v-model="includeArchived" @change="getDataList" />
             </FaLabel>
             <div class="flex gap-2 col-end--1 justify-end">
               <FaButton variant="outline" @click="search.keyword = ''; getDataList()">
@@ -165,7 +199,9 @@ function onDel(row: StoreItem) {
             </FaButton>
             <FaDropdown
               :items="[[
-                { label: '删除', variant: 'destructive', handle: () => onDel(row.original) },
+                row.original.archived_at
+                  ? { label: '恢复', handle: () => onRestore(row.original) }
+                  : { label: '归档', variant: 'destructive', handle: () => onArchive(row.original) },
               ]]"
             >
               <FaButton variant="outline" size="icon-sm">

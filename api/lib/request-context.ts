@@ -1,5 +1,6 @@
 import type { Context, MiddlewareHandler } from 'hono'
 import type { AppEnv, RequestContext } from './types'
+import { err } from './errors'
 
 const TENANT_HEADER = 'x-tenant-id'
 const STORE_HEADER = 'x-store-id'
@@ -39,7 +40,7 @@ export function getContext(c: Context<AppEnv>): RequestContext {
 export function requireTenant(c: Context<AppEnv>): string {
   const context = getContext(c)
   if (!context.tenantId) {
-    throw new Error('missing tenant')
+    throw err.badRequest('缺少租户上下文')
   }
   return context.tenantId
 }

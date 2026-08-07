@@ -5,6 +5,8 @@ export interface MembershipInfo {
   role_id: string
   role_code: string
   status: string
+  /** MXQ-3010:新模型租户 id */
+  tenant_id?: string
 }
 
 /**

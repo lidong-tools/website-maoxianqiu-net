@@ -1,13 +1,29 @@
 import { supabase } from '@/lib/supabase'
+import api from '../index'
 
+/**
+ * 门店 API 模块
+ * MXQ-3008:归档/恢复走 Hono Command,禁止前端直连 delete
+ */
 export default {
-  // 店铺列表(直连)
+  /**
+   * 门店列表(浏览器直连,RLS 兜底)
+   * @param data 查询参数
+   * @param data.keyword 关键词(可选)
+   * @param data.from 起始行(可选)
+   * @param data.limit 行数(可选)
+   * @param data.includeArchived 是否包含已归档门店(默认 false)
+   */
   async list(data?: {
     keyword?: string
     from?: number
     limit?: number
+    includeArchived?: boolean
   }) {
     let query = supabase.from('stores').select('*', { count: 'exact' })
+    if (!data?.includeArchived) {
+      query = query.is('archived_at', null)
+    }
     if (data?.keyword) {
       query = query.or(`name.ilike.%${data.keyword}%,code.ilike.%${data.keyword}%`)
     }
@@ -21,14 +37,25 @@ export default {
     return { status: 1, error: '', data: { list: rows ?? [], total: count ?? 0 } }
   },
 
-  // 新增店铺(直连,RLS 仅超管)
-  async create(data: any) {
+  /**
+   * 新增门店(直连,RLS 仅超管/有 store.create 权限)
+   * 注意:tenant_id 由 RLS/触发器或后端补充,前端不直传
+   */
+  async create(data: {
+    name: string
+    code?: string
+    address?: string
+    phone?: string
+    status?: string
+    tenantId?: string
+  }) {
     const { error } = await supabase.from('stores').insert({
       name: data.name,
       code: data.code?.trim() || null,
       address: data.address ?? '',
       phone: data.phone ?? '',
       status: data.status ?? 'active',
+      tenant_id: data.tenantId ?? null,
     })
     if (error) {
       throw new Error(error.message)
@@ -36,8 +63,17 @@ export default {
     return { status: 1, error: '', data: { isSuccess: true } }
   },
 
-  // 编辑店铺(直连)
-  async update(data: any) {
+  /**
+   * 编辑门店(直连)
+   */
+  async update(data: {
+    id: string
+    name?: string
+    code?: string
+    address?: string
+    phone?: string
+    status?: string
+  }) {
     const patch: Record<string, string | null> = {}
     if (data.name !== undefined) {
       patch.name = data.name
@@ -61,12 +97,15 @@ export default {
     return { status: 1, error: '', data: { isSuccess: true } }
   },
 
-  // 删除店铺(直连)
-  async delete(id: string) {
-    const { error } = await supabase.from('stores').delete().eq('id', id)
-    if (error) {
-      throw new Error(error.message)
-    }
-    return { status: 1, error: '', data: { isSuccess: true } }
-  },
+  /**
+   * 归档门店(MXQ-3008)
+   * 走 Hono Command + archive_store RPC,禁止前端直连 update archived_at
+   */
+  archive: (id: string) => api.post(`stores/${id}/archive`, {}),
+
+  /**
+   * 恢复门店(MXQ-3008)
+   * 走 Hono Command + restore_store RPC
+   */
+  restore: (id: string) => api.post(`stores/${id}/restore`, {}),
 }

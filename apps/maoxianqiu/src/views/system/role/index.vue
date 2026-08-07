@@ -13,6 +13,7 @@ interface RoleItem {
   name: string
   description: string
   permissions: string[]
+  permission_codes: string[]
   is_system: boolean
 }
 
@@ -24,9 +25,13 @@ const tableColumns = computed<TableColumn<RoleItem>[]>(() => [
   { accessorKey: 'code', header: '编码' },
   { accessorKey: 'description', header: '描述' },
   {
-    accessorKey: 'permissions',
+    // MXQ-3010:显示聚合权限码数量
+    accessorKey: 'permission_codes',
     header: '权限',
-    cell: (info: any) => `${info.getValue()?.length ?? 0} 项`,
+    cell: (info: any) => {
+      const codes = info.getValue() ?? info.row.original.permissions ?? []
+      return `${codes.length} 项`
+    },
   },
   {
     id: 'operation',

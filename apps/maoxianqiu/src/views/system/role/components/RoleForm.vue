@@ -57,7 +57,8 @@ function getInfo() {
       model.value.code = item.code
       model.value.name = item.name
       model.value.description = item.description ?? ''
-      model.value.permissions = item.permissions ?? []
+      // MXQ-3010:使用聚合后的 permission_codes(union role_permissions + roles.permissions)
+      model.value.permissions = item.permission_codes ?? item.permissions ?? []
       model.value.isSystem = item.is_system
     }
   }).catch(() => {
@@ -81,12 +82,19 @@ async function submit() {
     useFaToast().success('新增成功')
   }
   else {
+    // 基本信息 update
     await apiRole.update({
       id: model.value.id,
       name: model.value.name,
       description: model.value.description,
-      permissions: model.value.permissions,
     })
+    // MXQ-3010:权限替换走 replacePermissions RPC(系统角色后端拦截)
+    if (!model.value.isSystem) {
+      await apiRole.replacePermissions({
+        roleId: model.value.id,
+        permissionCodes: model.value.permissions,
+      })
+    }
     useFaToast().success('编辑成功')
   }
 
@@ -125,7 +133,11 @@ defineExpose({
         <FaCheckboxGroup
           v-model="model.permissions"
           :options="PERMISSIONS.map(item => ({ label: item.label, value: item.code }))"
+          :disabled="model.isSystem"
         />
+        <div v-if="model.isSystem" class="text-xs text-muted-foreground mt-1">
+          系统内置角色权限由系统维护,不可修改
+        </div>
       </FaFormItem>
     </FaForm>
   </div>

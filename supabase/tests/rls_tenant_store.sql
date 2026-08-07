@@ -46,9 +46,9 @@ values
   ('cccccccc-0000-0000-0000-0000000000cc', 'u-admin@test.local', crypt('password', gen_salt('bf')), now(), '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now());
 
 insert into public.stores (id, tenant_id, name, code, status) values
-  ('aaaaaaaa-0000-0000-0000-0000000000s1', 'aaaaaaaa-0000-0000-0000-000000000001', 'A1 店', 'A1', 'active'),
-  ('aaaaaaaa-0000-0000-0000-0000000000s2', 'aaaaaaaa-0000-0000-0000-000000000001', 'A2 店', 'A2', 'active'),
-  ('bbbbbbbb-0000-0000-0000-0000000000s1', 'bbbbbbbb-0000-0000-0000-000000000001', 'B1 店', 'B1', 'active');
+  ('aaaaaaaa-0000-0000-0000-0000000000f1', 'aaaaaaaa-0000-0000-0000-000000000001', 'A1 店', 'A1', 'active'),
+  ('aaaaaaaa-0000-0000-0000-0000000000f2', 'aaaaaaaa-0000-0000-0000-000000000001', 'A2 店', 'A2', 'active'),
+  ('bbbbbbbb-0000-0000-0000-0000000000f1', 'bbbbbbbb-0000-0000-0000-000000000001', 'B1 店', 'B1', 'active');
 
 insert into public.tenant_memberships (tenant_id, user_id, status) values
   ('aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-0000000000a1', 'active'),
@@ -63,9 +63,9 @@ insert into public.employees (tenant_id, user_id, employee_no, name, status) val
   ('aaaaaaaa-0000-0000-0000-000000000001', 'cccccccc-0000-0000-0000-0000000000cc', 'EMP-ADMIN', '管理员', 'active');
 
 insert into public.employee_store_assignments (tenant_id, employee_id, store_id, is_primary) values
-  ('aaaaaaaa-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-A1'), 'aaaaaaaa-0000-0000-0000-0000000000s1', true),
-  ('aaaaaaaa-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-A2'), 'aaaaaaaa-0000-0000-0000-0000000000s2', true),
-  ('bbbbbbbb-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-B1'), 'bbbbbbbb-0000-0000-0000-0000000000s1', true);
+  ('aaaaaaaa-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-A1'), 'aaaaaaaa-0000-0000-0000-0000000000f1', true),
+  ('aaaaaaaa-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-A2'), 'aaaaaaaa-0000-0000-0000-0000000000f2', true),
+  ('bbbbbbbb-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-B1'), 'bbbbbbbb-0000-0000-0000-0000000000f1', true);
 
 -- 角色:system_admin 是系统模板(tenant_id null);租户 A 建 tenant_manager 店长角色
 insert into public.roles (code, name, permissions, is_system, tenant_id, scope)
@@ -74,13 +74,13 @@ where not exists (select 1 from public.roles where code = 'tenant_manager');
 
 insert into public.employee_role_assignments (tenant_id, employee_id, role_id, store_id)
 values
-  ('aaaaaaaa-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-A1'), (select id from public.roles where code = 'tenant_manager'), 'aaaaaaaa-0000-0000-0000-0000000000s1'),
+  ('aaaaaaaa-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-A1'), (select id from public.roles where code = 'tenant_manager'), 'aaaaaaaa-0000-0000-0000-0000000000f1'),
   ('bbbbbbbb-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-B1'), (select id from public.roles where code = 'system_admin'), null),
   ('aaaaaaaa-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-ADMIN'), (select id from public.roles where code = 'system_admin'), null);
 
 -- 审计夹具:预写一条管理员特殊访问记录(模拟 service role / writeAudit 写入)
 insert into public.audit_logs (tenant_id, store_id, user_id, action, request_id)
-values ('bbbbbbbb-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-0000000000s1', 'cccccccc-0000-0000-0000-0000000000cc', 'test.admin.access', 'req_test_1');
+values ('bbbbbbbb-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-0000000000f1', 'cccccccc-0000-0000-0000-0000000000cc', 'test.admin.access', 'req_test_1');
 
 -- ============================================================
 -- 各测试块自包含:set local role + set_config(request.jwt.claims)
@@ -92,7 +92,7 @@ begin
   set local role authenticated;
   perform set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-0000-0000-0000000000a1","role":"authenticated"}', true);
   perform tests.assert_true(
-    (select count(*) from public.stores where id = 'bbbbbbbb-0000-0000-0000-0000000000s1') = 0,
+    (select count(*) from public.stores where id = 'bbbbbbbb-0000-0000-0000-0000000000f1') = 0,
     'T1: A 用户不应读取到 B 租户的门店');
   perform tests.assert_true(
     (select count(*) from public.employees where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
@@ -129,7 +129,7 @@ begin
   -- 门店级敏感数据:无权门店 A2 的分配明细不可读
   perform tests.assert_true(
     (select count(*) from public.employee_store_assignments
-      where store_id = 'aaaaaaaa-0000-0000-0000-0000000000s2' and tenant_id = 'aaaaaaaa-0000-0000-0000-000000000001') = 0,
+      where store_id = 'aaaaaaaa-0000-0000-0000-0000000000f2' and tenant_id = 'aaaaaaaa-0000-0000-0000-000000000001') = 0,
     'T3: A1 员工不应读取到 A2 门店的分配明细(无权门店不可读)');
 end;
 $$;
@@ -144,7 +144,7 @@ begin
     values (
       'aaaaaaaa-0000-0000-0000-000000000001',
       (select id from public.employees where employee_no = 'EMP-A1'),
-      'aaaaaaaa-0000-0000-0000-0000000000s2'
+      'aaaaaaaa-0000-0000-0000-0000000000f2'
     );
     raise exception 'RLS_TEST_FAILED: T4 A1 员工不应向 A2 门店写入分配';
   exception when insufficient_privilege then
@@ -159,11 +159,11 @@ begin
   set local role authenticated;
   perform set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-0000-0000-0000000000a1","role":"authenticated"}', true);
   perform tests.assert_true(
-    (select count(*) from public.stores where id = 'aaaaaaaa-0000-0000-0000-0000000000s1') = 1,
+    (select count(*) from public.stores where id = 'aaaaaaaa-0000-0000-0000-0000000000f1') = 1,
     'T5: A1 员工应能读取本门店');
   perform tests.assert_true(
     (select count(*) from public.employee_store_assignments
-      where store_id = 'aaaaaaaa-0000-0000-0000-0000000000s1' and tenant_id = 'aaaaaaaa-0000-0000-0000-000000000001') = 1,
+      where store_id = 'aaaaaaaa-0000-0000-0000-0000000000f1' and tenant_id = 'aaaaaaaa-0000-0000-0000-000000000001') = 1,
     'T5: A1 员工应能读取本门店分配');
 end;
 $$;

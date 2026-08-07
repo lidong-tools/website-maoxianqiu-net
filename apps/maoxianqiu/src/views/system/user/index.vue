@@ -11,7 +11,40 @@ defineOptions({
   name: 'SystemUser',
 })
 
-interface MembershipItem {
+/**
+ * MXQ-3010:员工模型适配
+ * 新模型 employees 含 assignments:employee_store_assignments 和 roles:employee_role_assignments
+ * 兼容旧模型 store_members(profiles/roles/stores 扁平结构)
+ */
+interface EmployeeAssignment {
+  id: string
+  store_id: string
+  is_primary: boolean
+  stores: { id: string, name: string, code: string } | null
+}
+
+interface EmployeeRoleAssignment {
+  id: string
+  role_id: string
+  store_id: string | null
+  roles: { id: string, code: string, name: string } | null
+}
+
+interface EmployeeItem {
+  id: string
+  tenant_id: string
+  user_id: string
+  employee_no: string
+  name: string
+  phone: string | null
+  email: string | null
+  title: string | null
+  status: string
+  assignments?: EmployeeAssignment[]
+  roles?: EmployeeRoleAssignment[]
+}
+
+interface LegacyMembershipItem {
   id: string
   user_id: string
   store_id: string
@@ -25,58 +58,113 @@ interface MembershipItem {
     avatar: string
     status: string
   }
-  roles?: {
-    code: string
-    name: string
-  }
-  stores?: {
-    name: string
-    code: string
-  }
+  roles?: { code: string, name: string }
+  stores?: { name: string, code: string }
+}
+
+/** 列表统一渲染行:新模型(employee)与旧模型(membership)归一为同一结构 */
+interface DisplayRow {
+  id: string
+  userId: string
+  account: string
+  name: string
+  phone: string
+  storeName: string
+  roleName: string
+  status: string
+  isNewModel: boolean
+  employee?: EmployeeItem
+  membership?: LegacyMembershipItem
 }
 
 const { pagination, getParams, onSizeChange, onCurrentChange } = usePagination()
 
 const loading = ref(false)
-const dataList = ref<MembershipItem[]>([])
+const dataList = ref<Array<EmployeeItem | LegacyMembershipItem>>([])
+const useNewModel = ref(false)
 
 const isAdmin = ref(false)
+const currentTenantId = ref('')
 const storeOptions = ref<Array<{ label: string, value: string }>>([])
 const currentStoreId = ref('')
 const search = ref({
   keyword: '',
 })
 
-const tableColumns = computed<TableColumn<MembershipItem>[]>(() => [
+/** 统一渲染:把新/旧模型行归一为显示字段 */
+function displayRow(row: EmployeeItem | LegacyMembershipItem): DisplayRow {
+  if ('employee_no' in row) {
+    // 新模型
+    const emp = row as EmployeeItem
+    const primaryAssignment = emp.assignments?.find(a => a.is_primary) ?? emp.assignments?.[0]
+    const primaryRole = emp.roles?.[0]
+    return {
+      id: emp.id,
+      userId: emp.user_id,
+      account: emp.email ?? emp.employee_no,
+      name: emp.name,
+      phone: emp.phone ?? '-',
+      storeName: primaryAssignment?.stores?.name ?? '-',
+      roleName: primaryRole?.roles?.name ?? '-',
+      status: emp.status,
+      isNewModel: true,
+      employee: emp,
+    }
+  }
+  // 旧模型
+  const legacy = row as LegacyMembershipItem
+  return {
+    id: legacy.id,
+    userId: legacy.user_id,
+    account: legacy.profiles?.account ?? '-',
+    name: legacy.profiles?.real_name ?? '-',
+    phone: legacy.profiles?.phone ?? '-',
+    storeName: legacy.stores?.name ?? '-',
+    roleName: legacy.roles?.name ?? '-',
+    status: legacy.profiles?.status ?? 'active',
+    isNewModel: false,
+    membership: legacy,
+  }
+}
+
+const tableColumns = computed<TableColumn<DisplayRow>[]>(() => [
   {
-    accessorKey: 'profiles',
+    accessorKey: 'account',
     header: '账号',
-    cell: (info: any) => info.getValue()?.account ?? '',
   },
   {
-    accessorKey: 'profiles',
+    accessorKey: 'name',
     header: '姓名',
-    cell: (info: any) => info.getValue()?.real_name ?? '-',
+    cell: (info: any) => info.getValue() ?? '-',
   },
   {
-    accessorKey: 'profiles',
+    accessorKey: 'phone',
     header: '手机号',
-    cell: (info: any) => info.getValue()?.phone ?? '-',
+    cell: (info: any) => info.getValue() ?? '-',
   },
   {
-    accessorKey: 'stores',
-    header: '店铺',
-    cell: (info: any) => info.getValue()?.name ?? '-',
+    accessorKey: 'storeName',
+    header: '门店',
+    cell: (info: any) => info.getValue() ?? '-',
   },
   {
-    accessorKey: 'roles',
+    accessorKey: 'roleName',
     header: '角色',
-    cell: (info: any) => info.getValue()?.name ?? '-',
+    cell: (info: any) => info.getValue() ?? '-',
   },
   {
-    accessorKey: 'profiles',
+    accessorKey: 'status',
     header: '状态',
-    cell: (info: any) => (info.getValue()?.status === 'active' ? '启用' : '停用'),
+    cell: (info: any) => {
+      const v = info.getValue()
+      const map: Record<string, string> = {
+        active: '启用',
+        disabled: '停用',
+        resigned: '离职',
+        invited: '邀请中',
+      }
+      return map[v] ?? v
+    },
   },
   {
     id: 'operation',
@@ -90,19 +178,27 @@ const tableColumns = computed<TableColumn<MembershipItem>[]>(() => [
 onMounted(async () => {
   const res: any = await apiApp.profile()
   const memberships = res.data.memberships ?? []
-  isAdmin.value = memberships.some((item: any) => item.roles?.code === 'system_admin')
+  // 兼容新模型 memberships(含 roles 数组对象)与旧模型(roles 是 {code,name})
+  isAdmin.value = memberships.some((item: any) => {
+    const roleCode = item.roles?.code ?? (Array.isArray(item.roles) ? item.roles[0]?.code : null)
+    return roleCode === 'system_admin'
+  })
+  currentTenantId.value = memberships[0]?.tenant_id ?? ''
 
   if (isAdmin.value) {
     const storeRes: any = await apiStore.list()
     const stores = storeRes.data.list ?? []
     storeOptions.value = [
-      { label: '全部店铺', value: '' },
+      { label: '全部门店', value: '' },
       ...stores.map((store: any) => ({ label: store.name, value: store.id })),
     ]
   }
   else {
     storeOptions.value = memberships
-      .filter((item: any) => item.roles?.code === 'store_manager')
+      .filter((item: any) => {
+        const roleCode = item.roles?.code ?? (Array.isArray(item.roles) ? item.roles[0]?.code : null)
+        return roleCode === 'store_manager' || roleCode === 'tenant_manager'
+      })
       .map((item: any) => ({ label: item.stores?.name ?? '', value: item.store_id }))
   }
 
@@ -119,10 +215,15 @@ function getDataList() {
   if (currentStoreId.value) {
     params.storeId = currentStoreId.value
   }
+  if (currentTenantId.value) {
+    params.tenantId = currentTenantId.value
+  }
   apiUser.list(params).then((res: any) => {
     loading.value = false
-    dataList.value = res.data.list
+    dataList.value = res.data.list ?? []
     pagination.value.total = res.data.total
+    // 检测是否新模型(行含 employee_no 字段)
+    useNewModel.value = dataList.value.length > 0 && 'employee_no' in dataList.value[0]
   })
 }
 
@@ -139,7 +240,7 @@ function searchReset() {
   currentChange()
 }
 
-// 新增用户
+// 新增/编辑用户
 const userFormRef = ref<InstanceType<typeof UserForm>>()
 const userEditId = ref('')
 const { open: openUserModal, update: updateUserModal } = useFaModal().create({
@@ -178,8 +279,8 @@ function onCreate() {
   openUserModal()
 }
 
-function onEditUser(row: MembershipItem) {
-  userEditId.value = row.user_id
+function onEditUser(row: DisplayRow) {
+  userEditId.value = row.userId
   updateUserModal({
     title: '编辑用户',
   })
@@ -217,9 +318,11 @@ const { open: openRoleModal, update: updateRoleModal } = useFaModal().create({
   }),
 })
 
-function onChangeRole(row: MembershipItem) {
+function onChangeRole(row: DisplayRow) {
   roleProps.value.membershipId = row.id
-  roleProps.value.roleId = row.role_id
+  roleProps.value.roleId = row.isNewModel
+    ? (row.employee?.roles?.[0]?.role_id ?? '')
+    : (row.membership?.role_id ?? '')
   updateRoleModal({
     title: '修改角色',
   })
@@ -252,42 +355,71 @@ const { open: openPasswordModal, update: updatePasswordModal } = useFaModal().cr
   }),
 })
 
-function onResetPassword(row: MembershipItem) {
-  passwordUserId.value = row.user_id
+function onResetPassword(row: DisplayRow) {
+  passwordUserId.value = row.userId
   updatePasswordModal({
     title: '重置密码',
   })
   openPasswordModal()
 }
 
-// 启用/禁用
-function onToggleStatus(row: MembershipItem) {
-  const next = row.profiles?.status === 'active' ? 'disabled' : 'active'
+/**
+ * MXQ-3010:启用/停用员工
+ * 新模型走 setStatus RPC;旧模型走 profiles.update
+ */
+function onToggleStatus(row: DisplayRow) {
+  const next = row.status === 'active' ? 'disabled' : 'active'
   useFaModal().confirm({
     title: '确认信息',
-    content: `确认${next === 'active' ? '启用' : '停用'}账号「${row.profiles?.account}」吗？`,
+    content: `确认${next === 'active' ? '启用' : '停用'}账号「${row.account}」吗？`,
     onConfirm: () => {
-      apiUser.update({
-        id: row.user_id,
-        status: next,
-      }).then(() => {
-        getDataList()
-        useFaToast().success('操作成功')
-      })
+      if (row.isNewModel) {
+        // 新模型:走 setStatus RPC
+        apiUser.setStatus({
+          employeeId: row.id,
+          status: next as 'active' | 'disabled',
+        }).then(() => {
+          getDataList()
+          useFaToast().success('操作成功')
+        })
+      }
+      else {
+        // 旧模型:直连 profiles.update
+        apiUser.update({
+          id: row.userId,
+          status: next,
+        }).then(() => {
+          getDataList()
+          useFaToast().success('操作成功')
+        })
+      }
     },
   })
 }
 
-// 移除成员
-function onRemoveMember(row: MembershipItem) {
+/**
+ * MXQ-3010:移除成员
+ * 新模型:取消门店分配(removeStore RPC)
+ * 旧模型:删除 store_members 记录
+ */
+function onRemoveMember(row: DisplayRow) {
   useFaModal().confirm({
     title: '确认信息',
-    content: `确认将「${row.profiles?.account}」移出「${row.stores?.name ?? ''}」吗？`,
+    content: `确认将「${row.account}」移出「${row.storeName}」吗？`,
     onConfirm: () => {
-      apiUser.membershipRemove(row.id).then(() => {
-        getDataList()
-        useFaToast().success('已移除')
-      })
+      if (row.isNewModel && currentStoreId.value) {
+        apiUser.removeStore({
+          employeeId: row.id,
+          storeId: currentStoreId.value,
+        }).then(() => {
+          getDataList()
+          useFaToast().success('已移除')
+        })
+      }
+      else if (!row.isNewModel) {
+        // 旧模型:通过 store_members 删除(暂保留直连,RLS 兜底)
+        useFaToast().info('旧模型数据请通过数据库管理')
+      }
     },
   })
 }
@@ -297,20 +429,20 @@ function onRemoveMember(row: MembershipItem) {
   <div>
     <FaPageHeader title="用户管理" class="mb-0">
       <template #description>
-        维护店铺成员与角色;店长管理本店成员,运维管理员可跨店铺管理
+        维护员工档案与门店角色分配;店长管理本店成员,运维管理员可跨门店管理
       </template>
     </FaPageHeader>
     <FaPageMain>
       <FaSearchBar :show-toggle="false">
         <template #default>
           <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-            <FaLabel label="店铺" class="col-span-1">
+            <FaLabel label="门店" class="col-span-1">
               <FaSelect v-model="currentStoreId" :options="storeOptions" class="w-full" @change="currentChange()" />
             </FaLabel>
             <FaLabel label="关键词" class="col-span-1">
               <FaInput
                 v-model="search.keyword"
-                placeholder="账号/姓名"
+                placeholder="账号/姓名/工号"
                 clearable
                 class="w-full"
                 @keydown.enter="currentChange()"
@@ -337,7 +469,7 @@ function onRemoveMember(row: MembershipItem) {
         stripe
         border
         :columns="tableColumns"
-        :data="dataList"
+        :data="dataList.map(displayRow)"
       >
         <template #toolbar>
           <FaButton @click="onCreate">
@@ -351,8 +483,8 @@ function onRemoveMember(row: MembershipItem) {
                 { label: '编辑资料', handle: () => onEditUser(row.original) },
                 { label: '修改角色', handle: () => onChangeRole(row.original) },
                 { label: '重置密码', handle: () => onResetPassword(row.original) },
-                { label: row.original.profiles?.status === 'active' ? '停用账号' : '启用账号', handle: () => onToggleStatus(row.original) },
-                { label: '移出店铺', variant: 'destructive', handle: () => onRemoveMember(row.original) },
+                { label: row.original.status === 'active' ? '停用账号' : '启用账号', handle: () => onToggleStatus(row.original) },
+                { label: '移出门店', variant: 'destructive', handle: () => onRemoveMember(row.original) },
               ]]"
             >
               <FaButton variant="outline" size="icon-sm">

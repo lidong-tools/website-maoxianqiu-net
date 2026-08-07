@@ -40,8 +40,8 @@ async function submit() {
   if (!result?.valid) {
     return false
   }
-  await apiUser.membershipUpdate({
-    membershipId: props.membershipId,
+  await apiUser.changeRole({
+    employeeId: props.membershipId,
     roleId: model.value.roleId,
   })
   useFaToast().success('角色已更新')
