@@ -9,3 +9,15 @@ dist-ssr
 e2e/test-results
 e2e/playwright-report
 e2e/blob-report
+
+# TypeScript 编译产物（tsc 输出，与 .ts/.vue 源码同名，可再生）
+**/*.js
+
+# tsc 增量构建缓存
+tsconfig.tsbuildinfo
+
+# Playwright 测试报告（根目录输出）
+playwright-report/
+
+# 工作区 AI 记忆目录
+.workbuddy/
