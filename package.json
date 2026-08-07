@@ -28,7 +28,6 @@
     "test:e2e:ui": "pnpm --dir e2e exec playwright test --ui",
     "test:e2e:report": "pnpm --dir e2e exec playwright show-report",
     "preinstall": "npx only-allow pnpm",
-    "postinstall": "simple-git-hooks",
     "taze": "taze minor -wIr",
     "commit": "git cz",
     "release": "bumpp"
@@ -60,10 +59,6 @@
     "typescript": "catalog:",
     "unocss": "catalog:",
     "unocss-preset-animations": "catalog:"
-  },
-  "simple-git-hooks": {
-    "pre-commit": "pnpm lint-staged",
-    "preserveUnused": true
   },
   "config": {
     "commitizen": {
