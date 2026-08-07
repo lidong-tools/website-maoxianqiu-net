@@ -250,8 +250,8 @@ function triggerSend(row: DeliveryRow) {
                 variant="outline"
                 size="icon-sm"
                 :loading="sendingId === row.id"
-                :disabled="row.status !== 'queued' && row.status !== 'failed' && row.status !== 'retry'"
-                @click="triggerSend(row)"
+                :disabled="row.original.status !== 'queued' && row.original.status !== 'failed' && row.original.status !== 'retry'"
+                @click="triggerSend(row.original)"
               >
                 <FaIcon name="i-ri:send-plane-line" />
               </FaButton>

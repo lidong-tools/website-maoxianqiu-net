@@ -2,8 +2,8 @@
 import type { TableColumn } from '@fantastic-admin/components'
 import type { Admission, Cage, Room } from '@/types/inpatient'
 import apiInpatient, { generateIdempotencyKey } from '@/api/modules/inpatient'
-import BusinessEmployeePicker from '@/components/business/EmployeePicker/index.vue'
 import CustomerPicker from '@/components/business/CustomerPicker/index.vue'
+import BusinessEmployeePicker from '@/components/business/EmployeePicker/index.vue'
 import PetPicker from '@/components/business/PetPicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { ADMISSION_STATUS_LABELS } from '@/types/inpatient'
@@ -40,12 +40,12 @@ const tableColumns = computed<TableColumn<AdmissionRow>[]>(() => [
   {
     accessorKey: 'pet_id',
     header: '宠物 ID',
-    cell: info => info.getValue()?.slice(0, 8),
+    cell: info => (info.getValue() as string | undefined)?.slice(0, 8),
   },
   {
     accessorKey: 'customer_id',
     header: '客户 ID',
-    cell: info => info.getValue()?.slice(0, 8),
+    cell: info => (info.getValue() as string | undefined)?.slice(0, 8),
   },
   {
     accessorKey: 'admission_reason',
@@ -55,7 +55,7 @@ const tableColumns = computed<TableColumn<AdmissionRow>[]>(() => [
   {
     accessorKey: 'admitted_at',
     header: '入院时间',
-    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue() as string).toLocaleString('zh-CN') : '-',
   },
   {
     accessorKey: 'status',
@@ -76,12 +76,12 @@ const tableColumns = computed<TableColumn<AdmissionRow>[]>(() => [
   {
     accessorKey: 'total_charge',
     header: '总费用',
-    cell: info => `¥${info.getValue()?.toFixed(2) ?? '0.00'}`,
+    cell: info => `¥${(info.getValue() as number | undefined)?.toFixed(2) ?? '0.00'}`,
   },
   {
     accessorKey: 'discharged_at',
     header: '出院时间',
-    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue() as string).toLocaleString('zh-CN') : '-',
   },
   {
     id: 'operation',
@@ -110,7 +110,7 @@ async function loadRooms() {
     }
   }
   catch (e: unknown) {
-    useFaToast().error(e?.message || '加载房间失败')
+    useFaToast().error(e instanceof Error ? e.message : '加载房间失败')
   }
 }
 
@@ -125,7 +125,7 @@ async function loadCages() {
     cages.value = res.data.list
   }
   catch (e: unknown) {
-    useFaToast().error(e?.message || '加载笼位失败')
+    useFaToast().error(e instanceof Error ? e.message : '加载笼位失败')
   }
 }
 
@@ -140,7 +140,7 @@ async function loadAdmissions() {
     dataList.value = res.data.list as AdmissionRow[]
   }
   catch (e: unknown) {
-    useFaToast().error(e?.message || '加载住院记录失败')
+    useFaToast().error(e instanceof Error ? e.message : '加载住院记录失败')
   }
   finally {
     loading.value = false

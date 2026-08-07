@@ -298,15 +298,15 @@ function toggleActive(row: TemplateRow) {
         </template>
         <template #cell-operation="{ row }">
           <div class="flex-center gap-2">
-            <FaButton variant="outline" size="icon-sm" @click="openEdit(row)">
+            <FaButton variant="outline" size="icon-sm" @click="openEdit(row.original)">
               <FaIcon name="i-ri:edit-line" />
             </FaButton>
             <FaButton
               variant="outline"
               size="icon-sm"
-              @click="toggleActive(row)"
+              @click="toggleActive(row.original)"
             >
-              <FaIcon :name="row.is_active ? 'i-ri:toggle-fill' : 'i-ri:toggle-line'" />
+              <FaIcon :name="row.original.is_active ? 'i-ri:toggle-fill' : 'i-ri:toggle-line'" />
             </FaButton>
           </div>
         </template>

@@ -74,6 +74,13 @@ function onChange(value: AcceptableValue | undefined) {
   emit('change', value)
 }
 
+/**
+ * 远程搜索回调(接收 FaSelect 输入的搜索关键字)
+ */
+function onRemoteMethod(keyword: string) {
+  searchKeyword.value = keyword
+}
+
 // 防抖搜索
 let timer: ReturnType<typeof setTimeout> | null = null
 watch(searchKeyword, (val) => {
@@ -93,7 +100,7 @@ watch(searchKeyword, (val) => {
     :class="loading ? 'opacity-60' : ''"
     filterable
     remote
-    :remote-method="searchKeyword = $event"
+    :remote-method="onRemoteMethod"
     @change="onChange"
   />
 </template>

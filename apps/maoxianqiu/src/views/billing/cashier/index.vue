@@ -64,10 +64,10 @@ const cartColumns = computed<TableColumn<CartItem>[]>(() => [
     header: '分类',
     cell: info => INVOICE_ITEM_CATEGORY_LABELS[info.getValue() as InvoiceItemCategory] ?? info.getValue(),
   },
-  { accessorKey: 'unitPrice', header: '单价', cell: info => formatMoney(info.getValue()) },
+  { accessorKey: 'unitPrice', header: '单价', cell: info => formatMoney(info.getValue() as number) },
   { accessorKey: 'quantity', header: '数量' },
-  { accessorKey: 'discountAmount', header: '折扣', cell: info => formatMoney(info.getValue()) },
-  { accessorKey: 'amount', header: '小计', cell: info => formatMoney(info.getValue()) },
+  { accessorKey: 'discountAmount', header: '折扣', cell: info => formatMoney(info.getValue() as number) },
+  { accessorKey: 'amount', header: '小计', cell: info => formatMoney(info.getValue() as number) },
   {
     id: 'operation',
     header: '操作',
@@ -109,7 +109,7 @@ async function loadCatalog() {
       throw new Error(error.message)
     }
 
-    catalogList.value = (data ?? []).map(row => ({
+    catalogList.value = (data ?? []).map((row: any) => ({
       id: row.catalog_item_id,
       name: row.custom_name || row.catalog?.name || '未命名',
       default_price: row.custom_price !== null ? Number(row.custom_price) : Number(row.catalog?.default_price ?? 0),
@@ -118,7 +118,7 @@ async function loadCatalog() {
     }))
   }
   catch (e: unknown) {
-    useFaToast().error(e?.message || '加载目录失败')
+    useFaToast().error(e instanceof Error ? e.message : '加载目录失败')
   }
   finally {
     catalogLoading.value = false
@@ -277,7 +277,7 @@ async function showReceipt(invoiceId: string) {
     receiptData.value = (res as any).data
   }
   catch (e: unknown) {
-    useFaToast().error(e?.message || '生成小票失败')
+    useFaToast().error(e instanceof Error ? e.message : '生成小票失败')
   }
   finally {
     receiptLoading.value = false

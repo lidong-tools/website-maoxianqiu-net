@@ -50,7 +50,7 @@ const taskColumns = computed<TableColumn<NursingTask>[]>(() => [
   {
     accessorKey: 'scheduled_at',
     header: '计划时间',
-    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue() as string).toLocaleString('zh-CN') : '-',
   },
   {
     accessorKey: 'task_type',
@@ -65,7 +65,7 @@ const taskColumns = computed<TableColumn<NursingTask>[]>(() => [
   {
     accessorKey: 'assigned_to',
     header: '负责人',
-    cell: info => info.getValue() ? info.getValue().slice(0, 8) : '-',
+    cell: info => (info.getValue() as string | undefined)?.slice(0, 8) ?? '-',
   },
   {
     accessorKey: 'status',
@@ -87,7 +87,7 @@ const taskColumns = computed<TableColumn<NursingTask>[]>(() => [
   {
     accessorKey: 'completed_at',
     header: '完成时间',
-    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue() as string).toLocaleString('zh-CN') : '-',
   },
   {
     id: 'operation',
@@ -129,7 +129,7 @@ async function loadData() {
     tasks.value = tasksRes.data.list
   }
   catch (e: unknown) {
-    useFaToast().error(e?.message || '加载护理数据失败')
+    useFaToast().error(e instanceof Error ? e.message : '加载护理数据失败')
   }
   finally {
     loading.value = false

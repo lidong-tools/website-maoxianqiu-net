@@ -39,12 +39,12 @@ const tableColumns = computed<TableColumn<VaccinationRow>[]>(() => [
   {
     accessorKey: 'pet_id',
     header: '宠物 ID',
-    cell: info => info.getValue()?.slice(0, 8),
+    cell: info => (info.getValue() as string | undefined)?.slice(0, 8),
   },
   {
     accessorKey: 'customer_id',
     header: '客户 ID',
-    cell: info => info.getValue()?.slice(0, 8),
+    cell: info => (info.getValue() as string | undefined)?.slice(0, 8),
   },
   {
     accessorKey: 'dose_no',
@@ -54,12 +54,12 @@ const tableColumns = computed<TableColumn<VaccinationRow>[]>(() => [
   {
     accessorKey: 'scheduled_date',
     header: '计划日期',
-    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleDateString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue() as string).toLocaleDateString('zh-CN') : '-',
   },
   {
     accessorKey: 'administered_date',
     header: '接种日期',
-    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleDateString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue() as string).toLocaleDateString('zh-CN') : '-',
   },
   {
     accessorKey: 'batch_no',
@@ -86,7 +86,7 @@ const tableColumns = computed<TableColumn<VaccinationRow>[]>(() => [
   {
     accessorKey: 'next_due_date',
     header: '下次到期',
-    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleDateString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue() as string).toLocaleDateString('zh-CN') : '-',
   },
   {
     id: 'operation',
@@ -119,7 +119,7 @@ async function loadVaccinations() {
     dataList.value = res.data.list as VaccinationRow[]
   }
   catch (e: unknown) {
-    useFaToast().error(e?.message || '加载疫苗接种列表失败')
+    useFaToast().error(e instanceof Error ? e.message : '加载疫苗接种列表失败')
   }
   finally {
     loading.value = false

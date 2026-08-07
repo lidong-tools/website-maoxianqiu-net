@@ -44,7 +44,7 @@ const itemColumns = computed<TableColumn<CatalogItemWithRelations>[]>(() => [
   {
     accessorKey: 'category',
     header: '类目',
-    cell: info => info.getValue()?.name ?? '未分类',
+    cell: info => (info.getValue() as { name?: string } | undefined)?.name ?? '未分类',
   },
   {
     accessorKey: 'billing_type',
@@ -216,12 +216,12 @@ const storeItemColumns = computed<TableColumn<StoreCatalogItemWithCatalog>[]>(()
   {
     accessorKey: 'catalog_item',
     header: '编码',
-    cell: info => info.getValue()?.code ?? '-',
+    cell: info => (info.getValue() as { code?: string } | undefined)?.code ?? '-',
   },
   {
     accessorKey: 'catalog_item',
     header: '名称',
-    cell: info => info.getValue()?.name ?? '-',
+    cell: info => (info.getValue() as { name?: string } | undefined)?.name ?? '-',
   },
   {
     accessorKey: 'custom_name',
@@ -240,7 +240,7 @@ const storeItemColumns = computed<TableColumn<StoreCatalogItemWithCatalog>[]>(()
     accessorKey: 'catalog_item',
     header: '默认售价',
     cell: (info) => {
-      const v = info.getValue()?.default_price
+      const v = (info.getValue() as { default_price?: number } | undefined)?.default_price
       return v != null ? `¥${Number(v).toFixed(2)}` : '-'
     },
   },

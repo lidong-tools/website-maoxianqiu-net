@@ -61,27 +61,27 @@ const tableColumns = computed<TableColumn<LabOrderRow>[]>(() => [
   {
     accessorKey: 'pet_id',
     header: '宠物 ID',
-    cell: info => info.getValue()?.slice(0, 8),
+    cell: info => (info.getValue() as string | undefined)?.slice(0, 8),
   },
   {
     accessorKey: 'customer_id',
     header: '客户 ID',
-    cell: info => info.getValue()?.slice(0, 8),
+    cell: info => (info.getValue() as string | undefined)?.slice(0, 8),
   },
   {
     accessorKey: 'requested_at',
     header: '申请时间',
-    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue() as string).toLocaleString('zh-CN') : '-',
   },
   {
     accessorKey: 'collected_at',
     header: '采集时间',
-    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue() as string).toLocaleString('zh-CN') : '-',
   },
   {
     accessorKey: 'completed_at',
     header: '完成时间',
-    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue() as string).toLocaleString('zh-CN') : '-',
   },
   {
     accessorKey: 'status',
@@ -122,7 +122,7 @@ async function loadLabOrders() {
     dataList.value = res.data.list as LabOrderRow[]
   }
   catch (e: unknown) {
-    useFaToast().error(e?.message || '加载检验申请列表失败')
+    useFaToast().error(e instanceof Error ? e.message : '加载检验申请列表失败')
   }
   finally {
     loading.value = false

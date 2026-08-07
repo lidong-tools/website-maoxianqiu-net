@@ -59,22 +59,22 @@ const tableColumns = computed<TableColumn<InvoiceRow>[]>(() => [
   {
     accessorKey: 'subtotal',
     header: '小计',
-    cell: info => formatMoney(info.getValue()),
+    cell: info => formatMoney(info.getValue() as number),
   },
   {
     accessorKey: 'discount_amount',
     header: '折扣',
-    cell: info => formatMoney(info.getValue()),
+    cell: info => formatMoney(info.getValue() as number),
   },
   {
     accessorKey: 'total',
     header: '应收',
-    cell: info => formatMoney(info.getValue()),
+    cell: info => formatMoney(info.getValue() as number),
   },
   {
     accessorKey: 'paid_amount',
     header: '已收',
-    cell: info => formatMoney(info.getValue()),
+    cell: info => formatMoney(info.getValue() as number),
   },
   {
     accessorKey: 'payment_method',
@@ -87,7 +87,7 @@ const tableColumns = computed<TableColumn<InvoiceRow>[]>(() => [
   {
     accessorKey: 'created_at',
     header: '创建时间',
-    cell: info => info.getValue()?.slice(0, 19).replace('T', ' '),
+    cell: info => (info.getValue() as string | undefined)?.slice(0, 19).replace('T', ' '),
   },
   {
     id: 'operation',

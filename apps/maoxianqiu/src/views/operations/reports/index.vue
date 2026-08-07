@@ -261,7 +261,7 @@ async function openSnapshotDetail(row: SnapshotRow) {
     snapshotDetailColumns.value = buildColumnsFromData(rows)
   }
   catch (err: unknown) {
-    useFaToast().error(err?.message || '加载快照详情失败')
+    useFaToast().error(err instanceof Error ? err.message : '加载快照详情失败')
     snapshotDetailData.value = []
     snapshotDetailColumns.value = []
   }
@@ -304,7 +304,7 @@ async function generateReportData(row: ReportDefRow) {
     reportDataColumns.value = buildColumnsFromData(reportDataList.value)
   }
   catch (err: unknown) {
-    useFaToast().error(err?.message || '生成报表数据失败')
+    useFaToast().error(err instanceof Error ? err.message : '生成报表数据失败')
     reportDataList.value = []
     reportDataColumns.value = []
   }
@@ -332,7 +332,7 @@ function exportCSV(data?: DetailRow[], filename?: string) {
   }
 
   // 获取列头
-  const headers = targetColumns.map(col => col.accessorKey ?? (col as any).id ?? '')
+  const headers = targetColumns.map((col: any) => col.accessorKey ?? col.id ?? '')
 
   // 构建 CSV 内容
   const csvRows: string[] = []
@@ -399,7 +399,7 @@ const defColumns = computed<TableColumn<ReportDefRow>[]>(() => [
   {
     accessorKey: 'created_at',
     header: '创建时间',
-    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleDateString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue() as string).toLocaleDateString('zh-CN') : '-',
   },
   {
     id: 'operation',
@@ -414,14 +414,14 @@ const snapshotColumns = computed<TableColumn<SnapshotRow>[]>(() => [
   {
     accessorKey: 'report_id',
     header: '报表 id',
-    cell: info => info.getValue()?.slice(0, 8) ?? '-',
+    cell: info => (info.getValue() as string | undefined)?.slice(0, 8) ?? '-',
   },
   { accessorKey: 'period_start', header: '起始日期' },
   { accessorKey: 'period_end', header: '结束日期' },
   {
     accessorKey: 'created_at',
     header: '生成时间',
-    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue() as string).toLocaleString('zh-CN') : '-',
   },
   {
     id: 'operation',

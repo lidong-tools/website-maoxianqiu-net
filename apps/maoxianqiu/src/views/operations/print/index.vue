@@ -69,7 +69,7 @@ async function loadStoreOptions() {
     const stores = res.data.list ?? []
     storeOptions.value = [
       { label: '全部门店', value: '' },
-      ...stores.map(s => ({ label: s.name, value: s.id })),
+      ...stores.map((s: any) => ({ label: s.name, value: s.id })),
     ]
   }
   catch {
@@ -142,7 +142,7 @@ const tableColumns = computed<TableColumn<PrintJobRow>[]>(() => [
     header: '业务类型',
     cell: info => PRINT_TEMPLATE_TYPE_LABELS[info.getValue() as PrintTemplateType] ?? info.getValue(),
   },
-  { accessorKey: 'entity_id', header: '业务 id', cell: info => info.getValue()?.slice(0, 8) ?? '-' },
+  { accessorKey: 'entity_id', header: '业务 id', cell: info => (info.getValue() as string | undefined)?.slice(0, 8) ?? '-' },
   {
     accessorKey: 'status',
     header: '状态',
@@ -154,7 +154,7 @@ const tableColumns = computed<TableColumn<PrintJobRow>[]>(() => [
   {
     accessorKey: 'created_at',
     header: '创建时间',
-    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue() as string).toLocaleString('zh-CN') : '-',
   },
   {
     id: 'operation',

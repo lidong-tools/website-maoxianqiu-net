@@ -156,7 +156,7 @@ const tableColumns = computed<TableColumn<DisplayRow>[]>(() => [
     accessorKey: 'status',
     header: '状态',
     cell: (info) => {
-      const v = info.getValue()
+      const v = info.getValue() as string
       const map: Record<string, string> = {
         active: '启用',
         disabled: '停用',
@@ -179,7 +179,7 @@ onMounted(async () => {
   const res: any = await apiApp.profile()
   const memberships = res.data.memberships ?? []
   // 兼容新模型 memberships(含 roles 数组对象)与旧模型(roles 是 {code,name})
-  isAdmin.value = memberships.some((item) => {
+  isAdmin.value = memberships.some((item: any) => {
     const roleCode = item.roles?.code ?? (Array.isArray(item.roles) ? item.roles[0]?.code : null)
     return roleCode === 'system_admin'
   })
@@ -190,16 +190,16 @@ onMounted(async () => {
     const stores = storeRes.data.list ?? []
     storeOptions.value = [
       { label: '全部门店', value: '' },
-      ...stores.map(store => ({ label: store.name, value: store.id })),
+      ...stores.map((store: any) => ({ label: store.name, value: store.id })),
     ]
   }
   else {
     storeOptions.value = memberships
-      .filter((item) => {
+      .filter((item: any) => {
         const roleCode = item.roles?.code ?? (Array.isArray(item.roles) ? item.roles[0]?.code : null)
         return roleCode === 'store_manager' || roleCode === 'tenant_manager'
       })
-    memberships.map(item => ({ label: item.stores?.name ?? '', value: item.store_id }))
+    memberships.map((item: any) => ({ label: item.stores?.name ?? '', value: item.store_id }))
   }
 
   currentStoreId.value = storeOptions.value[0]?.value ?? ''

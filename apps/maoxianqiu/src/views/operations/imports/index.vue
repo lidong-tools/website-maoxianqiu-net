@@ -65,7 +65,7 @@ async function loadStoreOptions() {
     const stores = res.data.list ?? []
     storeOptions.value = [
       { label: '全部门店', value: '' },
-      ...stores.map(s => ({ label: s.name, value: s.id })),
+      ...stores.map((s: any) => ({ label: s.name, value: s.id })),
     ]
   }
   catch {
@@ -146,7 +146,7 @@ const tableColumns = computed<TableColumn<ImportRow>[]>(() => [
   {
     accessorKey: 'created_at',
     header: '创建时间',
-    cell: info => info.getValue() ? new Date(info.getValue()).toLocaleString('zh-CN') : '-',
+    cell: info => info.getValue() ? new Date(info.getValue() as string).toLocaleString('zh-CN') : '-',
   },
   {
     id: 'operation',
