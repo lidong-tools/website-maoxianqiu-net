@@ -1,4 +1,5 @@
 import type { Router } from 'vue-router'
+import { cloneDeep } from 'es-toolkit'
 import { useNProgress } from '@vueuse/integrations/useNProgress'
 import { warnKeepAliveComponentNameMissing } from 'virtual:fantastic-admin/turbo-console'
 import { asyncRoutes } from './routes'
@@ -46,13 +47,17 @@ function setupRoutes(router: Router) {
           }
           // 注册并记录路由数据
           // 记录的数据会在登出时会使用到，不使用 router.removeRoute 是考虑配置的路由可能不一定有设置 name ，则通过调用 router.addRoute() 返回的回调进行删除
+          // 动态模块路由统一挂载到主布局 `/` 的 children 下,保证页面在主布局内渲染
+          // (deep clone 系统路由,避免污染 systemRoutesRaw 源数据)
           const removeRoutes: (() => void)[] = []
-          appRouteStore.routes.forEach((route) => {
-            if (!/^(?:https?:|mailto:|tel:)/.test(route.path)) {
-              removeRoutes.push(router.addRoute(route))
-            }
-          })
-          appRouteStore.systemRoutes.forEach((route) => {
+          const systemRoutes = cloneDeep(appRouteStore.systemRoutes)
+          const rootLayoutRoute = systemRoutes.find(route => route.path === '/')
+          if (rootLayoutRoute?.children) {
+            rootLayoutRoute.children.push(
+              ...appRouteStore.routes.filter(route => !/^(?:https?:|mailto:|tel:)/.test(route.path)),
+            )
+          }
+          systemRoutes.forEach((route) => {
             removeRoutes.push(router.addRoute(route))
           })
           appRouteStore.setCurrentRemoveRoutes(removeRoutes)
