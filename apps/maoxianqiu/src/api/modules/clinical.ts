@@ -14,7 +14,6 @@ import type {
   MedicalLabRef,
   MedicalOrderDetailResult,
   MedicalOrderListParams,
-  MedicalOrderRecord,
   NurseTaskListParams,
   NurseTaskRecord,
   NurseTaskStatus,
@@ -467,12 +466,24 @@ export default {
    */
   async listMedicalOrders(params?: MedicalOrderListParams) {
     const query: Record<string, unknown> = {}
-    if (params?.storeId) query.storeId = params.storeId
-    if (params?.petId) query.petId = params.petId
-    if (params?.encounterId) query.encounterId = params.encounterId
-    if (params?.admissionId) query.admissionId = params.admissionId
-    if (params?.status) query.status = params.status
-    if (params?.orderType) query.orderType = params.orderType
+    if (params?.storeId) {
+      query.storeId = params.storeId
+    }
+    if (params?.petId) {
+      query.petId = params.petId
+    }
+    if (params?.encounterId) {
+      query.encounterId = params.encounterId
+    }
+    if (params?.admissionId) {
+      query.admissionId = params.admissionId
+    }
+    if (params?.status) {
+      query.status = params.status
+    }
+    if (params?.orderType) {
+      query.orderType = params.orderType
+    }
     query.page = params?.page ?? 1
     query.pageSize = params?.pageSize ?? 20
     const res = await api.get('clinical/medical-orders', { params: query })

@@ -30,7 +30,7 @@ interface SettlementRow {
 }
 
 const tenantStore = useAppTenantStore()
-const { pagination, getParams, onSizeChange, onCurrentChange } = usePagination()
+const { pagination, onSizeChange, onCurrentChange } = usePagination()
 
 const loading = ref(false)
 const dataList = ref<SettlementRow[]>([])
@@ -149,7 +149,9 @@ function openSettle(row: SettlementRow) {
  * 收款结算(S3.1-C,prepared→settled,实收不可超过应付)
  */
 async function onSettle() {
-  if (!settleTarget.value) return
+  if (!settleTarget.value) {
+    return
+  }
   if (!settleForm.paidAmount || settleForm.paidAmount <= 0) {
     useFaToast().warning('请填写实收金额')
     return
@@ -183,7 +185,9 @@ function openWaive(row: SettlementRow) {
  * 减免/挂账(S3.1-C,prepared/settled→waived)
  */
 async function onWaive() {
-  if (!waiveTarget.value) return
+  if (!waiveTarget.value) {
+    return
+  }
   if (!waiveForm.amount || waiveForm.amount <= 0) {
     useFaToast().warning('请填写减免金额')
     return

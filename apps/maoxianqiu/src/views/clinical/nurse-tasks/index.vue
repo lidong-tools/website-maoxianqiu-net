@@ -190,7 +190,9 @@ function openFail(row: NurseTaskRow) {
  * 标记任务失败(S3.1-C,须填写原因)
  */
 async function onFail() {
-  if (!failTarget.value) return
+  if (!failTarget.value) {
+    return
+  }
   if (!failReason.value.trim()) {
     useFaToast().warning('请填写失败原因')
     return
@@ -223,7 +225,9 @@ function openCancel(row: NurseTaskRow) {
  * 取消任务(S3.1-C,仅未执行任务可取消)
  */
 async function onCancel() {
-  if (!cancelTarget.value) return
+  if (!cancelTarget.value) {
+    return
+  }
   cancelling.value = true
   try {
     await apiClinical.cancelNurseTask(cancelTarget.value.id, cancelReason.value.trim() || undefined)

@@ -6,12 +6,12 @@ import type {
   ReconciliationRecord,
   ReconciliationStatus,
 } from '@/types/closing'
+import apiApp from '@/api/modules/app'
+import apiClosing from '@/api/modules/closing'
 import {
   PAYMENT_CHANNEL_LABELS,
   RECONCILIATION_STATUS_LABELS,
 } from '@/types/closing'
-import apiApp from '@/api/modules/app'
-import apiClosing from '@/api/modules/closing'
 import { formatDate, formatDateTime, formatMoney } from '@/utils/format'
 
 defineOptions({
@@ -51,7 +51,7 @@ const tableColumns = computed<TableColumn<DisplayRow>[]>(() => [
   {
     accessorKey: 'businessDate',
     header: '业务日期',
-    cell: info => formatDate(info.getValue()),
+    cell: info => formatDate(info.getValue() as string),
   },
   {
     accessorKey: 'channel',
@@ -61,12 +61,12 @@ const tableColumns = computed<TableColumn<DisplayRow>[]>(() => [
   {
     accessorKey: 'systemExpected',
     header: '系统期望',
-    cell: info => formatMoney(info.getValue()),
+    cell: info => formatMoney(info.getValue() as number),
   },
   {
     accessorKey: 'actualAmount',
     header: '实际金额',
-    cell: info => formatMoney(info.getValue()),
+    cell: info => formatMoney(info.getValue() as number),
   },
   {
     accessorKey: 'difference',
@@ -89,7 +89,7 @@ const tableColumns = computed<TableColumn<DisplayRow>[]>(() => [
   {
     accessorKey: 'confirmedAt',
     header: '确认时间',
-    cell: info => formatDateTime(info.getValue()),
+    cell: info => formatDateTime(info.getValue() as string),
   },
   {
     id: 'operation',
@@ -342,11 +342,11 @@ onMounted(async () => {
             门店实收汇总({{ formatDate(channelSummary.businessDate) }})· 日结状态:
             {{ channelSummary.closingStatus ? (channelSummary.closingStatus === 'adjusted' ? '已调整' : '已关闭') : '未关账' }}
           </div>
-          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div class="gap-3 grid grid-cols-2 lg:grid-cols-6 md:grid-cols-3">
             <div
               v-for="card in summaryCards"
               :key="card.channel"
-              class="rounded-lg border border-gray-200 bg-white p-3"
+              class="p-3 border border-gray-200 rounded-lg bg-white"
             >
               <div class="text-xs text-gray-500 mb-1">
                 {{ card.label }}
@@ -363,7 +363,7 @@ onMounted(async () => {
             </div>
           </div>
         </template>
-        <div v-else-if="!searchStoreId.value || !searchBusinessDate.value" class="text-xs text-gray-400">
+        <div v-else-if="!searchStoreId || !searchBusinessDate" class="text-xs text-gray-400">
           请选择门店与业务日期后查看渠道实收汇总
         </div>
       </div>

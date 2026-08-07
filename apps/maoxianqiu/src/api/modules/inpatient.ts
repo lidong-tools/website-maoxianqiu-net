@@ -438,11 +438,21 @@ export default {
    */
   async listProgressNotes(params?: ProgressNoteListParams) {
     const query: Record<string, unknown> = {}
-    if (params?.storeId) query.storeId = params.storeId
-    if (params?.admissionId) query.admissionId = params.admissionId
-    if (params?.petId) query.petId = params.petId
-    if (params?.status) query.status = params.status
-    if (params?.noteType) query.noteType = params.noteType
+    if (params?.storeId) {
+      query.storeId = params.storeId
+    }
+    if (params?.admissionId) {
+      query.admissionId = params.admissionId
+    }
+    if (params?.petId) {
+      query.petId = params.petId
+    }
+    if (params?.status) {
+      query.status = params.status
+    }
+    if (params?.noteType) {
+      query.noteType = params.noteType
+    }
     query.page = params?.page ?? 1
     query.pageSize = params?.pageSize ?? 20
     const res = await api.get('inpatient/progress-notes', { params: query })

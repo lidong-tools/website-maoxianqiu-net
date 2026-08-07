@@ -5,7 +5,7 @@
 
 ## 0. 文档一致性
 
-- [ ] `document/current/IMPLEMENTATION_STATUS.md` 与当前代码对齐（含 S3.0 审计收口 + S3.0 定向复审 S30-R01~R07 + S30-F01~F04 + S31-MERGE-FINAL 记录）
+- [ ] `document/current/IMPLEMENTATION_STATUS.md` 与当前代码对齐（含 S3.0 审计收口 + S3.0 定向复审 S30-R01~R07 + S30-F01~F04 + S31-MERGE-FINAL + S3.1 并发集成收尾（S31-A/B/C/D）记录）
 - [ ] `document/current/KNOWN_GAPS.md` 缺口已确认无阻断项
 - [ ] 本次发布对应的 commit 已记录（health commit 对齐）
 
@@ -23,9 +23,9 @@
 
 ## 2. 数据库验证
 
-- [ ] migration 空库从 0 升级到最新（含 P0-08 migration 25、S30 migration 26/27、S31 监管 migration 28~34）
+- [ ] migration 空库从 0 升级到最新（含 P0-08 migration 25、S30 migration 26/27、S31 监管 migration 28~34、S3.1 并发 A/B/C migration 35~49）
 - [ ] migration 旧库升级（fix-forward 说明完整，不修改已应用历史 migration；验证 migration 26 角色 scope 归一 + 触发器 + 存量修复幂等、migration 27 platform_user_roles + RPC 全量 revoke、migration 31~34 监管 RPC 函数签名 / generate_regulatory_report 兽医数（门店+时间边界）/ can_access_store store↔tenant 自校验）
-- [ ] RLS 全量通过（supabase/tests，含新增 rls_scoped_permission.sql S1~S11、rls_inventory_reserve.sql、9 个 RLS 夹具 platform_user_roles 改造、regulatory_s3_1.sql / compliance_s3_1.sql、permission_integration_s3_1.sql 门店/租户权限矩阵含 can_access_store 跨租户负向断言）
+- [ ] RLS 全量通过（supabase/tests，含新增 rls_scoped_permission.sql S1~S11、rls_inventory_reserve.sql、9 个 RLS 夹具 platform_user_roles 改造、regulatory_s3_1.sql / compliance_s3_1.sql、permission_integration_s3_1.sql 门店/租户权限矩阵含 can_access_store 跨租户负向断言、S3.1 并发 tenant_initialization_s3_1.sql / daily_closing_s3_1.sql / reconciliation_s3_1.sql；`supabase/tests/medical_loop_s3_1.sql` 待产出（见 KNOWN_GAPS））
 - [ ] RPC 直接调用安全（service role 仅授权路由可用，禁止客户端自由指定 tenant 直查；rpc_security.sql Part1~3：authenticated 直调 21 个 Command RPC 必须 permission denied、service_role 16 个 RPC 正常进入业务函数、平台升级负向 P1~P5）
 - [ ] 平台管理员独立模型验证（tenant/store employee role 绝不产生 platform admin；is_system_admin() 只读 platform_user_roles；ERA 禁 scope='system'；legacy store_members 不自动升级）
 - [ ] scoped permission 验证（tenant 上下文仅 tenant/system role；store 上下文仅目标 store role 或 tenant-wide role；store→tenant 提升被拒绝）
@@ -37,7 +37,8 @@
 - [ ] S3.0 审计收口全部完成（AUD-001 ~ AUD-011，见 IMPLEMENTATION_STATUS「S3.0 审计收口」）
 - [ ] S3.0 定向复审全部完成（S30-R01 ~ S30-R07，见 IMPLEMENTATION_STATUS「S3.0 定向复审」）
 - [ ] S3.0 复审（S30-F01 ~ F04）全部完成（平台管理员独立模型 / RPC 默认拒绝 / rpc_security.sql 独立可执行 / 文档证据，见 IMPLEMENTATION_STATUS「S3.0 复审」）
-- [ ] `pnpm lint` / typecheck / build 通过（前端 vue-tsc、api tsc、e2e tsc、ESLint、vite build 全绿，S3.0 AUD-010 / S30-R07 / S30-F02 确认）；`pnpm check:rpc-manifest` PASS
+- [ ] S3.1 并发任务全部完成（S31-A 租户初始化 migration 35~38 / S31-B 日结对账 migration 39~43 / S31-C 医疗闭环 migration 44~49 / S31-D 集成收尾，见 IMPLEMENTATION_STATUS「S3.1 并发集成收尾」）
+- [ ] `pnpm lint` / typecheck / build 通过（前端 vue-tsc、api tsc、e2e tsc、ESLint、vite build 全绿，S3.0 AUD-010 / S30-R07 / S30-F02 / S31-INTEGRATION-D 确认）；`pnpm check:rpc-manifest` PASS（当前源码口径 96 处调用 / 96 个函数 / missing 0）
 - [ ] 无已知跨租户授权缺陷（service role 路由均 scoped authorization，含报表 allowedStoreIds 数据范围）
 - [ ] 无旧公共文件接口（旧 /api/upload、/api/files 已下线）
 - [ ] 无正式页面手填 UUID（业务交互均走 Picker，含打印 lab_report/vaccine_certificate 选择器、inventory receipt 商品预留、inpatient nursing/handover 员工选择）

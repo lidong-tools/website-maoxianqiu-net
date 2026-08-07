@@ -201,7 +201,7 @@ closingRoutes.post('/adjust', async (c) => {
   if (fetchErr || !closing) {
     throw err.notFound('日结不存在')
   }
-  const scope = await requireScopedPermission(c, {
+  await requireScopedPermission(c, {
     code: 'daily_closing.adjust',
     tenantId: closing.tenant_id,
     storeId: closing.store_id,
@@ -342,7 +342,7 @@ closingRoutes.post('/reconciliation/:id/confirm', async (c) => {
   if (fetchErr || !record) {
     throw err.notFound('对账记录不存在')
   }
-  const scope = await requireScopedPermission(c, {
+  await requireScopedPermission(c, {
     code: 'reconciliation.confirm',
     tenantId: record.tenant_id,
     storeId: record.store_id,

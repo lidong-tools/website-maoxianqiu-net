@@ -181,7 +181,9 @@ function openCancel(row: MedicalOrderRow) {
  * 取消医嘱(S3.1-C,未执行任务→cancelled,已执行任务永久保留)
  */
 async function onCancel() {
-  if (!cancelTarget.value) return
+  if (!cancelTarget.value) {
+    return
+  }
   cancelling.value = true
   try {
     await apiClinical.cancelMedicalOrder(cancelTarget.value.id, cancelReason.value.trim() || undefined)
@@ -335,7 +337,7 @@ const tableColumns = computed<TableColumn<MedicalOrderRow>[]>(() => [
           <FaLabel label="医嘱项目" required>
             <FaInput v-model="createForm.itemName" placeholder="如:静脉输液 / 皮下注射 / 换药" class="w-full" />
           </FaLabel>
-          <div class="grid grid-cols-2 gap-x-4 gap-y-3">
+          <div class="gap-x-4 gap-y-3 grid grid-cols-2">
             <FaLabel label="类型">
               <FaSelect
                 v-model="createForm.orderType"

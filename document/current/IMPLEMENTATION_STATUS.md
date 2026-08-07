@@ -23,6 +23,7 @@
 | S3.0-R | 定向复审收口 | ✅ 代码完成 / ⏳ 待 staging 执行 | S30-R01~R07 全部落地（明细见下文「S3.0 定向复审（S30-R01~R07）」） |
 | S3.0-F | S30-F01~F04 复审收口 | ✅ code_complete / ⏳ integration_pending（待 staging 验证） | 平台管理员独立模型 + RPC 默认拒绝（全量 revoke + manifest CI 规则）+ rpc_security.sql 独立可执行 + 文档证据（明细见下文「S3.0 复审（S30-F01~F04）」） |
 | S31-MERGE-FINAL | 合并批次最终收尾 | ✅ code_complete / ⏳ runtime integration_pending | FINAL-01~04 全部落地（明细见下文「S31-MERGE-FINAL 合并收尾」） |
+| S31-A/B/C/D | S3.1 并发任务集成收尾 | ✅ code_complete / ⏳ runtime integration_pending | A（租户初始化 35~38）+ B（日结对账 39~43）+ C（医疗闭环 44~49）已合并入主线；D 收尾：RPC manifest / lint / typecheck / build 全绿（明细见下文「S3.1 并发集成收尾（Integration Owner D）」） |
 
 ## 已交付任务明细
 
@@ -299,6 +300,66 @@ build
 - SQL 测试静态确认（runtime 真实执行依赖 staging）：`permission_integration_s3_1.sql` / `regulatory_s3_1.sql` / `compliance_s3_1.sql` / `rpc_security.sql` 均为合法 UUID、正确 auth.user / employee ID 语义、函数签名与最终实现一致、无旧 RPC 参数、无旧状态机断言。
 - runtime（migration 01→latest / RLS / SQL tests / E2E）真实执行 = **integration_pending**。
 
+## S3.1 并发集成收尾（Integration Owner D）
+
+> 依据：`document/stage-03/sprint-1-1/毛线球-S31-集成任务D-Integration-Owner.md`。
+> 员工 A（租户初始化）/ B（日结与对账）/ C（医疗闭环）三个开发分支已合并入主线；本轮为 D 的集成收尾：合并确认、回归、文档、最终交付。未在 staging 真实执行，一律标注 runtime integration_pending。
+
+**当前状态（完成后）：**
+
+```text
+S3.1 Sprint 1（A 租户初始化 + B 日结对账 + C 医疗闭环） = code_complete / runtime integration_pending
+```
+
+### D-1 合并确认（migration 35~49）
+
+- 主线 HEAD：`e7c12a88`（需求文档）。
+- 相关 commit：
+  - A 租户初始化（migration 35~38 + seed + Hono + 前端 + 测试）：`41b8c771` / `b25a190a` / `7ca99051` / `e7181ee6`
+  - B 日结与对账（migration 39~43 + API + 前端 + seed + 测试）：`469a72ef`
+  - C 医疗闭环（migration 44~49 + API + 前端 + seed + RBAC revoke）：`3f7387e8`
+- migration 35~49 全部存在、编号唯一、无旧 migration 被修改；与并发任务 A/B/C 文档交付清单一致。
+
+### D-2 RPC manifest 与前端直连检查
+
+- `pnpm check:rpc-manifest` **PASS**（本轮 Build Gate 最终执行，原始输出）：
+  - api/routes `service.rpc()` 调用：**96 处**，全部 ∈ service-role-only manifest（**96 个函数**）；
+  - manifest 全部 96 个函数均已纳入 migrations revoke（public/anon/authenticated）+ grant service_role；
+  - missing RPC 数：**0**。
+- 前端 direct `supabase.rpc()` = **0**（全仓扫描确认；S3.1 新增 Command 一律走 Hono，服务端 `service.rpc()` + 权限码）。
+
+### D-3 Permission reconciliation
+
+- 权限码 seed 与 migration 一致：tenant.initialize / tenant.initialization.read / daily_closing.* / reconciliation.* / nurse_task.manage / lab_sample.* / lab_critical.* / progress.* / settlement.* 均已在 `supabase/seed.sql` 注册。
+- 角色授权矩阵：system_admin / tenant_owner / store_manager 全量；cashier 只读；doctor 部分（标本+危急值只读+病程只读）；nurse 标本+危急值只读+病程只读；迁移 37/49 已 revoke+grant service_role。
+- Hono 路由权限码与 seed/migration 一致（closing / tenants / clinical / diagnostics / inpatient）。
+- 已记录缺口（见 KNOWN_GAPS）：seed.sql 中 tenant_owner 角色 `permissions` 数组缺 S3.1-A 与 S31-C 医疗权限（运行时依赖 role_permissions 关联表路径，migration 已兜底，数组路径缺失）；seed 无 nurse 角色（db reset 时 roles 被 seed 覆盖，依赖 migration 21/22 重建）。
+
+### D-4 Router / Menu / Migration 静态检查
+
+- Router：closing（/closing、/reconciliation）、system（/system/tenant-init）、clinical（/clinical/nurse-tasks、/clinical/medical-orders）、diagnostics（/diagnostics/lab-samples、/diagnostics/critical-values）、inpatient（/inpatient/progress-notes、/inpatient/settlement）全部注册，无重复 path；menu 与路由一致。
+- Migration 35~49 静态质量：幂等（ON CONFLICT / 幂等键 / advisory lock）、约束（unique / CHECK 状态机 / FK / numeric(12,2)）、RLS、审计（audit_logs）、SECURITY DEFINER + search_path、service-role-only revoke/grant 齐全。
+
+### D-5 SQL 测试静态检查
+
+- `supabase/tests/tenant_initialization_s3_1.sql` / `daily_closing_s3_1.sql` / `reconciliation_s3_1.sql`：独立可执行（自建 tests.assert_*、单事务 begin/rollback、固定合法 UUID）、函数签名与最终实现一致、权限矩阵断言齐全。
+- 已记录缺口：`supabase/tests/medical_loop_s3_1.sql` **缺失**（任务 C 交付建议的测试文件未产出）；E2E 无 Loop D（tenant init）/ Loop E（billing→closing→reconciliation）/ Loop F（admission→settlement→discharge）。
+
+### D-6 Build Gate（实际运行，保留原始输出）
+
+- `pnpm check:rpc-manifest` → **PASS**（96 处 / 96 个 / missing 0，见 D-2）。
+- `pnpm lint` → **exit 0**（lint:tsc vue-tsc -b 全 apps Done；lint:eslint 0 errors / 8 warnings（既有 JSDoc @param 提示，非本次改动）；lint:stylelint 通过）。修复的收尾改动：14 个文件共 30+ TS/ESLint 错误（FaFormItem 缺 name、info.getValue() unknown 需类型断言、模板中 ref 误用 .value、未使用变量/导入、单行多语句 style/max-statements-per-line、api/routes/closing.ts 未使用 scope）。
+- typecheck：
+  - api：`pnpm exec tsc --noEmit -p api/tsconfig.json` → **PASS**（修复 api/index.ts 缺 tenantRoutes import、tenants.ts requireScopedPermission tenantId 类型收窄）；
+  - e2e：`pnpm exec tsc --noEmit -p e2e/tsconfig.json` → **PASS**；
+  - frontend：vue-tsc -b（lint:tsc 内）→ **PASS**。
+- build：`pnpm --filter @fantastic-admin/maoxianqiu build`（vue-tsc -b && vite build）→ **✓ built in 35.46s**（exit 0）。修复：清理 `apps/maoxianqiu/src` 下 **276 个 .js 编译产物**（rolldown 解析 `@/types/diagnostics` 等模块时优先命中旧 `.js` 产物导致 MISSING_EXPORT；产物已被根 `.gitignore` 的 `**/*.js` 忽略，非仓库内容）。
+
+### D-7 交付与文档
+
+- 本文件 + KNOWN_GAPS + RELEASE_CHECKLIST 同步更新；状态保持 `code_complete / runtime integration_pending`（无 staging，不得写 verified）。
+- 本轮不扩展 Customer 360 / Membership / Marketing / C-end / AI 范围。
+
 ## 基线 / 验证说明
 
 - API 目录 `api/`：`tsc --noEmit` 通过。
@@ -312,6 +373,7 @@ build
 
 | 日期 | 更新内容 |
 | --- | --- |
+| 2026-08-08 | S3.1 并发集成收尾（Integration Owner D）：确认 A/B/C 三个开发分支已合并（migration 35~49 全量存在、编号唯一）；check:rpc-manifest PASS（96 处/96 个/missing 0）+ 前端 direct RPC=0；Permission/Router/Menu/Migration/SQL 测试静态检查通过；Build Gate 全绿（lint 0 errors、api/e2e/frontend typecheck PASS、vite build 35.46s PASS；修复 14 个文件 30+ TS/ESLint 错误、api 2 处类型/import、清理 src 下 276 个 .js 编译产物）；记录缺口（medical_loop_s3_1.sql 缺失、E2E 无 Loop D/E/F、seed tenant_owner 数组与 nurse 角色缺口、progress_notes 签署后仍可 update）；状态 code_complete / runtime integration_pending |
 | 2026-08-08 | S31-MERGE-FINAL 审计复核（定向审计报告 FINAL-X01/X02）：migration 34 `save_epidemic_event.p_suspected_disease` 补 `default null`（migration 32/34 三个函数签名最终完全一致）；KNOWN_GAPS / RELEASE_CHECKLIST 旧 RPC 数字（59/52/55）标注 **historical S3.0 baseline**，当前口径 72/67/72/missing 0 不变；状态保持 code_complete / runtime integration_pending |
 | 2026-08-08 | S31-MERGE-FINAL 合并收尾：FINAL-01 修 migration 32/34 函数签名（3 个 DEFAULT 后无默认参数补 default null）；FINAL-02 generate_regulatory_report 兽医数补门店+时间边界（valid_from/valid_until/starts_at/ends_at）；FINAL-03 can_access_store 补 store↔tenant 自校验（跨租户/不存在一律 false）+ 3 条回归断言；FINAL-04 统一 current docs + 重跑 check:rpc-manifest（PASS 72/72/missing 0）/ lint / typecheck / build（✓ 31.07s）；同步 KNOWN_GAPS / RELEASE_CHECKLIST |
 | 2026-08-08 | S30-FINAL 收口：修复 rpc_security.sql P5 legacy fixture（先建 auth.users ...00bb 再插 store_members，可独立执行）；统一 RPC 数量口径（59 处 / 52 个 / 55 个 / 3 个 / 55 个函数名，不再写 58）；S3.0 状态标注 code_complete（runtime = integration_pending），待 staging 验证后方可 verified |

@@ -144,7 +144,7 @@ async function submit() {
   }
   submitting.value = true
   try {
-    const payload: Record<string, any> = {
+    const payload = {
       tenantId: selectedTenantId.value || undefined,
       tenantSlug: model.value.tenantSlug || undefined,
       tenantName: model.value.tenantName || undefined,
@@ -183,11 +183,11 @@ onBeforeUnmount(stopPoll)
       </template>
     </FaPageHeader>
     <FaPageMain>
-      <div class="grid gap-4 grid-cols-1 lg:grid-cols-2">
+      <div class="gap-4 grid grid-cols-1 lg:grid-cols-2">
         <!-- 左:租户选择 + 状态 -->
         <FaCard>
           <FaCardHeader title="目标租户" />
-          <FaFormItem label="选择租户">
+          <FaFormItem name="selectedTenantId" label="选择租户">
             <FaSelect
               v-model="selectedTenantId"
               :options="tenantList.map(t => ({ label: `${t.name}(${t.slug})`, value: t.id }))"
@@ -197,11 +197,11 @@ onBeforeUnmount(stopPoll)
               @update:model-value="loadStatus"
             />
           </FaFormItem>
-          <div class="flex items-center gap-2">
-            <span class="text-slate-500 text-sm">初始化状态:</span>
+          <div class="flex gap-2 items-center">
+            <span class="text-sm text-slate-500">初始化状态:</span>
             <FaTag
               v-if="statusMap[initState.status]"
-              :variant="statusMap[initState.status].variant"
+              :type="statusMap[initState.status].type"
             >
               {{ statusMap[initState.status].label }}
             </FaTag>
@@ -215,13 +215,13 @@ onBeforeUnmount(stopPoll)
           />
           <FaAlert
             v-if="initState.status === 'completed'"
-            :title="'初始化已完成'"
+            title="初始化已完成"
             :description="`首店:${initState.storeName}(${initState.storeCode})`"
             class="mt-3"
           />
           <FaAlert
             v-if="initState.status === 'running' || initState.status === 'pending'"
-            :title="'初始化进行中,将自动轮询状态…'"
+            title="初始化进行中,将自动轮询状态…"
             class="mt-3"
           />
         </FaCard>
@@ -236,10 +236,10 @@ onBeforeUnmount(stopPoll)
             label-placement="right"
             :label-width="110"
           >
-            <FaFormItem label="新建租户 slug(平台管理员)">
+            <FaFormItem name="tenantSlug" label="新建租户 slug(平台管理员)">
               <FaInput v-model="model.tenantSlug" placeholder="留空表示初始化已选租户" class="w-full" />
             </FaFormItem>
-            <FaFormItem label="新建租户名称">
+            <FaFormItem name="tenantName" label="新建租户名称">
               <FaInput v-model="model.tenantName" placeholder="留空表示初始化已选租户" class="w-full" />
             </FaFormItem>
             <FaFormItem name="storeName" label="门店名称" required>
@@ -254,17 +254,17 @@ onBeforeUnmount(stopPoll)
             <FaFormItem name="ownerName" label="所有者姓名" required>
               <FaInput v-model="model.ownerName" placeholder="所有者姓名/邮箱" class="w-full" />
             </FaFormItem>
-            <FaFormItem label="所有者电话">
+            <FaFormItem name="ownerPhone" label="所有者电话">
               <FaInput v-model="model.ownerPhone" placeholder="联系电话(可选)" class="w-full" />
             </FaFormItem>
-            <FaFormItem label="时区">
+            <FaFormItem name="timezone" label="时区">
               <FaSelect
                 v-model="model.timezone"
                 :options="[{ label: 'Asia/Shanghai(中国大陆)', value: 'Asia/Shanghai' }]"
                 class="w-full"
               />
             </FaFormItem>
-            <div class="flex justify-end gap-2 pt-2">
+            <div class="pt-2 flex gap-2 justify-end">
               <FaButton type="primary" :loading="submitting" @click="submit">
                 {{ initState.status === 'failed' ? '重新初始化' : '执行初始化' }}
               </FaButton>

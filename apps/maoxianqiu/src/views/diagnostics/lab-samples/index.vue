@@ -203,7 +203,9 @@ function openReject(row: LabSampleRow) {
  * 执行状态流转(S3.1-C,走 transition_lab_sample RPC)
  */
 async function onTransition() {
-  if (!transitionTarget.value) return
+  if (!transitionTarget.value) {
+    return
+  }
   transitioning.value = true
   try {
     await apiDiagnostics.transitionLabSample(transitionTarget.value.id, {
@@ -225,7 +227,9 @@ async function onTransition() {
  * 拒收标本(须填写原因)
  */
 async function onReject() {
-  if (!rejectTarget.value) return
+  if (!rejectTarget.value) {
+    return
+  }
   if (!rejectReason.value.trim()) {
     useFaToast().warning('请填写拒收原因')
     return
@@ -356,7 +360,7 @@ const tableColumns = computed<TableColumn<LabSampleRow>[]>(() => [
           </FaButton>
         </template>
         <template #cell-operation="{ row }">
-          <div class="flex-center gap-1 flex-wrap">
+          <div class="flex-center flex-wrap gap-1">
             <FaButton v-if="row.original.status === 'planned'" variant="outline" size="sm" @click="openTransition(row.original, 'collected')">
               采集
             </FaButton>
@@ -402,7 +406,7 @@ const tableColumns = computed<TableColumn<LabSampleRow>[]>(() => [
               class="w-full"
             />
           </FaLabel>
-          <div class="grid grid-cols-2 gap-x-4 gap-y-3">
+          <div class="gap-x-4 gap-y-3 grid grid-cols-2">
             <FaLabel label="容器">
               <FaInput v-model="createForm.container" placeholder="如 EDTA 抗凝管" class="w-full" />
             </FaLabel>

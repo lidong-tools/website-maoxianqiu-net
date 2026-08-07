@@ -850,9 +850,15 @@ export default {
    */
   async listLabSamples(params?: LabSampleListParams) {
     const query: Record<string, unknown> = {}
-    if (params?.storeId) query.storeId = params.storeId
-    if (params?.labOrderId) query.labOrderId = params.labOrderId
-    if (params?.status) query.status = params.status
+    if (params?.storeId) {
+      query.storeId = params.storeId
+    }
+    if (params?.labOrderId) {
+      query.labOrderId = params.labOrderId
+    }
+    if (params?.status) {
+      query.status = params.status
+    }
     query.page = params?.page ?? 1
     query.pageSize = params?.pageSize ?? 20
     const res = await api.get('diagnostics/lab-samples', { params: query })
@@ -897,10 +903,18 @@ export default {
    */
   async listCriticalAlerts(params?: CriticalAlertListParams) {
     const query: Record<string, unknown> = {}
-    if (params?.storeId) query.storeId = params.storeId
-    if (params?.petId) query.petId = params.petId
-    if (params?.labOrderId) query.labOrderId = params.labOrderId
-    if (params?.status) query.status = params.status
+    if (params?.storeId) {
+      query.storeId = params.storeId
+    }
+    if (params?.petId) {
+      query.petId = params.petId
+    }
+    if (params?.labOrderId) {
+      query.labOrderId = params.labOrderId
+    }
+    if (params?.status) {
+      query.status = params.status
+    }
     query.page = params?.page ?? 1
     query.pageSize = params?.pageSize ?? 20
     const res = await api.get('diagnostics/critical-values', { params: query })

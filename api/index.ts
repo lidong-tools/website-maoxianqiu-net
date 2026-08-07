@@ -23,6 +23,7 @@ import regulatoryRoutes from './routes/regulatory'
 import reportDataRoutes from './routes/report-data'
 import roleRoutes from './routes/roles'
 import storeRoutes from './routes/stores'
+import tenantRoutes from './routes/tenants'
 import userRoutes from './routes/user'
 
 export const runtime = 'nodejs'

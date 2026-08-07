@@ -4,7 +4,7 @@ import type { CriticalAlertLevel, CriticalAlertStatus, NotifyChannel } from '@/t
 import apiDiagnostics from '@/api/modules/diagnostics'
 import apiStore from '@/api/modules/store'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
-import { CRITICAL_ALERT_STATUS_COLORS, CRITICAL_ALERT_STATUS_LABELS, NOTIFY_CHANNEL_LABELS } from '@/types/diagnostics'
+import { CRITICAL_ALERT_STATUS_COLORS, CRITICAL_ALERT_STATUS_LABELS } from '@/types/diagnostics'
 
 defineOptions({
   name: 'DiagnosticsCriticalValues',
@@ -123,7 +123,9 @@ function openNotify(row: CriticalAlertRow) {
  * 确认前必须已通知(闭环强制,后端 CRITICAL_NOT_NOTIFIED 拦截)
  */
 async function onNotify() {
-  if (!notifyTarget.value) return
+  if (!notifyTarget.value) {
+    return
+  }
   notifying.value = true
   try {
     await apiDiagnostics.notifyCriticalAlert(notifyTarget.value.id, notifyChannel.value)
@@ -152,7 +154,9 @@ function openAck(row: CriticalAlertRow) {
  * 确认危急值(S3.1-C,pending→acknowledged,须已通知)
  */
 async function onAck() {
-  if (!ackTarget.value) return
+  if (!ackTarget.value) {
+    return
+  }
   acking.value = true
   try {
     await apiDiagnostics.acknowledgeCriticalAlert(ackTarget.value.id, ackNote.value.trim() || undefined)
@@ -181,7 +185,9 @@ function openResolve(row: CriticalAlertRow) {
  * 解决危急值(S3.1-C,acknowledged→resolved,禁止跳级)
  */
 async function onResolve() {
-  if (!resolveTarget.value) return
+  if (!resolveTarget.value) {
+    return
+  }
   resolving.value = true
   try {
     await apiDiagnostics.resolveCriticalAlert(resolveTarget.value.id, resolveNote.value.trim() || undefined)

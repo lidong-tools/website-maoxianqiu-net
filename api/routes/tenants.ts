@@ -87,7 +87,7 @@ tenantRoutes.post('/initialize', async (c) => {
   if (!tenant) {
     throw err.notFound('租户不存在')
   }
-  await requireScopedPermission(c, { code: 'tenant.initialize', tenantId })
+  await requireScopedPermission(c, { code: 'tenant.initialize', tenantId: tenant.id })
 
   const { data, error } = await service.rpc('initialize_tenant', {
     p_tenant_id: tenantId,

@@ -6,12 +6,12 @@ import type {
   DailyClosingRecord,
   DailyClosingStatus,
 } from '@/types/closing'
+import apiApp from '@/api/modules/app'
+import apiClosing from '@/api/modules/closing'
 import {
   ADJUSTMENT_TYPE_LABELS,
   DAILY_CLOSING_STATUS_LABELS,
 } from '@/types/closing'
-import apiApp from '@/api/modules/app'
-import apiClosing from '@/api/modules/closing'
 import { formatDate, formatDateTime, formatMoney } from '@/utils/format'
 
 defineOptions({
@@ -49,7 +49,7 @@ const tableColumns = computed<TableColumn<DisplayRow>[]>(() => [
   {
     accessorKey: 'businessDate',
     header: '业务日期',
-    cell: info => formatDate(info.getValue()),
+    cell: info => formatDate(info.getValue() as string),
   },
   {
     accessorKey: 'status',
@@ -59,22 +59,22 @@ const tableColumns = computed<TableColumn<DisplayRow>[]>(() => [
   {
     accessorKey: 'grossAmount',
     header: '应收(gross)',
-    cell: info => formatMoney(info.getValue()),
+    cell: info => formatMoney(info.getValue() as number),
   },
   {
     accessorKey: 'paidAmount',
     header: '实收(paid)',
-    cell: info => formatMoney(info.getValue()),
+    cell: info => formatMoney(info.getValue() as number),
   },
   {
     accessorKey: 'refundAmount',
     header: '退款(refund)',
-    cell: info => formatMoney(info.getValue()),
+    cell: info => formatMoney(info.getValue() as number),
   },
   {
     accessorKey: 'receivableAmount',
     header: '应收余额',
-    cell: info => formatMoney(info.getValue()),
+    cell: info => formatMoney(info.getValue() as number),
   },
   {
     accessorKey: 'invoiceCount',
@@ -83,7 +83,7 @@ const tableColumns = computed<TableColumn<DisplayRow>[]>(() => [
   {
     accessorKey: 'closedAt',
     header: '关账时间',
-    cell: info => formatDateTime(info.getValue()),
+    cell: info => formatDateTime(info.getValue() as string),
   },
   {
     id: 'operation',
@@ -227,13 +227,13 @@ const adjustmentColumns = computed<TableColumn<ClosingAdjustmentRecord>[]>(() =>
   {
     accessorKey: 'amount',
     header: '金额',
-    cell: info => formatMoney(info.getValue()),
+    cell: info => formatMoney(info.getValue() as number),
   },
   { accessorKey: 'reason', header: '原因' },
   {
     accessorKey: 'created_at',
     header: '时间',
-    cell: info => formatDateTime(info.getValue()),
+    cell: info => formatDateTime(info.getValue() as string),
   },
 ])
 
