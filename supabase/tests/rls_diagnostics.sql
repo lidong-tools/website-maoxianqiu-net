@@ -83,8 +83,12 @@ insert into public.employee_role_assignments (tenant_id, employee_id, role_id, s
 values
   ('11111111-0000-0000-0000-0000000000de', (select id from public.employees where employee_no = 'EMP-A1DG'), (select id from public.roles where code = 'store_manager'), '11111111-0000-0000-0000-00000000def1'),
   ('11111111-0000-0000-0000-0000000000de', (select id from public.employees where employee_no = 'EMP-A2DG'), (select id from public.roles where code = 'store_manager'), '11111111-0000-0000-0000-00000000def2'),
-  ('22222222-0000-0000-0000-0000000000de', (select id from public.employees where employee_no = 'EMP-B1DG'), (select id from public.roles where code = 'store_manager'), '22222222-0000-0000-0000-00000000def1'),
-  ('11111111-0000-0000-0000-0000000000de', (select id from public.employees where employee_no = 'EMP-ADMIN-DG'), (select id from public.roles where code = 'system_admin'), null)
+  ('22222222-0000-0000-0000-0000000000de', (select id from public.employees where employee_no = 'EMP-B1DG'), (select id from public.roles where code = 'store_manager'), '22222222-0000-0000-0000-00000000def1')
+on conflict do nothing;
+
+-- 平台管理员授权(S30-F01:平台角色独立于租户角色体系,通过 platform_user_roles 授予)
+insert into public.platform_user_roles (user_id, role)
+values ('33333333-0000-0000-0000-0000000000de', 'platform_admin')
 on conflict do nothing;
 
 -- 固定客户/宠物 id(跨 migration 无 FK,直接用固定 UUID)

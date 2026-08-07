@@ -77,8 +77,12 @@ insert into public.employee_role_assignments (tenant_id, employee_id, role_id, s
 values
   ('aaaaaaaa-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-A1F'), (select id from public.roles where code = 'store_manager'), 'aaaaaaaa-0000-0000-0000-0000000000f1'),
   ('aaaaaaaa-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-A2F'), (select id from public.roles where code = 'store_manager'), 'aaaaaaaa-0000-0000-0000-0000000000f2'),
-  ('bbbbbbbb-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-B1F'), (select id from public.roles where code = 'store_manager'), 'bbbbbbbb-0000-0000-0000-0000000000f1'),
-  ('aaaaaaaa-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-ADMIN-F'), (select id from public.roles where code = 'system_admin'), null)
+  ('bbbbbbbb-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-B1F'), (select id from public.roles where code = 'store_manager'), 'bbbbbbbb-0000-0000-0000-0000000000f1')
+on conflict do nothing;
+
+-- 平台管理员授权(S30-F01:平台角色独立于租户角色体系,通过 platform_user_roles 授予)
+insert into public.platform_user_roles (user_id, role)
+values ('cccccccc-0000-0000-0000-0000000000cc', 'platform_admin')
 on conflict do nothing;
 
 -- ---------- 文件夹具 ----------

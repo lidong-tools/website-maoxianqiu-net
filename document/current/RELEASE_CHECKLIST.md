@@ -5,7 +5,7 @@
 
 ## 0. 文档一致性
 
-- [ ] `document/current/IMPLEMENTATION_STATUS.md` 与当前代码对齐（含 S3.0 审计收口 + S3.0 定向复审 S30-R01~R07 记录）
+- [ ] `document/current/IMPLEMENTATION_STATUS.md` 与当前代码对齐（含 S3.0 审计收口 + S3.0 定向复审 S30-R01~R07 + S30-F01~F04 记录）
 - [ ] `document/current/KNOWN_GAPS.md` 缺口已确认无阻断项
 - [ ] 本次发布对应的 commit 已记录（health commit 对齐）
 
@@ -18,15 +18,16 @@
 - [ ] 独立 R2 staging bucket + R2 staging credentials
 - [ ] Vercel staging project
 - [ ] E2E 管理员账号（具备全业务权限码）
-- [ ] 多角色测试账号（system_admin / store_manager / doctor / nurse）
+- [ ] 多角色测试账号（platform_admin / store_manager / doctor / nurse）
 - [ ] GitHub Actions secrets（禁止写入文档或 Git）
 
 ## 2. 数据库验证
 
-- [ ] migration 空库从 0 升级到最新（含 P0-08 migration 25、S30 migration 26）
-- [ ] migration 旧库升级（fix-forward 说明完整，不修改已应用历史 migration；验证 migration 26 角色 scope 归一 + 触发器 + 存量修复幂等）
-- [ ] RLS 全量通过（supabase/tests，含新增 rls_scoped_permission.sql S1~S11）
-- [ ] RPC 直接调用安全（service role 仅授权路由可用，禁止客户端自由指定 tenant 直查；rpc_security.sql R1~R8：authenticated 直调高危 Command RPC 必须失败）
+- [ ] migration 空库从 0 升级到最新（含 P0-08 migration 25、S30 migration 26/27）
+- [ ] migration 旧库升级（fix-forward 说明完整，不修改已应用历史 migration；验证 migration 26 角色 scope 归一 + 触发器 + 存量修复幂等、migration 27 platform_user_roles + RPC 全量 revoke）
+- [ ] RLS 全量通过（supabase/tests，含新增 rls_scoped_permission.sql S1~S11、9 个 RLS 夹具 platform_user_roles 改造）
+- [ ] RPC 直接调用安全（service role 仅授权路由可用，禁止客户端自由指定 tenant 直查；rpc_security.sql Part1~3：authenticated 直调 21 个 Command RPC 必须 permission denied、service_role 16 个 RPC 正常进入业务函数、平台升级负向 P1~P5）
+- [ ] 平台管理员独立模型验证（tenant/store employee role 绝不产生 platform admin；is_system_admin() 只读 platform_user_roles；ERA 禁 scope='system'；legacy store_members 不自动升级）
 - [ ] scoped permission 验证（tenant 上下文仅 tenant/system role；store 上下文仅目标 store role 或 tenant-wide role；store→tenant 提升被拒绝）
 - [ ] 并发 / 幂等 / 回滚通过（reserve/confirm、admit/transfer/discharge、goods-receipt 等）
 
@@ -35,12 +36,14 @@
 - [ ] P0 代码任务全部完成（P0-01 ~ P0-10）
 - [ ] S3.0 审计收口全部完成（AUD-001 ~ AUD-011，见 IMPLEMENTATION_STATUS「S3.0 审计收口」）
 - [ ] S3.0 定向复审全部完成（S30-R01 ~ S30-R07，见 IMPLEMENTATION_STATUS「S3.0 定向复审」）
-- [ ] `pnpm lint` / typecheck / build 通过（前端 vue-tsc、api tsc、e2e tsc、ESLint、vite build 全绿，S3.0 AUD-010 / S30-R07 确认）
+- [ ] S3.0 复审（S30-F01 ~ F04）全部完成（平台管理员独立模型 / RPC 默认拒绝 / rpc_security.sql 独立可执行 / 文档证据，见 IMPLEMENTATION_STATUS「S3.0 复审」）
+- [ ] `pnpm lint` / typecheck / build 通过（前端 vue-tsc、api tsc、e2e tsc、ESLint、vite build 全绿，S3.0 AUD-010 / S30-R07 / S30-F02 确认）；`pnpm check:rpc-manifest` PASS
 - [ ] 无已知跨租户授权缺陷（service role 路由均 scoped authorization，含报表 allowedStoreIds 数据范围）
 - [ ] 无旧公共文件接口（旧 /api/upload、/api/files 已下线）
 - [ ] 无正式页面手填 UUID（业务交互均走 Picker，含打印 lab_report/vaccine_certificate 选择器、inventory receipt 商品预留、inpatient nursing/handover 员工选择）
 - [ ] 病历签署人强制为当前登录用户（无 EmployeePicker 可选任意员工）
-- [ ] 高危 Command RPC 仅 service_role 可执行（revoke public/anon/authenticated，不得依赖 SECURITY DEFINER+RLS 作为权限边界）
+- [ ] 高危 Command RPC 仅 service_role 可执行（migration 27 对 58 个函数 revoke public/anon/authenticated + grant service_role，不得依赖 SECURITY DEFINER+RLS 作为权限边界；`api/routes` 中 `service.rpc()` 调用全部 ∈ service-role-only manifest）
+- [ ] 平台管理员独立模型（tenant/store employee role 绝不能产生 platform admin；`is_system_admin()` 只读 platform_user_roles；tenant invite/change-role 拒绝 system role；租户角色管理 UI 不展示 system role；legacy store_members/ERA 不自动升级）
 - [ ] 打印使用真实业务 DTO（非演示数据）
 - [ ] 报表口径明确（Hono report-data，浏览器无跨表聚合）
 - [ ] 生产消息策略明确（方案 A：消息退出 MVP，无 Mock sent）

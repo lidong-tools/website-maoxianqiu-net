@@ -93,12 +93,16 @@ where r.code = 'tenant_manager_sp'
 -- 角色分配:
 --   u_sm  → store_manager(scope='store')@S1         [门店级]
 --   u_tm  → tenant_manager_sp(scope='tenant')@租户级 [租户级]
---   u_adm → system_admin(scope='system')@租户级      [平台级]
+--   u_adm → platform_admin(platform_user_roles)     [平台级,独立授权,不经过 ERA]
 insert into public.employee_role_assignments (tenant_id, employee_id, role_id, store_id)
 values
   ('55555555-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-SM-S'), (select id from public.roles where code = 'store_manager'), '55555555-0000-0000-0000-0000000000f1'),
-  ('55555555-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-TM-S'), (select id from public.roles where code = 'tenant_manager_sp'), null),
-  ('55555555-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-ADM-S'), (select id from public.roles where code = 'system_admin'), null)
+  ('55555555-0000-0000-0000-000000000001', (select id from public.employees where employee_no = 'EMP-TM-S'), (select id from public.roles where code = 'tenant_manager_sp'), null)
+on conflict do nothing;
+
+-- 平台管理员授权(S30-F01:平台角色独立于租户角色体系,通过 platform_user_roles 授予)
+insert into public.platform_user_roles (user_id, role)
+values ('55555555-0000-0000-0000-0000000000cc', 'platform_admin')
 on conflict do nothing;
 
 -- ============================================================

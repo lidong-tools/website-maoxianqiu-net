@@ -25,11 +25,11 @@
 
 | 项目 | 说明 | 关联 |
 | --- | --- | --- |
-| migration 空库/旧库升级 | 仅本地开发库验证，未做空库从 0 到 26 及旧库升级演练（含 migration 26 scope 归一/触发器/存量修复） | S30-R01/R02 |
-| RLS / RPC 全量验证 | supabase/tests 未在 staging 执行（含新增 rls_inventory_reserve.sql、rls_scoped_permission.sql、rpc_security.sql） | DEV-000 / S30-R01~R03 |
+| migration 空库/旧库升级 | 仅本地开发库验证，未做空库从 0 到 27 及旧库升级演练（含 migration 26 scope 归一/触发器/存量修复、migration 27 platform_user_roles + RPC 全量 revoke） | S30-R01/R02/F01/F02 |
+| RLS / RPC 全量验证 | supabase/tests 未在 staging 执行（含新增 rls_inventory_reserve.sql、rls_scoped_permission.sql、rpc_security.sql Part1~3、9 个 RLS 夹具 platform_user_roles 改造） | DEV-000 / S30-R01~R03 / S30-F03 |
 | 并发 / 幂等 / 回滚 | reserve/confirm、admit/transfer/discharge 等并发场景未实测 | P0-08 / inpatient |
 | 闭环 A/B/C 真实执行 | 代码与 tsc 通过，未在真实环境跑通（closed-loop-a 已改 UI 建宠物 + UI 签署） | P0-09 / S30-R05 |
-| 多角色授权矩阵 | 仅 system_admin 实测，store_manager / doctor / nurse 未逐角色验证；scoped permission（store→tenant 禁止）未在 staging 执行 | P0-01/P0-02 / S30-R01 |
+| 多角色授权矩阵 | 仅 platform_admin 实测，store_manager / doctor / nurse 未逐角色验证；scoped permission（store→tenant 禁止）未在 staging 执行 | P0-01/P0-02 / S30-R01 |
 | R2 文件签名下载 | 新文件模型仅在开发环境验证 | P0-03 |
 | 报表口径核对 | report-data 聚合结果与账目核对未做 | P0-06 |
 
@@ -53,7 +53,9 @@
 | 闭环 A 先发药后收费（测试擅自决定） | ✅ 已关闭 | S3.0 AUD-009：按默认建议 prescription → invoice → payment → dispense |
 | store role → tenant 权限提升 | ✅ 已关闭 | S30-R01：has_permission() v3 scope 感知 + rls_scoped_permission.sql S3 负向测试 |
 | 非法 role assignment（scope=store+store_id NULL 等） | ✅ 已关闭 | S30-R02：validate_era_scope() 触发器（STORE_ROLE_REQUIRES_STORE / TENANT_ROLE_FORBIDS_STORE / ROLE_TENANT_MISMATCH）+ 存量修复 |
-| 浏览器直连高危 Command RPC | ✅ 已关闭 | S30-R03：migration 26 revoke public/anon/authenticated + grant service_role；前端改走 Hono；rpc_security.sql R1~R8 |
+| 浏览器直连高危 Command RPC | ✅ 已关闭 | S30-R03 首轮 revoke 约 35 个；S30-F02 补齐全部 11 个遗漏 + 审计 3 个，migration 27 对 58 个函数 revoke public/anon/authenticated + grant service_role；前端改走 Hono；`check:rpc-manifest` CI 静态规则保证 routes 中 `service.rpc()` 调用 ⊆ service-role-only manifest（59 处调用全校验 PASS） |
+| 平台管理员可从租户角色推导（tenant/store employee role 产生 platform admin） | ✅ 已关闭 | S30-F01：新增 `platform_user_roles` 独立授权表；`is_system_admin()` 只读平台授权来源；ERA 禁止 scope='system'（SYSTEM_ROLE_FORBIDDEN_ERA）；tenant invite/change-role 拒绝 system role；租户角色管理 UI 过滤 scope='system'；legacy store_members 不自动升级 |
+| tenant admin 可升级为 platform admin（权限提升） | ✅ 已关闭 | S30-F01 + rpc_security.sql Part 3：P1 负向（authenticated 写 platform_user_roles 被 RLS 拒绝，自己/他人都拒）；P2 system role 禁止 ERA；P3/P5 无平台授权 is_system_admin()=false |
 | 病历签署可选任意员工（EmployeePicker） | ✅ 已关闭 | S30-R04：签署强制当前登录 user.id；EmployeePicker value-key 区分 employees.id / auth.users.id；字段语义 COMMENT 固化 |
 | E2E 宠物用 API 绕过 UI | ✅ 已关闭 | S30-R05：closed-loop-a 步骤 2 改 UI「新增宠物」建档 |
 | inventory receipt 预留手填商品、nursing/print 手填实体 | ✅ 已关闭 | S30-R06：BusinessCatalogItemPicker + value-key="user_id" + print 非可选取类型禁用 |

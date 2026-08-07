@@ -37,5 +37,7 @@ export interface AppEnv {
     context: RequestContext
     /** validateJson 中间件写入的校验结果 */
     validated: unknown
+    /** S30-F01:平台管理员(platform_user_roles.role='platform_admin'),Hono 与 SQL is_system_admin() 同一授权来源 */
+    isPlatformAdmin: boolean
   }
 }

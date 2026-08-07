@@ -60,13 +60,17 @@ employeeRoutes.post('/invite', async (c) => {
   }
   const { data: role } = await service
     .from('roles')
-    .select('tenant_id')
+    .select('tenant_id, scope')
     .eq('id', input.roleId)
     .maybeSingle()
   if (!role) {
     throw err.notFound('角色不存在')
   }
-  // 系统角色(tenant_id 为 null)可全局分配;租户角色必须与授权租户一致
+  // S30-F01:系统平台角色(scope='system')只能通过 platform_user_roles 授予,禁止租户邀请时选择
+  if (role.scope === 'system') {
+    throw err.forbidden('系统平台角色不可分配给租户员工')
+  }
+  // 租户自定义角色必须与授权租户一致
   if (role.tenant_id !== null && role.tenant_id !== scope.tenantId) {
     throw err.badRequest('角色不属于该租户')
   }
@@ -317,10 +321,10 @@ employeeRoutes.post('/change-role', async (c) => {
     storeId: input.storeId,
   })
 
-  // MXQ-3007 跨租户防护:员工与角色须归属授权租户(系统角色 tenant_id 为 null,可全局分配)
+  // MXQ-3007 跨租户防护:员工与角色须归属授权租户(系统角色 tenant_id 为 null)
   const [empRes, roleRes] = await Promise.all([
     service.from('employees').select('tenant_id').eq('id', input.employeeId).maybeSingle(),
-    service.from('roles').select('tenant_id').eq('id', input.roleId).maybeSingle(),
+    service.from('roles').select('tenant_id, scope').eq('id', input.roleId).maybeSingle(),
   ])
   const employee = empRes.data
   const role = roleRes.data
@@ -329,6 +333,10 @@ employeeRoutes.post('/change-role', async (c) => {
   }
   if (!role) {
     throw err.notFound('角色不存在')
+  }
+  // S30-F01:系统平台角色(scope='system')只能通过 platform_user_roles 授予,禁止变更角色时选择
+  if (role.scope === 'system') {
+    throw err.forbidden('系统平台角色不可分配给租户员工')
   }
   if (employee.tenant_id !== scope.tenantId || (role.tenant_id !== null && role.tenant_id !== scope.tenantId)) {
     throw err.forbidden('无权操作该租户的员工或角色')

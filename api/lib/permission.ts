@@ -16,7 +16,7 @@ interface RoleRow {
   permissions: string[] | null
 }
 
-/** 平台管理员角色码(与 SQL is_system_admin() 判定一致,独立平台级授权) */
+/** 平台管理员权限模板角色码(S30-F01:与 SQL is_system_admin() 判定一致,独立平台级授权来源 platform_user_roles) */
 const PLATFORM_ADMIN_ROLE = 'system_admin'
 
 interface EmployeeRow {
@@ -117,7 +117,8 @@ export async function requirePermission(
   }
 
   if (requirement.storeId) {
-    const isSystemAdmin = permissions.includes('system.admin')
+    // S30-F01:平台管理员判定使用同一平台授权来源(platform_user_roles);权限码兜底兼容旧调用方
+    const isSystemAdmin = c.get('isPlatformAdmin') === true || permissions.includes('system.admin')
     const inScope = context.memberships.some(m => m.store_id === requirement.storeId)
     if (!isSystemAdmin && !inScope) {
       throw err.forbidden('无权访问该门店的数据')
@@ -136,8 +137,9 @@ export function assertTenantAccess(c: Context<AppEnv>, tenantId?: string | null)
   if (!tenantId) {
     throw err.badRequest('缺少租户标识')
   }
-  const isSystemAdmin = context.permissions.includes('system.admin')
-  if (isSystemAdmin) {
+  // S30-F01:平台管理员判定使用同一平台授权来源(platform_user_roles);
+  // 不再从 employee_role_assignments / store_members 推导平台管理员。
+  if (c.get('isPlatformAdmin') === true) {
     return context
   }
   const authorized = context.memberships.some(m => m.tenant_id === tenantId)
@@ -243,97 +245,81 @@ export async function resolveScopedAccess(
   const user = c.get('user')
   const service = createServiceClient()
 
-  // ===== 1) 平台管理员独立分支 =====
-  // 判定方式与 SQL is_system_admin() 一致:任一 active employee 分配了 system_admin 角色
-  const { data: allEmployees, error: empAllError } = await service
-    .from('employees')
-    .select('id')
+  // ===== 1) 平台管理员独立分支(S30-F01) =====
+  // 判定来源 = platform_user_roles(独立平台级授权,与 SQL is_system_admin() 一致);
+  // 不再从 employee_role_assignments / store_members 推导平台管理员。
+  const { data: platformRows, error: purError } = await service
+    .from('platform_user_roles')
+    .select('role')
     .eq('user_id', user.id)
-    .eq('status', 'active')
-  if (empAllError) {
-    throw err.internal(`查询员工档案失败: ${empAllError.message}`)
+  if (purError) {
+    throw err.internal(`查询平台授权失败: ${purError.message}`)
   }
-  const allEmpIds = ((allEmployees as EmployeeRow[] | null) ?? []).map(e => e.id)
-  if (allEmpIds.length > 0) {
-    const { data: allAssignments, error: assignAllError } = await service
-      .from('employee_role_assignments')
-      .select('role_id')
-      .in('employee_id', allEmpIds)
-    if (assignAllError) {
-      throw err.internal(`查询角色分配失败: ${assignAllError.message}`)
+  const isPlatformAdmin = ((platformRows as { role: string }[] | null) ?? []).some(r => r.role === 'platform_admin')
+  if (isPlatformAdmin) {
+    // 平台管理员权限模板:roles.code = system_admin 且 is_system = true 的角色权限(新模型关联表 + 旧模型数组)
+    const { data: adminRoles, error: adminRolesError } = await service
+      .from('roles')
+      .select('id, permissions')
+      .eq('code', PLATFORM_ADMIN_ROLE)
+      .eq('is_system', true)
+    if (adminRolesError) {
+      throw err.internal(`查询角色失败: ${adminRolesError.message}`)
     }
-    const allRoleIds = [...new Set(((allAssignments as { role_id: string }[] | null) ?? []).map(a => a.role_id))]
-    if (allRoleIds.length > 0) {
-      const { data: allRoles, error: rolesAllError } = await service
-        .from('roles')
-        .select('id, code, scope, is_system, permissions')
-        .in('id', allRoleIds)
-      if (rolesAllError) {
-        throw err.internal(`查询角色失败: ${rolesAllError.message}`)
+    const adminRoleRows = (adminRoles as { id: string, permissions: string[] | null }[] | null) ?? []
+    const adminRoleIds = adminRoleRows.map(r => r.id)
+    const { data: adminRp, error: adminRpError } = await service
+      .from('role_permissions')
+      .select('permission_id, permissions(code)')
+      .in('role_id', adminRoleIds)
+    if (adminRpError) {
+      throw err.internal(`查询角色权限失败: ${adminRpError.message}`)
+    }
+    const adminPerms = ((adminRp as RolePermissionRow[] | null) ?? []).flatMap((row) => {
+      if (!row.permissions) {
+        return []
       }
-      const rolesAll = (allRoles as RoleRow[] | null) ?? []
-      // 平台管理员纵深防御:code = system_admin AND is_system = true AND scope = system(审计 4.3)
-      const isPlatformAdmin = rolesAll.some(r =>
-        r.code === PLATFORM_ADMIN_ROLE && r.is_system === true && r.scope === 'system',
-      )
-      if (isPlatformAdmin) {
-        // 平台管理员权限集:system_admin 角色(新模型关联表 + 旧模型数组)
-        const adminRoleIds = rolesAll.filter(r => r.code === PLATFORM_ADMIN_ROLE).map(r => r.id)
-        const { data: adminRp, error: adminRpError } = await service
-          .from('role_permissions')
-          .select('permission_id, permissions(code)')
-          .in('role_id', adminRoleIds)
-        if (adminRpError) {
-          throw err.internal(`查询角色权限失败: ${adminRpError.message}`)
-        }
-        const adminPerms = ((adminRp as RolePermissionRow[] | null) ?? []).flatMap((row) => {
-          if (!row.permissions) {
-            return []
-          }
-          return Array.isArray(row.permissions)
-            ? row.permissions.map(p => p.code)
-            : [row.permissions.code]
-        })
-        const legacyAdminPerms = rolesAll
-          .filter(r => r.code === PLATFORM_ADMIN_ROLE)
-          .flatMap(r => r.permissions ?? [])
-        const permissions = [...new Set([...adminPerms, ...legacyAdminPerms])]
-        if (!permissions.includes(requirement.code)) {
-          throw err.forbidden(`缺少权限: ${requirement.code}`)
-        }
-        // 平台管理员跨租户放行;仍校验目标门店属于目标租户(若提供)
-        if (requirement.storeId) {
-          const { data: store, error: storeError } = await service
-            .from('stores')
-            .select('tenant_id')
-            .eq('id', requirement.storeId)
-            .single()
-          if (storeError || !store) {
-            throw err.notFound('门店不存在')
-          }
-          if (store.tenant_id !== requirement.tenantId) {
-            throw err.forbidden('门店不属于该租户')
-          }
-        }
-        // 平台管理员可访问目标租户下全部门店
-        const { data: tenantStores, error: tenantStoresError } = await service
-          .from('stores')
-          .select('id')
-          .eq('tenant_id', requirement.tenantId)
-        if (tenantStoresError) {
-          throw err.internal(`查询门店失败: ${tenantStoresError.message}`)
-        }
-        return {
-          userId: user.id,
-          employeeId: allEmpIds[0],
-          tenantId: requirement.tenantId,
-          storeId: requirement.storeId,
-          allowedStoreIds: (tenantStores as { id: string }[] | null ?? []).map(s => s.id),
-          roleIds: adminRoleIds,
-          permissions,
-          isPlatformAdmin: true,
-        }
+      return Array.isArray(row.permissions)
+        ? row.permissions.map(p => p.code)
+        : [row.permissions.code]
+    })
+    const legacyAdminPerms = adminRoleRows.flatMap(r => r.permissions ?? [])
+    const permissions = [...new Set([...adminPerms, ...legacyAdminPerms])]
+    if (!permissions.includes(requirement.code)) {
+      throw err.forbidden(`缺少权限: ${requirement.code}`)
+    }
+    // 平台管理员跨租户放行;仍校验目标门店属于目标租户(若提供)
+    if (requirement.storeId) {
+      const { data: store, error: storeError } = await service
+        .from('stores')
+        .select('tenant_id')
+        .eq('id', requirement.storeId)
+        .single()
+      if (storeError || !store) {
+        throw err.notFound('门店不存在')
       }
+      if (store.tenant_id !== requirement.tenantId) {
+        throw err.forbidden('门店不属于该租户')
+      }
+    }
+    // 平台管理员可访问目标租户下全部门店
+    const { data: tenantStores, error: tenantStoresError } = await service
+      .from('stores')
+      .select('id')
+      .eq('tenant_id', requirement.tenantId)
+    if (tenantStoresError) {
+      throw err.internal(`查询门店失败: ${tenantStoresError.message}`)
+    }
+    // 平台管理员不依赖租户员工档案,employeeId 可为空
+    return {
+      userId: user.id,
+      employeeId: '',
+      tenantId: requirement.tenantId,
+      storeId: requirement.storeId,
+      allowedStoreIds: (tenantStores as { id: string }[] | null ?? []).map(s => s.id),
+      roleIds: adminRoleIds,
+      permissions,
+      isPlatformAdmin: true,
     }
   }
 
@@ -477,10 +463,8 @@ export async function resolveScopedAccess(
     }
   }
 
-  // 平台管理员:仅当角色是系统级(scope = 'system')且为 system_admin 角色时成立(审计 4.3)
-  const isPlatformAdmin = roles.some(r =>
-    r.code === PLATFORM_ADMIN_ROLE && r.is_system === true && r.scope === 'system',
-  )
+  // 平台管理员已在函数开头按 platform_user_roles 判定并提前返回(S30-F01);
+  // 走到普通分支时 isPlatformAdmin 恒为 false,此处沿用顶部判定结果。
 
   return {
     userId: user.id,

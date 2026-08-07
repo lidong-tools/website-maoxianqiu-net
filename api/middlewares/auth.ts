@@ -70,6 +70,19 @@ export function loadCaller(): MiddlewareHandler<AppEnv> {
     let memberships: MembershipInfo[] = []
     const roleCodeSet = new Set<string>()
 
+    // S30-F01:平台管理员独立授权来源 platform_user_roles(Hono 与 SQL is_system_admin() 同一来源;
+    // 不再从 employee_role_assignments / store_members 推导平台管理员)
+    const { data: platformRows } = await service
+      .from('platform_user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+    const isPlatformAdmin = ((platformRows as { role: string }[] | null) ?? []).some(r => r.role === 'platform_admin')
+    c.set('isPlatformAdmin', isPlatformAdmin)
+    // 兼容 hasRole('system_admin') 语义:平台管理员视为持有系统角色,但来源为 platform_user_roles
+    if (isPlatformAdmin) {
+      roleCodeSet.add('system_admin')
+    }
+
     if (eraData.length > 0) {
       for (const row of eraData) {
         const employeeStatus = Array.isArray(row.employee)
@@ -134,10 +147,12 @@ export function hasRole(c: Context<AppEnv>, ...codes: string[]) {
 }
 
 export function canManageStore(c: Context<AppEnv>, storeId?: string) {
+  // S30-F01:平台管理员判定使用同一平台授权来源(platform_user_roles),不再从 ERA/store_members 推导
+  const isPlatformAdmin = c.get('isPlatformAdmin') === true
   if (!storeId) {
-    return hasRole(c, 'system_admin')
+    return isPlatformAdmin
   }
-  if (hasRole(c, 'system_admin')) {
+  if (isPlatformAdmin) {
     return true
   }
   return (c.get('memberships') ?? []).some(

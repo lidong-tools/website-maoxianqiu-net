@@ -44,6 +44,19 @@ userRoutes.post('/create', async (c) => {
   // P0-02 scoped: 按解析后的租户+门店解析授权作用域(平台管理员跨租户放行)
   const scope = await requireScopedPermission(c, { code: 'system.user.create', tenantId, storeId: input.storeId })
 
+  // S30-F01:系统平台角色(scope='system')只能通过 platform_user_roles 授予,禁止建号时选择
+  const { data: role } = await service
+    .from('roles')
+    .select('scope')
+    .eq('id', input.roleId)
+    .maybeSingle()
+  if (!role) {
+    throw err.notFound('角色不存在')
+  }
+  if (role.scope === 'system') {
+    throw err.forbidden('系统平台角色不可分配给租户员工')
+  }
+
   if (!canManageStore(c, scope.storeId ?? input.storeId)) {
     throw err.forbidden('无权限管理该店铺')
   }

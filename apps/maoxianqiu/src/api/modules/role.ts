@@ -9,6 +9,7 @@ export default {
   /**
    * 角色列表(直连,含权限码聚合)
    * 同时返回 role_permissions 关联与 roles.permissions 数组(union)
+   * S30-F01:隐藏 scope='system' 平台角色(只能通过 platform_user_roles 授予,租户 UI 不展示)
    */
   async list() {
     const { data, error } = await supabase
@@ -20,28 +21,32 @@ export default {
           permissions(code)
         )
       `)
+      .neq('scope', 'system')
       .order('created_at', { ascending: true })
     if (error) {
       throw new Error(error.message)
     }
     // 聚合权限码:role_permissions 关联 ∪ roles.permissions 数组
-    const roles = (data ?? []).map((role: any) => {
-      const rpCodes = (role.permission_codes ?? [])
-        .flatMap((rp: any) => {
-          if (!rp.permissions) {
-            return []
-          }
-          return Array.isArray(rp.permissions)
-            ? rp.permissions.map((p: any) => p.code)
-            : [rp.permissions.code]
-        })
-      const legacyCodes = role.permissions ?? []
-      const allCodes = [...new Set([...rpCodes, ...legacyCodes])]
-      return {
-        ...role,
-        permission_codes: allCodes,
-      }
-    })
+    const roles = (data ?? [])
+      // S30-F01 纵深防御:应用层再次过滤平台角色(scope='system')
+      .filter((role: any) => role.scope !== 'system')
+      .map((role: any) => {
+        const rpCodes = (role.permission_codes ?? [])
+          .flatMap((rp: any) => {
+            if (!rp.permissions) {
+              return []
+            }
+            return Array.isArray(rp.permissions)
+              ? rp.permissions.map((p: any) => p.code)
+              : [rp.permissions.code]
+          })
+        const legacyCodes = role.permissions ?? []
+        const allCodes = [...new Set([...rpCodes, ...legacyCodes])]
+        return {
+          ...role,
+          permission_codes: allCodes,
+        }
+      })
     return { status: 1, error: '', data: roles }
   },
 
