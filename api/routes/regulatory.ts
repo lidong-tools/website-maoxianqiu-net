@@ -54,17 +54,20 @@ function mapRpcError(error: { message: string }) {
     return err.notFound(msg.replace(/^ERROR:\s*/, ''))
   }
   // 状态/业务规则类(许可证、报告状态机、疫情状态机、废弃物交接)
+  // S31-MERGE-B:B02 跨租户关联校验 / B05 许可证状态机 / B06 疫情状态机错误码
   if ([
     'LICENSE_NO_REQUIRED',
     'INVALID_LICENSE_STATUS',
     'LICENSE_DUPLICATE',
     'LICENSE_STATUS_UNCHANGED',
     'LICENSE_NOT_EDITABLE',
+    'INVALID_LICENSE_TRANSITION',
     'INVALID_REPORT_YEAR',
     'REPORT_ALREADY_SUBMITTED',
     'REPORT_NOT_GENERATED',
     'SUSPECTED_DISEASE_REQUIRED',
     'INVALID_EPIDEMIC_STATUS',
+    'INVALID_EPIDEMIC_TRANSITION',
     'EPIDEMIC_NOT_EDITABLE',
     'EPIDEMIC_NOT_ISOLATABLE',
     'EPIDEMIC_NOT_RESOLVABLE',
@@ -74,6 +77,12 @@ function mapRpcError(error: { message: string }) {
     'WASTE_NOT_EDITABLE',
     'WASTE_ALREADY_HANDED_OVER',
     'WASTE_RECEIVER_REQUIRED',
+    // B02:关联对象跨租户/归属不一致
+    'FILE_SCOPE_MISMATCH',
+    'CUSTOMER_SCOPE_MISMATCH',
+    'PET_SCOPE_MISMATCH',
+    'ENCOUNTER_SCOPE_MISMATCH',
+    'RELATED_ENTITY_MISMATCH',
   ].some(k => msg.includes(k))) {
     return err.unprocessable(msg.replace(/^ERROR:\s*/, ''))
   }

@@ -46,9 +46,20 @@ insert into public.roles (code, name, description, permissions, is_system, scope
   ], true, 'store'),
   -- FINAL-01(第三轮审计):租户级默认角色 tenant_owner(scope=tenant,store_id IS NULL 分配)
   -- 真实医院租户自管执业兽医备案等 tenant-level 数据;与 migration 28 幂等一致。
-  ('tenant_owner', '租户所有者', '租户级管理角色,可维护本租户执业兽医备案等租户级数据', array[
+  -- S31-MERGE-A(A01):补齐监管运营权限,与 migration 33 保持一致(db reset 后 seed 最后执行,数组需同步)。
+  ('tenant_owner', '租户所有者', '租户级管理角色,可维护本租户执业兽医备案及监管运营数据', array[
     'veterinarian_registration.read',
-    'veterinarian_registration.manage'
+    'veterinarian_registration.manage',
+    'license.read',
+    'license.manage',
+    'regulatory_report.read',
+    'regulatory_report.generate',
+    'regulatory_report.submit',
+    'epidemic.read',
+    'epidemic.report',
+    'epidemic.resolve',
+    'waste.read',
+    'waste.manage'
   ], true, 'tenant')
 on conflict (code) do update set
   name = excluded.name,

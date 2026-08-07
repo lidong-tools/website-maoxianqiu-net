@@ -434,7 +434,10 @@ onMounted(async () => {
           </FaLabel>
         </div>
         <FaLabel label="证照附件">
+          <!-- S31-MERGE-B B03:显式传入页面租户/门店,避免 FileUploader 读取 localStorage 残留上下文 -->
           <BusinessFileUploader
+            :tenant-id="currentTenantId"
+            :store-id="form.storeId"
             category="image"
             max="1"
             description="上传许可证扫描件/照片"

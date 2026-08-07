@@ -404,7 +404,10 @@ onMounted(async () => {
           />
         </FaLabel>
         <FaLabel label="交接凭证(可选)">
+          <!-- S31-MERGE-B B03:显式传入页面租户/门店,避免 FileUploader 读取 localStorage 残留上下文 -->
           <BusinessFileUploader
+            :tenant-id="currentTenantId"
+            :store-id="form.storeId"
             category="general"
             max="1"
             description="上传交接单/称重单等凭证"
