@@ -466,7 +466,8 @@ begin
     )
     values (
       p_tenant_id, p_employee_id, p_license_no, p_registration_no, p_registration_authority, p_registration_region,
-      coalesce(p_valid_from, current_date), p_valid_until, p_status, p_signature_specimen_file_id,
+      -- FINAL-02:默认生效日 = 中国业务日期(Asia/Shanghai),而非数据库 session 的 UTC current_date
+      coalesce(p_valid_from, (now() at time zone 'Asia/Shanghai')::date), p_valid_until, p_status, p_signature_specimen_file_id,
       p_electronic_signature_provider, p_electronic_signature_subject_id
     )
     returning * into v_row;
@@ -533,11 +534,13 @@ begin
   end if;
 
   -- 有效执业兽医备案(必须;不得仅凭 role='doctor')
+  -- FINAL-02:资格生效/失效边界使用中国业务日期(Asia/Shanghai),
+  -- 避免数据库 session 为 UTC 时,中国时间 00:00~07:59 期间被当作前一天
   select * into v_reg from public.veterinarian_registrations
   where tenant_id = v_row.tenant_id and employee_id = p_prescriber_employee_id
     and status = 'active'
-    and valid_from <= current_date
-    and (valid_until is null or valid_until >= current_date)
+    and valid_from <= (now() at time zone 'Asia/Shanghai')::date
+    and (valid_until is null or valid_until >= (now() at time zone 'Asia/Shanghai')::date)
   limit 1;
   if not found then
     raise exception 'PRESCRIBER_NOT_REGISTERED' using errcode = 'P0003',
