@@ -563,7 +563,7 @@ create or replace function public.save_epidemic_event(
   p_customer_id uuid default null,
   p_pet_id uuid default null,
   p_encounter_id uuid default null,
-  p_suspected_disease text,
+  p_suspected_disease text default null,
   p_detected_at timestamptz default null,
   p_isolation_required boolean default false,
   p_treatment_restricted boolean default false,

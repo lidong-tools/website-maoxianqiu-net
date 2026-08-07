@@ -1,0 +1,7 @@
+fix: S31-MERGE-FINAL 审计复核收尾(migration 34 epidemic 签名补 default null + 文档历史口径标注)
+
+- FINAL-X01: migration 34 save_epidemic_event p_suspected_disease 补 default null,
+  migration 32/34 三个函数签名(save_institution_license/save_epidemic_event/save_waste_record)最终完全一致
+- FINAL-X02: IMPLEMENTATION_STATUS/KNOWN_GAPS/RELEASE_CHECKLIST 同步;
+  旧 RPC 数字(59/52/55)标注 historical S3.0 baseline, 当前口径 72/67/72/missing 0 不变
+- 新增: Stage-03 当前合并批次最终定向审计报告(审计依据文档)

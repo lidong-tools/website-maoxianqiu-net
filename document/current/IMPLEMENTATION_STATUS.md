@@ -218,7 +218,7 @@
 - 夹具：9 个 RLS 测试文件的 system_admin ERA 改为 `platform_user_roles(platform_admin)` 插入，与 is_system_admin() 新来源对齐。
 
 ### S30-F02 RPC 默认拒绝明细
-- **RPC 数量口径（统一，全部以本处为准，不再写 58）**：
+- **RPC 数量口径（historical S3.0 baseline，S30 时点数据；当前合并源码口径见上文「S31-MERGE-FINAL」72 处 / 67 个 / 72 个 / missing 0，不再写 58）**：
   - api/routes RPC 调用：**59 处**；
   - Hono route unique RPC：**52 个**；
   - service-role-only manifest：**55 个**；
@@ -312,6 +312,7 @@ build
 
 | 日期 | 更新内容 |
 | --- | --- |
+| 2026-08-08 | S31-MERGE-FINAL 审计复核（定向审计报告 FINAL-X01/X02）：migration 34 `save_epidemic_event.p_suspected_disease` 补 `default null`（migration 32/34 三个函数签名最终完全一致）；KNOWN_GAPS / RELEASE_CHECKLIST 旧 RPC 数字（59/52/55）标注 **historical S3.0 baseline**，当前口径 72/67/72/missing 0 不变；状态保持 code_complete / runtime integration_pending |
 | 2026-08-08 | S31-MERGE-FINAL 合并收尾：FINAL-01 修 migration 32/34 函数签名（3 个 DEFAULT 后无默认参数补 default null）；FINAL-02 generate_regulatory_report 兽医数补门店+时间边界（valid_from/valid_until/starts_at/ends_at）；FINAL-03 can_access_store 补 store↔tenant 自校验（跨租户/不存在一律 false）+ 3 条回归断言；FINAL-04 统一 current docs + 重跑 check:rpc-manifest（PASS 72/72/missing 0）/ lint / typecheck / build（✓ 31.07s）；同步 KNOWN_GAPS / RELEASE_CHECKLIST |
 | 2026-08-08 | S30-FINAL 收口：修复 rpc_security.sql P5 legacy fixture（先建 auth.users ...00bb 再插 store_members，可独立执行）；统一 RPC 数量口径（59 处 / 52 个 / 55 个 / 3 个 / 55 个函数名，不再写 58）；S3.0 状态标注 code_complete（runtime = integration_pending），待 staging 验证后方可 verified |
 | 2026-08-08 | S3.0 复审（S30-F01~F04）：平台管理员独立模型（platform_user_roles + is_system_admin 独立来源 + ERA 禁 system role + UI 隐藏 + legacy 不升级）、RPC 默认拒绝（补齐 11 个 + 审计 3 个 + manifest CI 规则）、rpc_security.sql 独立可执行、文档证据；同步 KNOWN_GAPS / RELEASE_CHECKLIST |
