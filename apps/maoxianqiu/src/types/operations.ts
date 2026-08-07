@@ -290,7 +290,7 @@ export function canTransitionPrintJobStatus(from: PrintJobStatus, to: PrintJobSt
 // ===== MXQ-12008 报表 =====
 
 /** 报表分类 */
-export type ReportCategory = 'revenue' | 'inventory' | 'customer' | 'medical'
+export type ReportCategory = 'revenue' | 'refund' | 'inventory' | 'customer' | 'medical'
 
 /** 报表定义 */
 export interface ReportDefinition {
@@ -423,6 +423,7 @@ export const PRINT_JOB_STATUS_LABELS: Record<PrintJobStatus, string> = {
 /** 报表分类标签 */
 export const REPORT_CATEGORY_LABELS: Record<ReportCategory, string> = {
   revenue: '收入',
+  refund: '退款',
   inventory: '库存',
   customer: '客户',
   medical: '医疗',

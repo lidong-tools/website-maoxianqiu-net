@@ -2,6 +2,7 @@
 import type { TableColumn } from '@fantastic-admin/components'
 import type { Invoice, InvoiceStatus, PaymentMethod } from '@/types/billing'
 import apiBilling, { generateIdempotencyKey } from '@/api/modules/billing'
+import BusinessStorePicker from '@/components/business/StorePicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import {
   INVOICE_STATUS_COLORS,
@@ -247,11 +248,7 @@ onMounted(getDataList)
               />
             </FaLabel>
             <FaLabel label="门店" class="col-span-1">
-              <FaInput
-                v-model="search.storeId"
-                placeholder="门店 id(可选)"
-                class="w-full"
-              />
+              <BusinessStorePicker v-model="search.storeId" placeholder="选择门店(可选)" />
             </FaLabel>
             <div class="flex gap-2 col-end--1 justify-end">
               <FaButton variant="outline" @click="search.keyword = ''; search.status = ''; search.storeId = ''; getDataList()">

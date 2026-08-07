@@ -3,6 +3,7 @@ import type { TableColumn } from '@fantastic-admin/components'
 import type { NurseTaskStatus, NurseTaskType } from '@/types/clinical'
 import apiClinical from '@/api/modules/clinical'
 import apiStore from '@/api/modules/store'
+import BusinessPetPicker from '@/components/business/PetPicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { NURSE_TASK_STATUS_COLORS, NURSE_TASK_STATUS_LABELS, NURSE_TASK_TYPE_LABELS } from '@/types/clinical'
 
@@ -316,7 +317,7 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
       <FaModal v-model:visible="createVisible" title="新建护士任务" :loading="creating" @confirm="onCreate">
         <div class="space-y-3">
           <FaLabel label="宠物 ID">
-            <FaInput v-model="createForm.petId" placeholder="宠物 ID" class="w-full" />
+            <BusinessPetPicker v-model="createForm.petId" placeholder="搜索选择宠物" />
           </FaLabel>
           <FaLabel label="任务类型">
             <FaSelect

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-// TODO: 替换为毛线球专属 logo 文件
 import imgLogo from '@/assets/images/logo.svg'
 
 defineOptions({

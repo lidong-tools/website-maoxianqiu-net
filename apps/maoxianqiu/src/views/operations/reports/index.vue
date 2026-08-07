@@ -34,6 +34,8 @@ interface SnapshotRow {
 /** 快照详情弹窗中的表格行 */
 interface DetailRow {
   [key: string]: unknown
+  /** 内部标记:是否为合计行 */
+  __isSummary?: boolean
 }
 
 const tenantStore = useAppTenantStore()
@@ -166,7 +168,8 @@ function onGenerate(row: ReportDefRow) {
 
 /**
  * 根据 JSON 数据生成表格列定义
- * @param data 快照数据行数组
+ * 忽略 __isSummary 等内部标记字段,数值列右对齐
+ * @param data 数据行数组(可能含合计行)
  * @returns 动态列定义
  */
 function buildColumnsFromData(data: DetailRow[]): TableColumn<DetailRow>[] {
@@ -174,34 +177,36 @@ function buildColumnsFromData(data: DetailRow[]): TableColumn<DetailRow>[] {
     return []
   }
 
-  const firstRow = data[0]
-  return Object.keys(firstRow).map((key) => {
-    const value = firstRow[key]
-    // 数值列右对齐
-    const isNumber = typeof value === 'number'
-    return {
-      accessorKey: key,
-      header: key,
-      align: isNumber ? ('right' as const) : ('left' as const),
-      cell: (info) => {
-        const v = info.getValue()
-        if (v === null || v === undefined) {
-          return '-'
-        }
-        if (typeof v === 'number') {
-          // 金额类字段保留两位小数
-          if (/amount|price|total|fee|cost|revenue|balance/i.test(key)) {
-            return v.toFixed(2)
+  // 取第一个非合计行解析列
+  const firstRow = data.find(r => !r.__isSummary) ?? data[0]
+  return Object.keys(firstRow)
+    .filter(key => !key.startsWith('__'))
+    .map((key) => {
+      const value = firstRow[key]
+      const isNumber = typeof value === 'number'
+      return {
+        accessorKey: key,
+        header: key,
+        align: isNumber ? ('right' as const) : ('left' as const),
+        cell: (info) => {
+          const row = info.row.original as DetailRow
+          const v = info.getValue()
+          if (v === null || v === undefined) {
+            return '-'
           }
-          return String(v)
-        }
-        if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) {
-          return v.slice(0, 10)
-        }
-        return String(v)
-      },
-    }
-  })
+          if (typeof v === 'number') {
+            const formatted = /amount|price|total|fee|cost|revenue|balance|value/i.test(key)
+              ? v.toFixed(2)
+              : String(v)
+            return row.__isSummary ? `<strong>${formatted}</strong>` : formatted
+          }
+          if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) {
+            return row.__isSummary ? `<strong>${v.slice(0, 10)}</strong>` : v.slice(0, 10)
+          }
+          return row.__isSummary ? `<strong>${String(v)}</strong>` : String(v)
+        },
+      }
+    })
 }
 
 /**
@@ -271,7 +276,7 @@ async function openSnapshotDetail(row: SnapshotRow) {
 
 /**
  * 实时生成报表数据
- * 根据报表定义类型从对应的业务表聚合数据
+ * 根据报表定义类型从对应的业务表聚合数据,所有类型均返回真实数据
  * @param row 报表定义行
  */
 async function generateReportData(row: ReportDefRow) {
@@ -294,6 +299,9 @@ async function generateReportData(row: ReportDefRow) {
     switch (row.category) {
       case 'revenue':
         rows = await fetchRevenueReport(tenantId)
+        break
+      case 'refund':
+        rows = await fetchRefundReport(tenantId)
         break
       case 'inventory':
         rows = await fetchInventoryReport(tenantId)
@@ -322,180 +330,511 @@ async function generateReportData(row: ReportDefRow) {
 }
 
 /**
- * 拉取收入报表（从 invoices 表按日期汇总）
+ * 获取查询时间范围(本月默认)
+ * @returns { start: ISO string, end: ISO string }
+ */
+function getDateRange(): { start: string, end: string } {
+  const start = filters.value.periodStart
+    ? new Date(filters.value.periodStart).toISOString()
+    : new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
+  const end = filters.value.periodEnd
+    ? new Date(`${filters.value.periodEnd}T23:59:59`).toISOString()
+    : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59).toISOString()
+  return { start, end }
+}
+
+// ============================================================
+// 收入报表(revenue): 按日期+门店分组汇总
+// ============================================================
+
+/**
+ * 拉取收入报表(从 invoices 表按日期+门店汇总)
+ * 列: 日期 / 门店 / 发票数 / 开票金额 / 已收金额 / 应收余额
+ * 含合计行
  * @param tenantId 租户 id
  */
 async function fetchRevenueReport(tenantId: string): Promise<DetailRow[]> {
-  const startDate = filters.value.periodStart
-    ? new Date(filters.value.periodStart).toISOString()
-    : new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
-  const endDate = filters.value.periodEnd
-    ? new Date(`${filters.value.periodEnd}T23:59:59`).toISOString()
-    : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59).toISOString()
+  const { start, end } = getDateRange()
 
   const { data, error } = await supabase
     .from('invoices')
-    .select('*')
+    .select('id, store_id, total, paid_amount, status, created_at')
     .eq('tenant_id', tenantId)
-    .gte('created_at', startDate)
-    .lte('created_at', endDate)
+    .gte('created_at', start)
+    .lte('created_at', end)
     .order('created_at', { ascending: false })
 
   if (error) {
     throw new Error(error.message)
   }
 
-  // 按日期分组汇总
-  const dailyMap = new Map<string, { date: string, invoice_count: number, total_amount: number, paid_amount: number }>()
+  // 查询门店名称映射
+  const storeIds = [...new Set((data ?? []).map(inv => inv.store_id).filter(Boolean))]
+  const storeMap = new Map<string, string>()
+  if (storeIds.length > 0) {
+    const { data: stores } = await supabase
+      .from('stores')
+      .select('id, name')
+      .in('id', storeIds)
+    for (const s of (stores ?? [])) {
+      storeMap.set(s.id, s.name ?? s.id)
+    }
+  }
+
+  // 按 日期+门店 分组
+  const key = (date: string, storeId: string | null) => `${date}||${storeId ?? '__none__'}`
+  const groups = new Map<string, { date: string, store_name: string, invoice_count: number, total_amount: number, paid_amount: number }>()
   for (const inv of (data ?? [])) {
+    // 排除草稿和已取消
+    if (inv.status === 'draft' || inv.status === 'cancelled') {
+      continue
+    }
     const date = inv.created_at?.slice(0, 10) ?? '-'
-    const existing = dailyMap.get(date)
+    const storeName = storeMap.get(inv.store_id) ?? (inv.store_id ? inv.store_id.slice(0, 8) : '未指定')
+    const k = key(date, inv.store_id)
+    const existing = groups.get(k)
     if (existing) {
       existing.invoice_count += 1
-      existing.total_amount += Number(inv.total_amount ?? 0)
+      existing.total_amount += Number(inv.total ?? 0)
       existing.paid_amount += Number(inv.paid_amount ?? 0)
     }
     else {
-      dailyMap.set(date, {
+      groups.set(k, {
         date,
+        store_name: storeName,
         invoice_count: 1,
-        total_amount: Number(inv.total_amount ?? 0),
+        total_amount: Number(inv.total ?? 0),
         paid_amount: Number(inv.paid_amount ?? 0),
       })
     }
   }
 
-  return Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date))
-}
+  const rows = Array.from(groups.values()).sort((a, b) => a.date.localeCompare(b.date) || a.store_name.localeCompare(b.store_name))
 
-/**
- * 拉取库存报表（从 inventory_balances 汇总当前库存）
- * @param tenantId 租户 id
- */
-async function fetchInventoryReport(tenantId: string): Promise<DetailRow[]> {
-  const { data, error } = await supabase
-    .from('inventory_balances')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .order('item_name', { ascending: true })
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return (data ?? []).map(item => ({
-    item_name: item.item_name ?? '-',
-    item_code: item.item_code ?? '-',
-    unit: item.unit ?? '-',
-    quantity: Number(item.quantity ?? 0),
-    unit_cost: Number(item.unit_cost ?? 0),
-    total_value: Number(item.quantity ?? 0) * Number(item.unit_cost ?? 0),
-    last_updated: item.updated_at ?? item.created_at ?? '-',
+  // 添加余额列
+  const detailRows = rows.map(r => ({
+    日期: r.date,
+    门店: r.store_name,
+    发票数: r.invoice_count,
+    开票金额: r.total_amount,
+    已收金额: r.paid_amount,
+    应收余额: r.total_amount - r.paid_amount,
   }))
+
+  // 合计行
+  const totalCount = detailRows.reduce((s, r) => s + r.发票数, 0)
+  const totalAmount = detailRows.reduce((s, r) => s + r.开票金额, 0)
+  const totalPaid = detailRows.reduce((s, r) => s + r.已收金额, 0)
+  detailRows.push({
+    日期: '合计',
+    门店: '',
+    发票数: totalCount,
+    开票金额: totalAmount,
+    已收金额: totalPaid,
+    应收余额: totalAmount - totalPaid,
+    __isSummary: true,
+  })
+
+  return detailRows
 }
 
-/**
- * 拉取客户报表（从 customers 按注册月份汇总统计）
- * @param tenantId 租户 id
- */
-async function fetchCustomerReport(tenantId: string): Promise<DetailRow[]> {
-  const { data: customers, error } = await supabase
-    .from('customers')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .order('created_at', { ascending: false })
-
-  if (error) {
-    throw new Error(error.message)
-  }
-  if (!customers || customers.length === 0) {
-    return []
-  }
-
-  // 按注册月份分组统计
-  const monthMap = new Map<string, { month: string, new_customers: number }>()
-  for (const c of customers) {
-    const month = c.created_at?.slice(0, 7) ?? '-'
-    const existing = monthMap.get(month)
-    if (existing) {
-      existing.new_customers += 1
-    }
-    else {
-      monthMap.set(month, { month, new_customers: 1 })
-    }
-  }
-
-  // 同时查询宠物数
-  const { data: pets } = await supabase
-    .from('pets')
-    .select('id, customer_id')
-    .eq('tenant_id', tenantId)
-
-  const petsPerCustomer = new Map<string, number>()
-  for (const p of (pets ?? [])) {
-    petsPerCustomer.set(p.customer_id, (petsPerCustomer.get(p.customer_id) ?? 0) + 1)
-  }
-
-  return Array.from(monthMap.values())
-    .sort((a, b) => a.month.localeCompare(b.month))
-    .map(row => ({
-      ...row,
-      total_customers_with_pets: customers.filter(c => c.created_at?.startsWith(row.month) && petsPerCustomer.has(c.id)).length,
-    }))
-}
+// ============================================================
+// 退款报表(refund): 新增,查询 refunds 表+invoices refunded 状态
+// ============================================================
 
 /**
- * 拉取医疗报表（从 encounters 按日期汇总就诊统计）
+ * 拉取退款报表(从 refunds 表和 invoices refunded 状态合并)
+ * 列: 日期 / 退款笔数 / 退款总额 / 退款原因
+ * 含合计行
  * @param tenantId 租户 id
  */
-async function fetchMedicalReport(tenantId: string): Promise<DetailRow[]> {
-  const startDate = filters.value.periodStart
-    ? new Date(filters.value.periodStart).toISOString()
-    : new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
-  const endDate = filters.value.periodEnd
-    ? new Date(`${filters.value.periodEnd}T23:59:59`).toISOString()
-    : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59).toISOString()
+async function fetchRefundReport(tenantId: string): Promise<DetailRow[]> {
+  const { start, end } = getDateRange()
 
-  const { data, error } = await supabase
-    .from('encounters')
-    .select('*')
+  // 方案1: 优先从 refunds 表查询
+  const { data: refunds, error: refundErr } = await supabase
+    .from('refunds')
+    .select('id, amount, reason, created_at')
     .eq('tenant_id', tenantId)
-    .gte('created_at', startDate)
-    .lte('created_at', endDate)
+    .gte('created_at', start)
+    .lte('created_at', end)
     .order('created_at', { ascending: false })
 
-  if (error) {
-    throw new Error(error.message)
+  if (refundErr) {
+    throw new Error(refundErr.message)
+  }
+
+  // 方案2: 从 invoices 中筛选 status='refunded' 的记录作为补充
+  const { data: refundedInvs, error: invErr } = await supabase
+    .from('invoices')
+    .select('id, total, paid_amount, updated_at')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'refunded')
+    .gte('updated_at', start)
+    .lte('updated_at', end)
+    .order('updated_at', { ascending: false })
+
+  if (invErr) {
+    throw new Error(invErr.message)
   }
 
   // 按日期分组汇总
-  const dailyMap = new Map<string, { date: string, encounter_count: number, status_breakdown: Record<string, number> }>()
-  for (const enc of (data ?? [])) {
-    const date = enc.created_at?.slice(0, 10) ?? '-'
-    const status = enc.status ?? 'unknown'
+  const dailyMap = new Map<string, { date: string, refund_count: number, refund_amount: number, reasons: string[] }>()
+
+  // 处理 refunds 表数据
+  for (const r of (refunds ?? [])) {
+    const date = r.created_at?.slice(0, 10) ?? '-'
     const existing = dailyMap.get(date)
     if (existing) {
-      existing.encounter_count += 1
-      existing.status_breakdown[status] = (existing.status_breakdown[status] ?? 0) + 1
+      existing.refund_count += 1
+      existing.refund_amount += Number(r.amount ?? 0)
+      if (r.reason) {
+        existing.reasons.push(r.reason)
+      }
     }
     else {
       dailyMap.set(date, {
         date,
-        encounter_count: 1,
-        status_breakdown: { [status]: 1 },
+        refund_count: 1,
+        refund_amount: Number(r.amount ?? 0),
+        reasons: r.reason ? [r.reason] : [],
       })
     }
   }
 
-  return Array.from(dailyMap.values())
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .map(row => ({
-      date: row.date,
-      encounter_count: row.encounter_count,
-      draft: row.status_breakdown.draft ?? 0,
-      active: row.status_breakdown.active ?? 0,
-      completed: row.status_breakdown.completed ?? 0,
-    }))
+  // 处理 invoices refunded 数据(已通过 refunds 表体现的退款不重复计数,这里只作为兜底)
+  // 如果 refunds 表无数据但 invoices 有 refunded,说明是老数据未写入 refunds 表
+  const hasRefundRecords = (refunds ?? []).length > 0
+  if (!hasRefundRecords && (refundedInvs ?? []).length > 0) {
+    // 按 updated_at 日期归入
+    const invRefundReasons = new Map<string, { date: string, amount: number }>()
+    for (const inv of (refundedInvs ?? [])) {
+      const date = inv.updated_at?.slice(0, 10) ?? '-'
+      const k = `${date}_${inv.id}`
+      invRefundReasons.set(k, { date, amount: Number(inv.paid_amount ?? inv.total ?? 0) })
+    }
+    for (const [, v] of invRefundReasons) {
+      const existing = dailyMap.get(v.date)
+      if (existing) {
+        existing.refund_count += 1
+        existing.refund_amount += v.amount
+      }
+      else {
+        dailyMap.set(v.date, { date: v.date, refund_count: 1, refund_amount: v.amount, reasons: ['已退款(旧数据)'] })
+      }
+    }
+  }
+
+  const rows = Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date))
+
+  const detailRows: DetailRow[] = rows.map(r => ({
+    日期: r.date,
+    退款笔数: r.refund_count,
+    退款总额: r.refund_amount,
+    退款原因分类: r.reasons.length > 0 ? [...new Set(r.reasons)].slice(0, 3).join('; ') : '-',
+  }))
+
+  // 合计行
+  const totalCount = detailRows.reduce((s, r) => s + (r.退款笔数 as number), 0)
+  const totalAmount = detailRows.reduce((s, r) => s + (r.退款总额 as number), 0)
+  if (detailRows.length > 0) {
+    detailRows.push({
+      日期: '合计',
+      退款笔数: totalCount,
+      退款总额: totalAmount,
+      退款原因分类: '',
+      __isSummary: true,
+    })
+  }
+
+  return detailRows
+}
+
+// ============================================================
+// 库存报表(inventory): JOIN catalog_items + warehouses
+// ============================================================
+
+/**
+ * 拉取库存报表(从 inventory_balances JOIN catalog_items + warehouses)
+ * 列: 仓库 / 商品编码 / 名称 / 规格 / 单位 / 当前库存 / 预留数量 / 可用数量 / 成本单价 / 总成本价
+ * 按仓库分组,含合计行
+ * @param tenantId 租户 id
+ */
+async function fetchInventoryReport(tenantId: string): Promise<DetailRow[]> {
+  // 并行查询:库存余额 + 目录项 + 仓库
+  const [balRes, catRes, whRes] = await Promise.all([
+    supabase.from('inventory_balances').select('*').eq('tenant_id', tenantId).order('warehouse_id'),
+    supabase.from('catalog_items').select('id, code, name, description, unit, cost_price').eq('tenant_id', tenantId),
+    supabase.from('warehouses').select('id, name, code').eq('tenant_id', tenantId),
+  ])
+
+  if (balRes.error) {
+    throw new Error(balRes.error.message)
+  }
+  if (catRes.error) {
+    throw new Error(catRes.error.message)
+  }
+
+  const catalogMap = new Map<string, { code: string, name: string, description: string | null, unit: string | null, cost_price: number }>()
+  for (const c of (catRes.data ?? [])) {
+    catalogMap.set(c.id, { code: c.code, name: c.name, description: c.description, unit: c.unit, cost_price: Number(c.cost_price ?? 0) })
+  }
+
+  const warehouseMap = new Map<string, string>()
+  for (const w of (whRes.data ?? [])) {
+    warehouseMap.set(w.id, w.name ?? w.code ?? w.id.slice(0, 8))
+  }
+
+  const rows: DetailRow[] = []
+  for (const bal of (balRes.data ?? [])) {
+    const cat = catalogMap.get(bal.catalog_item_id)
+    const whName = warehouseMap.get(bal.warehouse_id) ?? (bal.warehouse_id?.slice(0, 8) ?? '未知')
+    const onHand = Number(bal.quantity_on_hand ?? 0)
+    const reserved = Number(bal.quantity_reserved ?? 0)
+    const costPrice = cat?.cost_price ?? 0
+    rows.push({
+      仓库: whName,
+      商品编码: cat?.code ?? '-',
+      名称: cat?.name ?? '-',
+      规格: cat?.description ?? '-',
+      单位: cat?.unit ?? '-',
+      当前库存: onHand,
+      预留数量: reserved,
+      可用数量: onHand - reserved,
+      成本单价: costPrice,
+      总成本价: onHand * costPrice,
+    })
+  }
+
+  // 按仓库排序
+  rows.sort((a, b) => String(a.仓库).localeCompare(String(b.仓库)) || String(a.商品编码).localeCompare(String(b.商品编码)))
+
+  // 合计行
+  if (rows.length > 0) {
+    const totalOnHand = rows.reduce((s, r) => s + (r.当前库存 as number), 0)
+    const totalReserved = rows.reduce((s, r) => s + (r.预留数量 as number), 0)
+    const totalCost = rows.reduce((s, r) => s + (r.总成本价 as number), 0)
+    rows.push({
+      仓库: '',
+      商品编码: '',
+      名称: '合计',
+      规格: '',
+      单位: '',
+      当前库存: totalOnHand,
+      预留数量: totalReserved,
+      可用数量: totalOnHand - totalReserved,
+      成本单价: 0,
+      总成本价: totalCost,
+      __isSummary: true,
+    })
+  }
+
+  return rows
+}
+
+// ============================================================
+// 客户报表(customer): 总客户/新增/活跃/分级/欠款
+// ============================================================
+
+/**
+ * 拉取客户报表(汇总统计)
+ * 列: 统计项 / 数值
+ * 增强:总客户数/本月新增/活跃客户(近30天就诊)/VIP分级/欠款客户
+ * @param tenantId 租户 id
+ */
+async function fetchCustomerReport(tenantId: string): Promise<DetailRow[]> {
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+  // 并行查询
+  const [custRes, encRes] = await Promise.all([
+    supabase.from('customers').select('id, member_level, balance, status, created_at').eq('tenant_id', tenantId),
+    supabase.from('encounters').select('customer_id').eq('tenant_id', tenantId).gte('created_at', thirtyDaysAgo),
+  ])
+
+  if (custRes.error) {
+    throw new Error(custRes.error.message)
+  }
+  if (encRes.error) {
+    throw new Error(encRes.error.message)
+  }
+
+  const customers = custRes.data ?? []
+
+  // 总客户数(排除 archived/merged)
+  const activeCustomers = customers.filter(c => c.status === 'active')
+  const totalCustomers = activeCustomers.length
+
+  // 本月新增
+  const newThisMonth = activeCustomers.filter(c => c.created_at && c.created_at >= monthStart).length
+
+  // 活跃客户(近30天有就诊)
+  const activeEncounterIds = new Set((encRes.data ?? []).map(e => e.customer_id))
+  const active30d = activeCustomers.filter(c => activeEncounterIds.has(c.id)).length
+
+  // 按会员等级统计
+  const levelCounts: Record<string, number> = { normal: 0, silver: 0, gold: 0, diamond: 0 }
+  for (const c of activeCustomers) {
+    const lv = c.member_level ?? 'normal'
+    levelCounts[lv] = (levelCounts[lv] ?? 0) + 1
+  }
+
+  // 欠款客户(unpaid balance > 0)
+  const unpaidCount = activeCustomers.filter(c => Number(c.balance ?? 0) > 0).length
+
+  // 有宠物的客户数
+  const custIds = activeCustomers.map(c => c.id)
+  let petOwnerCount = 0
+  if (custIds.length > 0) {
+    const { data: pets, error: petErr } = await supabase
+      .from('pets')
+      .select('customer_id')
+      .eq('tenant_id', tenantId)
+      .in('customer_id', custIds)
+    if (!petErr) {
+      petOwnerCount = new Set((pets ?? []).map(p => p.customer_id)).size
+    }
+  }
+
+  const rows: DetailRow[] = [
+    { 统计项: '总客户数', 数值: totalCustomers },
+    { 统计项: '本月新增', 数值: newThisMonth },
+    { 统计项: '活跃客户(近30天就诊)', 数值: active30d },
+    { 统计项: 'VIP银卡客户', 数值: levelCounts.silver ?? 0 },
+    { 统计项: 'VIP金卡客户', 数值: levelCounts.gold ?? 0 },
+    { 统计项: 'VIP钻石卡客户', 数值: levelCounts.diamond ?? 0 },
+    { 统计项: '普通客户', 数值: levelCounts.normal ?? 0 },
+    { 统计项: '欠款客户(balance>0)', 数值: unpaidCount },
+    { 统计项: '有宠物客户', 数值: petOwnerCount },
+  ]
+
+  return rows
+}
+
+// ============================================================
+// 医疗工作量报表(medical): 按日期+医生分组 + 处方/检验/疫苗 + 排名
+// ============================================================
+
+/**
+ * 拉取医疗工作量报表(按日期+医生分组统计)
+ * 列: 日期 / 医生 / 就诊数 / 处方数 / 检验数 / 疫苗数
+ * 按医生+日期分组,含合计行
+ * @param tenantId 租户 id
+ */
+async function fetchMedicalReport(tenantId: string): Promise<DetailRow[]> {
+  const { start, end } = getDateRange()
+
+  // 查询时间段内的就诊
+  const { data: encounters, error: encErr } = await supabase
+    .from('encounters')
+    .select('id, doctor_id, created_at')
+    .eq('tenant_id', tenantId)
+    .gte('created_at', start)
+    .lte('created_at', end)
+    .order('created_at', { ascending: false })
+
+  if (encErr) {
+    throw new Error(encErr.message)
+  }
+  if (!encounters || encounters.length === 0) {
+    return []
+  }
+
+  const encIds = encounters.map(e => e.id)
+
+  // 医生名称映射
+  const doctorIds = [...new Set(encounters.map(e => e.doctor_id).filter(Boolean))]
+  const doctorMap = new Map<string, string>()
+  if (doctorIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, display_name')
+      .in('id', doctorIds)
+    for (const p of (profiles ?? [])) {
+      doctorMap.set(p.id, p.display_name ?? p.id.slice(0, 8))
+    }
+  }
+
+  // 并行查询处方/检验/疫苗
+  const [presRes, labRes, vaccRes] = await Promise.all([
+    supabase.from('prescriptions').select('id, encounter_id').in('encounter_id', encIds),
+    supabase.from('lab_orders').select('id, encounter_id').in('encounter_id', encIds),
+    supabase.from('vaccinations').select('id, encounter_id').in('encounter_id', encIds),
+  ])
+
+  // 建立 encounter → 数量映射
+  const presCountMap = new Map<string, number>()
+  for (const p of (presRes.data ?? [])) {
+    presCountMap.set(p.encounter_id, (presCountMap.get(p.encounter_id) ?? 0) + 1)
+  }
+  const labCountMap = new Map<string, number>()
+  for (const l of (labRes.data ?? [])) {
+    labCountMap.set(l.encounter_id, (labCountMap.get(l.encounter_id) ?? 0) + 1)
+  }
+  const vaccCountMap = new Map<string, number>()
+  for (const v of (vaccRes.data ?? [])) {
+    vaccCountMap.set(v.encounter_id, (vaccCountMap.get(v.encounter_id) ?? 0) + 1)
+  }
+
+  // 按 日期+医生 分组
+  const groupKey = (date: string, doctorId: string | null) => `${date}||${doctorId ?? '__none__'}`
+  const groups = new Map<string, { date: string, doctor: string, encounter_count: number, prescription_count: number, lab_count: number, vaccine_count: number }>()
+
+  for (const enc of encounters) {
+    const date = enc.created_at?.slice(0, 10) ?? '-'
+    const doctor = doctorMap.get(enc.doctor_id) ?? (enc.doctor_id ? enc.doctor_id.slice(0, 8) : '未分配')
+    const k = groupKey(date, enc.doctor_id)
+    const existing = groups.get(k)
+    if (existing) {
+      existing.encounter_count += 1
+      existing.prescription_count += presCountMap.get(enc.id) ?? 0
+      existing.lab_count += labCountMap.get(enc.id) ?? 0
+      existing.vaccine_count += vaccCountMap.get(enc.id) ?? 0
+    }
+    else {
+      groups.set(k, {
+        date,
+        doctor,
+        encounter_count: 1,
+        prescription_count: presCountMap.get(enc.id) ?? 0,
+        lab_count: labCountMap.get(enc.id) ?? 0,
+        vaccine_count: vaccCountMap.get(enc.id) ?? 0,
+      })
+    }
+  }
+
+  const rows = Array.from(groups.values()).sort((a, b) => a.date.localeCompare(b.date) || a.doctor.localeCompare(b.doctor))
+
+  const detailRows: DetailRow[] = rows.map((r, idx) => ({
+    排名: idx + 1,
+    日期: r.date,
+    医生: r.doctor,
+    就诊数: r.encounter_count,
+    处方数: r.prescription_count,
+    检验数: r.lab_count,
+    疫苗数: r.vaccine_count,
+  }))
+
+  // 合计行
+  if (detailRows.length > 0) {
+    const totalEnc = detailRows.reduce((s, r) => s + (r.就诊数 as number), 0)
+    const totalPres = detailRows.reduce((s, r) => s + (r.处方数 as number), 0)
+    const totalLab = detailRows.reduce((s, r) => s + (r.检验数 as number), 0)
+    const totalVacc = detailRows.reduce((s, r) => s + (r.疫苗数 as number), 0)
+    detailRows.push({
+      排名: 0,
+      日期: '',
+      医生: '合计',
+      就诊数: totalEnc,
+      处方数: totalPres,
+      检验数: totalLab,
+      疫苗数: totalVacc,
+      __isSummary: true,
+    })
+  }
+
+  return detailRows
 }
 
 // ============================================================
@@ -642,6 +981,7 @@ const reportOptions = computed(() => [
                     :options="[
                       { label: '全部', value: '' },
                       { label: '收入', value: 'revenue' },
+                      { label: '退款', value: 'refund' },
                       { label: '库存', value: 'inventory' },
                       { label: '客户', value: 'customer' },
                       { label: '医疗', value: 'medical' },

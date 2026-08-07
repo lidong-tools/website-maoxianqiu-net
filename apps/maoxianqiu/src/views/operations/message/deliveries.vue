@@ -33,6 +33,10 @@ const loading = ref(false)
 const dataList = ref<DeliveryRow[]>([])
 /** 是否为 Mock 模式 */
 const isMock = ref(false)
+/** 是否为生产环境 Mock 模式（消息功能完全禁用） */
+const isProdMock = computed(() => isMock.value && import.meta.env.PROD)
+/** 是否为开发环境 Mock 模式 */
+const isDevMock = computed(() => isMock.value && !import.meta.env.PROD)
 
 /** 状态筛选选项 */
 const statusOptions = [
@@ -152,12 +156,16 @@ const tableColumns = computed<TableColumn<DeliveryRow>[]>(() => [
 ])
 
 /**
- * 触发发送(走 Mock Provider)
+ * 触发发送
  */
 function triggerSend(row: DeliveryRow) {
+  if (isProdMock.value) {
+    useFaToast().error('生产环境未配置消息供应商，无法发送')
+    return
+  }
   sendingId.value = row.id
   apiOperations.sendDelivery(row.id).then(() => {
-    useFaToast().success(isMock.value ? 'Mock 发送已标记为成功' : '发送已触发')
+    useFaToast().success(isDevMock.value ? 'Mock 发送已标记为成功' : '发送已触发')
     getDataList()
   }).catch(() => {
     useFaToast().error('发送失败')
@@ -172,15 +180,22 @@ function triggerSend(row: DeliveryRow) {
   <div>
     <FaPageHeader title="消息投递记录" class="mb-0">
       <template #description>
-        消息发送投递记录；当前使用 Mock Provider，仅开发环境可用
+        消息发送投递记录{{ isDevMock ? '；当前使用 Mock Provider，仅开发环境可用' : '' }}
       </template>
     </FaPageHeader>
     <FaPageMain>
-      <!-- Mock 模式提示横幅 -->
-      <div v-if="isMock" class="mock-banner">
+      <!-- Mock 模式提示横幅：生产环境红色/橙色，开发环境黄色 -->
+      <div v-if="isProdMock" class="mock-banner mock-banner--prod">
+        <FaIcon name="i-ri:error-warning-line" class="mock-banner-icon" />
+        <span>
+          <strong>未配置消息供应商 — 消息功能已禁用。</strong>
+          请在环境变量中设置 VITE_MESSAGE_PROVIDER=real 并配置后端供应商后启用。
+        </span>
+      </div>
+      <div v-else-if="isDevMock" class="mock-banner mock-banner--dev">
         <FaIcon name="i-ri:alert-line" class="mock-banner-icon" />
         <span>
-          <strong>当前消息服务使用 Mock Provider，仅开发环境可用。</strong>
+          <strong>Mock Provider，仅开发环境可用。</strong>
           正式上线前需配置真实消息供应商（如阿里云短信、SendGrid 邮件等）。
         </span>
       </div>
@@ -218,15 +233,30 @@ function triggerSend(row: DeliveryRow) {
       >
         <template #cell-operation="{ row }">
           <div class="flex-center gap-2">
-            <FaButton
-              variant="outline"
-              size="icon-sm"
-              :loading="sendingId === row.id"
-              :disabled="row.status !== 'queued' && row.status !== 'failed' && row.status !== 'retry'"
-              @click="triggerSend(row)"
+            <FaTooltip
+              v-if="isProdMock"
+              content="生产环境未配置消息供应商，无法发送"
             >
-              <FaIcon name="i-ri:send-plane-line" />
-            </FaButton>
+              <FaButton
+                variant="outline"
+                size="icon-sm"
+                disabled
+              >
+                <FaIcon name="i-ri:send-plane-line" />
+              </FaButton>
+            </FaTooltip>
+            <template v-else>
+              <FaButton
+                variant="outline"
+                size="icon-sm"
+                :loading="sendingId === row.id"
+                :disabled="row.status !== 'queued' && row.status !== 'failed' && row.status !== 'retry'"
+                @click="triggerSend(row)"
+              >
+                <FaIcon name="i-ri:send-plane-line" />
+              </FaButton>
+              <span v-if="isDevMock" class="mock-tag">Mock 模式</span>
+            </template>
           </div>
         </template>
       </FaTable>
@@ -242,14 +272,36 @@ function triggerSend(row: DeliveryRow) {
   padding: 12px 16px;
   margin-bottom: 16px;
   font-size: 14px;
+  border-radius: 8px;
+}
+
+.mock-banner--dev {
   color: #92400e;
   background: #fef3c7;
   border: 1px solid #f59e0b;
-  border-radius: 8px;
+}
+
+.mock-banner--prod {
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px solid #ef4444;
 }
 
 .mock-banner-icon {
   flex-shrink: 0;
   font-size: 18px;
+}
+
+.mock-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 20px;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 4px;
+  white-space: nowrap;
 }
 </style>

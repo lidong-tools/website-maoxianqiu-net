@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { EncounterRecord, EncounterRevisionRecord, PrescriptionItemInput, PrescriptionRecord } from '@/types/clinical'
 import apiClinical from '@/api/modules/clinical'
+import BusinessEmployeePicker from '@/components/business/EmployeePicker/index.vue'
 import { ENCOUNTER_STATUS_COLORS, ENCOUNTER_STATUS_LABELS, PRESCRIPTION_STATUS_LABELS } from '@/types/clinical'
 
 defineOptions({
@@ -342,9 +343,8 @@ onMounted(loadData)
         <p class="text-sm text-gray-600">
           签署后病历将变为终态,不可直接修改,如需修改请使用修订功能。
         </p>
-        <!-- TODO: 待替换为 EmployeePicker / StaffPicker 组件，当前暂用手动输入 -->
         <FaLabel label="医生 ID">
-          <FaInput v-model="signDoctorId" placeholder="当前主治医生 ID" class="w-full" />
+          <BusinessEmployeePicker v-model="signDoctorId" placeholder="选择主治医生" />
         </FaLabel>
       </div>
     </FaModal>

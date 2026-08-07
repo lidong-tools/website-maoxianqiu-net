@@ -58,8 +58,7 @@ function handleLogin() {
   <div class="login-box" :class="layoutAlign">
     <div class="login-banner">
       <img src="@/assets/images/logo.svg" class="rounded h-8 inset-s-4 inset-t-4 absolute">
-      <!-- TODO: 替换为毛线球专属 banner 图片 -->
-      <img src="@/assets/images/login-banner.png" class="banner">
+      <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=A%20warm%20and%20professional%20veterinary%20hospital%20scene%20with%20a%20soft%20teal%20and%20white%20color%20scheme%2C%20featuring%20a%20stethoscope%2C%20a%20cute%20cat%20and%20dog%20silhouette%2C%20medical%20cross%20icon%2C%20clean%20modern%20design%20suitable%20for%20a%20SaaS%20login%20page%20background%2C%20no%20text&image_size=portrait_16_9" class="banner">
       <AppCopyright v-if="appSettingsStore.mode === 'pc' && ['left', 'right'].includes(layoutAlign)" class="w-full bottom-0 absolute" />
     </div>
     <div class="login-form flex-col-center">

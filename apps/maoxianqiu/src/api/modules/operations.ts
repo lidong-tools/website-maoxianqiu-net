@@ -37,7 +37,7 @@ import api from '../index'
  * 正式上线配置真实供应商后返回 false
  */
 export function isMockProvider(): boolean {
-  /** 开发环境默认使用 Mock Provider；可通过 VITE_MESSAGE_PROVIDER 环境变量显式指定 */
+  /** 通过 VITE_MESSAGE_PROVIDER 环境变量显式指定消息供应商；未配置或为 mock 时回退到 mock 模式 */
   const provider = import.meta.env.VITE_MESSAGE_PROVIDER as string | undefined
   if (provider === 'real') {
     return false
@@ -45,8 +45,9 @@ export function isMockProvider(): boolean {
   if (provider === 'mock') {
     return true
   }
-  /** 未配置时，开发环境默认 mock */
-  return !!import.meta.env.DEV
+  /** 未配置真实供应商时，所有环境均回退 mock 模式；
+   *  生产环境中此行为会导致 sendDelivery 拒绝执行 */
+  return true
 }
 
 export default {
@@ -247,8 +248,8 @@ export default {
   // ===== MXQ-12005 发送适配器 =====
 
   /**
-   * 查询发送任务列表(浏览器直连,RLS 兜底)。
-   * @param params - 查询参数(tenantId/status/channel/from/limit)
+   * 查询发送任务列表(浏览器直连,RLS 兜底)
+   * 支持按状态和渠道筛选
    */
   async listDeliveries(params: {
     tenantId: string
@@ -281,19 +282,28 @@ export default {
    * 触发发送(MXQ-12005)
    *
    * ⚠️ 当前使用 Mock Provider:
-   *   - 走 Hono Command + send_delivery RPC
-   *   - RPC 内部仅将 delivery 状态标记为 sent,不会实际发送消息
+   *   - 开发环境: 走 Hono Command + send_delivery RPC，仅标记 sent
+   *   - 生产环境: 拒绝执行，直接抛错
    *   - 正式上线前需在后端配置真实消息供应商
    *   - 前端可调用 isMockProvider() 获取当前是否为 Mock 模式
    *
    * @param deliveryId 投递记录 id
-   * @returns 发送结果(状态标记)
+   * @returns 发送结果(状态标记，mock 模式下附带 mock: true)
    */
   sendDelivery(deliveryId: string) {
-    /** 发送前检查 provider 配置,记录 Mock 标记到调用方 */
+    /** 检查 provider 配置 */
     if (isMockProvider()) {
-      console.warn(`[operations] sendDelivery(${deliveryId}): 当前使用 Mock Provider,消息不会实际发送`)
+      /** 生产环境 mock 模式：拒绝执行，不调用 RPC */
+      if (import.meta.env.PROD) {
+        return Promise.reject(new Error('生产环境未配置消息供应商，无法发送消息'))
+      }
+      /** 开发环境 mock 模式：允许执行但输出警告 */
+      console.warn(`[operations] sendDelivery(${deliveryId}): 当前使用 Mock Provider，消息不会实际发送`)
+      return api.post(`operations/deliveries/${deliveryId}/send`, {}).then((res) => {
+        return { ...(res as any), mock: true }
+      })
     }
+    /** 真实供应商模式：正常发送 */
     return api.post(`operations/deliveries/${deliveryId}/send`, {})
   },
 

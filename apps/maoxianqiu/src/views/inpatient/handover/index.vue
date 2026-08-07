@@ -2,6 +2,7 @@
 import type { TableColumn } from '@fantastic-admin/components'
 import type { ShiftHandover, ShiftType } from '@/types/inpatient'
 import apiInpatient from '@/api/modules/inpatient'
+import BusinessEmployeePicker from '@/components/business/EmployeePicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { SHIFT_TYPE_LABELS } from '@/types/inpatient'
 
@@ -202,20 +203,10 @@ onMounted(async () => {
             />
           </FaLabel>
           <FaLabel label="交班人 ID">
-            <!-- TODO: 替换为 EmployeePicker/StaffPicker -->
-            <FaInput
-              v-model="form.outgoingUser"
-              placeholder="员工 UUID"
-              class="w-full"
-            />
+            <BusinessEmployeePicker v-model="form.outgoingUser" placeholder="搜索选择交班员工" />
           </FaLabel>
           <FaLabel label="接班人 ID">
-            <!-- TODO: 替换为 EmployeePicker/StaffPicker -->
-            <FaInput
-              v-model="form.incomingUser"
-              placeholder="员工 UUID"
-              class="w-full"
-            />
+            <BusinessEmployeePicker v-model="form.incomingUser" placeholder="搜索选择接班员工" />
           </FaLabel>
           <FaLabel label="交接内容(JSON 或文本)" class="md:col-span-3">
             <FaTextarea

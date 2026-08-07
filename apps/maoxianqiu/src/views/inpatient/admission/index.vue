@@ -2,6 +2,7 @@
 import type { TableColumn } from '@fantastic-admin/components'
 import type { Admission, Cage, Room } from '@/types/inpatient'
 import apiInpatient, { generateIdempotencyKey } from '@/api/modules/inpatient'
+import BusinessEmployeePicker from '@/components/business/EmployeePicker/index.vue'
 import CustomerPicker from '@/components/business/CustomerPicker/index.vue'
 import PetPicker from '@/components/business/PetPicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
@@ -286,12 +287,7 @@ onMounted(async () => {
             <PetPicker v-model="admitForm.petId" :customer-id="admitForm.customerId" placeholder="搜索选择宠物" />
           </FaLabel>
           <FaLabel label="主治医生 ID(可选)">
-            <!-- TODO: 替换为 EmployeePicker/StaffPicker -->
-            <FaInput
-              v-model="admitForm.doctorId"
-              placeholder="医生 UUID"
-              class="w-full"
-            />
+            <BusinessEmployeePicker v-model="admitForm.doctorId" placeholder="搜索选择医生" />
           </FaLabel>
           <FaLabel label="选择笼位">
             <FaSelect v-model="admitForm.cageId" placeholder="请选择可用笼位" class="w-full" :options="cages.map(c => ({ label: `${c.name} (${c.code}) - ¥${c.daily_rate}/日`, value: c.id }))" />

@@ -2,7 +2,8 @@
 import type { TableColumn } from '@fantastic-admin/components'
 import type { NursingPlan, NursingTask, NursingTaskStatus } from '@/types/inpatient'
 import apiInpatient from '@/api/modules/inpatient'
-import EncounterPicker from '@/components/business/EncounterPicker/index.vue'
+import BusinessAdmissionPicker from '@/components/business/AdmissionPicker/index.vue'
+import BusinessEmployeePicker from '@/components/business/EmployeePicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import {
   NURSING_FREQUENCY_LABELS,
@@ -283,7 +284,7 @@ onMounted(() => {
       <div class="mb-4 p-4 border rounded-lg bg-muted/30">
         <div class="gap-3 grid grid-cols-1 items-end md:grid-cols-3">
           <FaLabel label="住院 ID">
-            <EncounterPicker v-model="selectedAdmissionId" placeholder="搜索选择就诊记录" />
+            <BusinessAdmissionPicker v-model="selectedAdmissionId" placeholder="搜索选择住院记录" />
           </FaLabel>
           <div class="flex gap-2">
             <FaButton type="primary" @click="loadData">
@@ -356,8 +357,7 @@ onMounted(() => {
               <FaInput v-model="newTask.scheduledAt" type="datetime-local" class="w-full" />
             </FaLabel>
             <FaLabel label="负责人 ID(可选)">
-              <!-- TODO: 替换为 EmployeePicker/StaffPicker -->
-              <FaInput v-model="newTask.assignedTo" placeholder="员工 UUID" class="w-full" />
+              <BusinessEmployeePicker v-model="newTask.assignedTo" placeholder="搜索选择员工" />
             </FaLabel>
             <FaLabel label="描述">
               <FaInput v-model="newTask.description" placeholder="任务描述" class="w-full" />

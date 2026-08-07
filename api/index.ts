@@ -1,5 +1,7 @@
 import type { AppEnv } from './lib/types'
+import { readFileSync } from 'node:fs'
 import process from 'node:process'
+import { execSync } from 'node:child_process'
 import { Hono } from 'hono'
 import { handle } from 'hono/vercel'
 import { fail, failError, ok } from './lib/result'
@@ -23,13 +25,49 @@ import userRoutes from './routes/user'
 
 export const runtime = 'nodejs'
 
+// 部署元数据：模块加载时一次性计算
+const buildTime = new Date().toISOString()
+
+const appVersion: string = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync('apps/maoxianqiu/package.json', 'utf-8'))
+    return pkg.version ?? '0.0.0'
+  }
+  catch {
+    return '0.0.0'
+  }
+})()
+
+const commitSha: string = (() => {
+  // Vercel 部署环境中自动注入此变量
+  const vercelSha = process.env.VERCEL_GIT_COMMIT_SHA
+  if (vercelSha) {
+    return vercelSha
+  }
+  try {
+    return execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim()
+  }
+  catch {
+    return 'unknown'
+  }
+})()
+
+const env: string = process.env.VERCEL_ENV || process.env.NODE_ENV || 'development'
+
 export const app = new Hono<AppEnv>().basePath('/api')
 
 // API Foundation 全局中间件
 app.use('*', requestIdMiddleware())
 
 app.get('/health', (c) => {
-  return ok(c, { ok: true, uptime: process.uptime() })
+  return ok(c, {
+    ok: true,
+    uptime: process.uptime(),
+    commitSha,
+    buildTime,
+    environment: env,
+    appVersion,
+  })
 })
 
 // 仅保留无法浏览器直连的服务端操作

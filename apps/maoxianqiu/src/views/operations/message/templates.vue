@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
 import type { MessageChannel } from '@/types/operations'
-import apiOperations from '@/api/modules/operations'
+import apiOperations, { isMockProvider } from '@/api/modules/operations'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import {
   MEMBERSHIP_CHANNEL_LABELS,
@@ -29,6 +29,10 @@ interface TemplateRow {
 const tenantStore = useAppTenantStore()
 const loading = ref(false)
 const dataList = ref<TemplateRow[]>([])
+/** 是否为 Mock 模式 */
+const isMock = ref(false)
+/** 是否为生产环境 Mock 模式 */
+const isProdMock = computed(() => isMock.value && import.meta.env.PROD)
 
 /** 渠道筛选选项 */
 const channelOptions = [
@@ -79,6 +83,7 @@ function getDataList() {
 }
 
 onMounted(() => {
+  isMock.value = isMockProvider()
   getDataList()
 })
 
@@ -248,6 +253,15 @@ function toggleActive(row: TemplateRow) {
       </template>
     </FaPageHeader>
     <FaPageMain>
+      <!-- 生产环境 Mock 模式：红色警告横幅 -->
+      <div v-if="isProdMock" class="mock-banner">
+        <FaIcon name="i-ri:error-warning-line" class="mock-banner-icon" />
+        <span>
+          <strong>未配置消息供应商 — 消息功能已禁用。</strong>
+          请在环境变量中设置 VITE_MESSAGE_PROVIDER=real 并配置后端供应商后启用。
+        </span>
+      </div>
+
       <FaSearchBar :show-toggle="false">
         <template #default>
           <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
@@ -349,3 +363,23 @@ function toggleActive(row: TemplateRow) {
     </FaPageMain>
   </div>
 </template>
+
+<style scoped>
+.mock-banner {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px solid #ef4444;
+  border-radius: 8px;
+}
+
+.mock-banner-icon {
+  flex-shrink: 0;
+  font-size: 18px;
+}
+</style>
