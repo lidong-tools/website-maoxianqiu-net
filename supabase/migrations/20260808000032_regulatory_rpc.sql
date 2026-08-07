@@ -28,7 +28,7 @@ create or replace function public.save_institution_license(
   p_tenant_id uuid,
   p_store_id uuid,
   p_license_id uuid default null,
-  p_license_no text,
+  p_license_no text default null,
   p_issuing_authority text default null,
   p_diagnosis_scope text default null,
   p_issued_at date default null,
@@ -307,10 +307,22 @@ begin
     v_doctors := null;
   end;
 
+  -- 有效执业兽医数量:store-scoped + 时间有效性(FINAL-02)
+  --     veterinarian_registrations(tenant/employee/status/valid_from/valid_until)
+  --     + employee_store_assignments(employee -> store, starts_at/ends_at) 收敛到目标门店
+  --     仅统计:租户一致 + 门店一致 + 备案 active + 备案在有效期内 + 门店分配在有效期内
   begin
-    select count(*) into v_vets
-    from public.veterinarian_registrations
-    where tenant_id = p_tenant_id and status = 'active';
+    select count(distinct vr.employee_id) into v_vets
+    from public.veterinarian_registrations vr
+    join public.employee_store_assignments esa
+      on esa.tenant_id = vr.tenant_id and esa.employee_id = vr.employee_id
+    where vr.tenant_id = p_tenant_id
+      and esa.store_id = p_store_id
+      and vr.status = 'active'
+      and vr.valid_from <= (now() at time zone 'Asia/Shanghai')::date
+      and (vr.valid_until is null or vr.valid_until >= (now() at time zone 'Asia/Shanghai')::date)
+      and (esa.starts_at is null or esa.starts_at <= now())
+      and (esa.ends_at is null or esa.ends_at > now());
   exception when others then
     v_vets := null;
   end;
@@ -486,7 +498,7 @@ create or replace function public.save_epidemic_event(
   p_customer_id uuid default null,
   p_pet_id uuid default null,
   p_encounter_id uuid default null,
-  p_suspected_disease text,
+  p_suspected_disease text default null,
   p_detected_at timestamptz default null,
   p_isolation_required boolean default false,
   p_treatment_restricted boolean default false,
@@ -704,7 +716,7 @@ create or replace function public.save_waste_record(
   p_tenant_id uuid,
   p_store_id uuid,
   p_record_id uuid default null,
-  p_waste_type text,
+  p_waste_type text default null,
   p_quantity numeric default 1,
   p_unit text default null,
   p_generated_at timestamptz default null,

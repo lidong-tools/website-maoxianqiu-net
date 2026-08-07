@@ -22,6 +22,7 @@
 | S3.0 | Stage02 审计收口 | ✅ 完成 | AUD-001~011 全部落地（明细见下文「S3.0 审计收口」） |
 | S3.0-R | 定向复审收口 | ✅ 代码完成 / ⏳ 待 staging 执行 | S30-R01~R07 全部落地（明细见下文「S3.0 定向复审（S30-R01~R07）」） |
 | S3.0-F | S30-F01~F04 复审收口 | ✅ code_complete / ⏳ integration_pending（待 staging 验证） | 平台管理员独立模型 + RPC 默认拒绝（全量 revoke + manifest CI 规则）+ rpc_security.sql 独立可执行 + 文档证据（明细见下文「S3.0 复审（S30-F01~F04）」） |
+| S31-MERGE-FINAL | 合并批次最终收尾 | ✅ code_complete / ⏳ runtime integration_pending | FINAL-01~04 全部落地（明细见下文「S31-MERGE-FINAL 合并收尾」） |
 
 ## 已交付任务明细
 
@@ -240,6 +241,64 @@
 - 每个 DO 块开头 `execute 'reset role'` 规避 SET LOCAL 跨块持久化。
 - S30-FINAL 修复：P5 legacy fixture 使用用户 `...00bb`，但 `store_members.user_id references auth.users(id)`，缺 auth.users 会致 FK 失败；现先 `insert into auth.users(...00bb)` 再插入 legacy store_members，保证 `psql "$DATABASE_URL" -f supabase/tests/rpc_security.sql` 可从空库独立运行。
 
+## S31-MERGE-FINAL 合并收尾
+
+> 依据：`document/stage-03/sprint/毛线球-S31-MERGE-FINAL-单人收尾执行文档.md`。
+> 本轮仅收尾、不扩功能：FINAL-01~04 全部落地；未在 staging 真实执行，一律标注 runtime integration_pending。
+
+**当前状态（完成后）：**
+
+```text
+S3.1 Sprint 1            = code_complete / runtime integration_pending
+S3.1-PARALLEL-01         = code_complete / runtime integration_pending
+Stage-03 当前合并批次     = code_complete / runtime integration_pending
+```
+
+| F | 内容 | 状态 | 说明 |
+| --- | --- | --- | --- |
+| FINAL-01 | migration 32/34 函数签名 | ✅ 完成 | 修 3 个 PostgreSQL 非法签名（DEFAULT 后接无 DEFAULT 的 input 参数）：`save_institution_license.p_license_no` / `save_epidemic_event.p_suspected_disease` / `save_waste_record.p_waste_type` 全部补 `default null`；函数内部 LICENSE_NO_REQUIRED / SUSPECTED_DISEASE_REQUIRED / WASTE_TYPE_REQUIRED 业务校验保留；migration 32 与 34 最终函数签名一致 |
+| FINAL-02 | annual report vet count 时间/门店边界 | ✅ 完成 | `generate_regulatory_report` 执业兽医数补时间有效性：`vr.valid_from <= 今天`、`vr.valid_until >= 今天`、`esa.starts_at <= now`、`esa.ends_at > now`；保留 `vr.status='active'` 与 store-scoped 口径；migration 32 与 34 统计口径一致 |
+| FINAL-03 | can_access_store store↔tenant 自校验 | ✅ 完成 | migration 33 最外层补 `exists(store.id=p_store_id AND store.tenant_id=p_tenant_id)`；store 不存在或跨租户一律 false；tenant_owner 仍可访问本租户全部合法门店（无需逐店分配）；store_manager 仍仅限授权门店；`permission_integration_s3_1.sql` 新增 3 条回归断言（owner+跨租户 store / 不存在 store / manager+跨租户 store 均 FAIL） |
+| FINAL-04 | current docs + 构建证据 | ✅ 完成 | 重跑 check:rpc-manifest / lint / typecheck / build 并保留原始输出；RPC 数量按当前最终源码重新统计（见下） |
+
+### FINAL-04 RPC 数量（当前最终源码实际输出）
+
+- api/routes `service.rpc()` 调用：**72 处**（`check:rpc-manifest` 实际输出）
+- Hono route unique RPC：**67 个**（脚本实测去重）
+- service-role-only manifest：**72 个**（`SERVICE_ROLE_ONLY_RPC`）
+- 未在 routes 直接调用的 manifest 函数：**5 个**（archive_encounter / archive_admission / generate_customer_no / generate_invoice_no / update_import_job，由 migration revoke 兜底）
+- missing RPC 数：**0**（`check:rpc-manifest` 结果 PASS）
+
+### FINAL-04 构建校验（原始输出摘要）
+
+```text
+pnpm check:rpc-manifest
+  [check:rpc-manifest] OK: api/routes 中 72 处 service.rpc() 调用全部属于 manifest(72 个函数)
+  [check:rpc-manifest] OK: manifest 全部 72 个函数均已纳入 migrations revoke(public/anon/authenticated) + grant service_role
+  [check:rpc-manifest] 结果:PASS
+
+pnpm lint
+  lint:tsc     → pnpm --filter './apps/*' -r run lint（vue-tsc -b）全部 Done（含 apps/maoxianqiu）
+  lint:eslint  → 0 errors / 7 warnings（api/routes/operations.ts 既有 JSDoc @param 提示，非本次改动；
+                 首次运行 eslint 进程在 Windows 以 0xC0000005 崩溃为瞬时环境问题，重跑 exit 0）
+  lint:stylelint → 通过（exit 0）
+
+typecheck（monorepo 无 root typecheck，按真实 script 执行）
+  api       : pnpm exec tsc --noEmit -p api/tsconfig.json    → PASS
+  e2e       : pnpm exec tsc --noEmit -p e2e/tsconfig.json   → PASS
+  frontend  : vue-tsc -b（lint:tsc 内）                       → PASS
+
+build
+  pnpm --filter @fantastic-admin/maoxianqiu build（vue-tsc -b && vite build）→ ✓ built in 31.07s
+  （仅 chunk > 500 kB 提示，非阻断）
+```
+
+### FINAL-04 migration 历史说明
+
+- migration 31/32（以及 33/34）尚未应用于任何共享开发数据库、staging 或 production；本轮直接修正尚未发布的 migration 32/33/34 属允许范围，不做 fix-forward。
+- SQL 测试静态确认（runtime 真实执行依赖 staging）：`permission_integration_s3_1.sql` / `regulatory_s3_1.sql` / `compliance_s3_1.sql` / `rpc_security.sql` 均为合法 UUID、正确 auth.user / employee ID 语义、函数签名与最终实现一致、无旧 RPC 参数、无旧状态机断言。
+- runtime（migration 01→latest / RLS / SQL tests / E2E）真实执行 = **integration_pending**。
+
 ## 基线 / 验证说明
 
 - API 目录 `api/`：`tsc --noEmit` 通过。
@@ -253,6 +312,7 @@
 
 | 日期 | 更新内容 |
 | --- | --- |
+| 2026-08-08 | S31-MERGE-FINAL 合并收尾：FINAL-01 修 migration 32/34 函数签名（3 个 DEFAULT 后无默认参数补 default null）；FINAL-02 generate_regulatory_report 兽医数补门店+时间边界（valid_from/valid_until/starts_at/ends_at）；FINAL-03 can_access_store 补 store↔tenant 自校验（跨租户/不存在一律 false）+ 3 条回归断言；FINAL-04 统一 current docs + 重跑 check:rpc-manifest（PASS 72/72/missing 0）/ lint / typecheck / build（✓ 31.07s）；同步 KNOWN_GAPS / RELEASE_CHECKLIST |
 | 2026-08-08 | S30-FINAL 收口：修复 rpc_security.sql P5 legacy fixture（先建 auth.users ...00bb 再插 store_members，可独立执行）；统一 RPC 数量口径（59 处 / 52 个 / 55 个 / 3 个 / 55 个函数名，不再写 58）；S3.0 状态标注 code_complete（runtime = integration_pending），待 staging 验证后方可 verified |
 | 2026-08-08 | S3.0 复审（S30-F01~F04）：平台管理员独立模型（platform_user_roles + is_system_admin 独立来源 + ERA 禁 system role + UI 隐藏 + legacy 不升级）、RPC 默认拒绝（补齐 11 个 + 审计 3 个 + manifest CI 规则）、rpc_security.sql 独立可执行、文档证据；同步 KNOWN_GAPS / RELEASE_CHECKLIST |
 | 2026-08-07 | S3.0 定向复审：记录 S30-R01~R07 落地明细（migration 26 / permission.ts / RPC 收紧 / id 语义 / E2E UI / Picker 清场 / 文档），同步 KNOWN_GAPS / RELEASE_CHECKLIST / Stage-03 v1.1 |

@@ -32,6 +32,7 @@
 | 多角色授权矩阵 | 仅 platform_admin 实测，store_manager / doctor / nurse 未逐角色验证；scoped permission（store→tenant 禁止）未在 staging 执行 | P0-01/P0-02 / S30-R01 |
 | R2 文件签名下载 | 新文件模型仅在开发环境验证 | P0-03 |
 | 报表口径核对 | report-data 聚合结果与账目核对未做 | P0-06 |
+| 监管 RPC 与门店权限自校验（migration 31~34） | migration 31~34 未进入任何共享环境：save_institution_license / save_epidemic_event / save_waste_record 函数签名（DEFAULT 后无无默认参数）、generate_regulatory_report 兽医数（门店+时间有效性边界）、can_access_store store↔tenant 自校验，待 staging 空库/旧库升级 + SQL tests 验证 | S31-MERGE-FINAL |
 
 ## 已关闭缺口
 

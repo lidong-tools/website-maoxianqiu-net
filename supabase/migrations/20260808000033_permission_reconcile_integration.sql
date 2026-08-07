@@ -60,7 +60,8 @@ where code = 'tenant_owner' and is_system = true;
 
 -- ============================================================
 -- 2. A02:can_access_store tenant-wide semantics 重定义
---    判定:platform admin OR 合法 tenant-wide role OR 目标门店分配
+--    判定:目标 store 真实属于目标 tenant(FINAL-03 最外层安全前提)
+--        AND (platform admin OR 合法 tenant-wide role OR 目标门店分配)
 -- ============================================================
 create or replace function public.can_access_store(p_tenant_id uuid, p_store_id uuid)
 returns boolean
@@ -69,7 +70,16 @@ stable
 security definer
 set search_path = public
 as $$
-  select public.is_system_admin()
+  select exists (
+    -- FINAL-03:目标 store 必须真实存在且属于目标 tenant;
+    -- 不存在或跨租户则一律 false(防止传 p_tenant_id 伪造归属)
+    select 1
+    from public.stores s
+    where s.id = p_store_id
+      and s.tenant_id = p_tenant_id
+  )
+  and (
+    public.is_system_admin()
     or exists (
       -- 合法 tenant-wide role:role.scope = tenant 且租户级分配(store_id IS NULL)
       -- era.tenant_id 限定目标租户,杜绝 tenant A role 越权访问 tenant B
@@ -93,7 +103,8 @@ as $$
         and e.user_id = auth.uid()
         and e.status = 'active'
         and (esa.ends_at is null or esa.ends_at > now())
-    );
+    )
+  );
 $$;
 
 -- 权限收紧与 migration 10 保持一致:仅 authenticated 可调用(RLS 内联调用)

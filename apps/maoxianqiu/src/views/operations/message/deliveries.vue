@@ -299,9 +299,9 @@ function triggerSend(row: DeliveryRow) {
   font-size: 12px;
   line-height: 20px;
   color: #92400e;
+  white-space: nowrap;
   background: #fef3c7;
   border: 1px solid #f59e0b;
   border-radius: 4px;
-  white-space: nowrap;
 }
 </style>

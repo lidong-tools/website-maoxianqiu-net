@@ -122,6 +122,15 @@ begin
   perform tests.assert_true(
     not public.can_access_store('f0000000-0000-0000-0000-000000000002', 'f0000000-0000-0000-0000-0000000000b1'),
     'P1: tenant A owner 不应访问租户 B 门店(跨租户隔离)');
+  -- FINAL-03:store↔tenant 自校验(目标 store 必须真实属于目标 tenant)
+  -- tenant A owner + 传 p_tenant_id = A 但目标门店属租户 B → FAIL
+  perform tests.assert_true(
+    not public.can_access_store('f0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-0000000000b1'),
+    'P1: tenant A owner + p_tenant_id=A + 目标门店属租户 B 应 FAIL(store↔tenant 自校验)');
+  -- 目标 store 不存在 → FAIL
+  perform tests.assert_true(
+    not public.can_access_store('f0000000-0000-0000-0000-000000000001', 'ffffffff-0000-0000-0000-000000000001'),
+    'P1: tenant A owner 访问不存在的 store 应 FAIL(store↔tenant 自校验)');
 end;
 $$;
 
@@ -137,6 +146,10 @@ begin
   perform tests.assert_true(
     not public.can_access_store('f0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-0000000000a2'),
     'P1: A1 店长不应访问 A2 门店(store role 不得提升为 tenant-wide)');
+  -- FINAL-03:store manager Store A → 租户 B 门店 FAIL(store↔tenant 自校验)
+  perform tests.assert_true(
+    not public.can_access_store('f0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-0000000000b1'),
+    'P1: A1 店长 + p_tenant_id=A + 目标门店属租户 B 应 FAIL(store↔tenant 自校验)');
 end;
 $$;
 
