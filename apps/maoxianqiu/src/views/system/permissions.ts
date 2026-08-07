@@ -122,4 +122,7 @@ export const PERMISSIONS = [
   { code: 'epidemic.resolve', label: '解除疫情事件' },
   { code: 'waste.read', label: '查看医疗废弃物台账' },
   { code: 'waste.manage', label: '管理医疗废弃物台账' },
+  // ===== S3.1-A:Tenant Initialization 租户初始化权限 =====
+  { code: 'tenant.initialize', label: '初始化租户' },
+  { code: 'tenant.initialization.read', label: '查看租户初始化状态' },
 ] as const

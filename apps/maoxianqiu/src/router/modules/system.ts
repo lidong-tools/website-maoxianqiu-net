@@ -87,6 +87,27 @@ const routes: RouteRecordRaw[] = [
     ],
   },
   {
+    // S3.1-A:租户初始化(新建医院一键可营业)
+    path: '/system/tenant-init',
+    component: Layout,
+    name: 'systemTenantInit',
+    meta: {
+      title: '租户初始化',
+      icon: 'i-ic:round-rocket-launch',
+      auth: 'tenant.initialize',
+    },
+    children: [
+      {
+        path: '',
+        component: () => import('@/views/system/tenant-init/index.vue'),
+        meta: {
+          title: '租户初始化',
+          breadcrumb: false,
+        },
+      },
+    ],
+  },
+  {
     // UI Foundation 业务组件演示页(Story,隐藏菜单,仅内部验证用)
     path: '/system/component-demo',
     component: Layout,
