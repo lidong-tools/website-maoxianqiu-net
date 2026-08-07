@@ -43,7 +43,13 @@ insert into public.roles (code, name, description, permissions, is_system, scope
   ], true, 'store'),
   ('doctor', '医生', '诊疗/处方/检验报告(门店级角色)', array[
     'store:view'
-  ], true, 'store')
+  ], true, 'store'),
+  -- FINAL-01(第三轮审计):租户级默认角色 tenant_owner(scope=tenant,store_id IS NULL 分配)
+  -- 真实医院租户自管执业兽医备案等 tenant-level 数据;与 migration 28 幂等一致。
+  ('tenant_owner', '租户所有者', '租户级管理角色,可维护本租户执业兽医备案等租户级数据', array[
+    'veterinarian_registration.read',
+    'veterinarian_registration.manage'
+  ], true, 'tenant')
 on conflict (code) do update set
   name = excluded.name,
   description = excluded.description,

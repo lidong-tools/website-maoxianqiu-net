@@ -26,6 +26,8 @@ interface DisplayRow {
 const loading = ref(false)
 const dataList = ref<VeterinarianRegistrationListItem[]>([])
 const currentTenantId = ref('')
+/** FINAL-01:平台管理员(无租户成员关系)无法确定租户上下文,平台备案 UI 推迟到 S3.1-2 */
+const platformUiDeferred = ref(false)
 
 /** 列表列配置 */
 const tableColumns = computed<TableColumn<DisplayRow>[]>(() => [
@@ -181,10 +183,14 @@ async function onSubmit() {
 }
 
 onMounted(async () => {
-  // 获取当前租户(参考用户管理页 profile 方式)
+  // FINAL-01(第三轮审计):租户上下文来源与权限模型对齐。
+  // 普通租户用户(tenant_owner/store 角色)通过 memberships[0] 取得当前租户;
+  // 平台管理员(platform_user_roles,无租户成员关系)不依赖 memberships[0]
+  // 作为目标租户——跨租户维护备案的专用 UI 推迟到 S3.1-2 提供(platform UI deferred)。
   const res: any = await apiApp.profile()
   const memberships = res.data.memberships ?? []
   currentTenantId.value = memberships[0]?.tenant_id ?? ''
+  platformUiDeferred.value = !currentTenantId.value
   getDataList()
 })
 </script>
@@ -197,6 +203,12 @@ onMounted(async () => {
       </template>
     </FaPageHeader>
     <FaPageMain>
+      <div
+        v-if="platformUiDeferred"
+        class="text-sm text-amber-700 mb-3 px-4 py-3 border border-amber-200 rounded-md bg-amber-50"
+      >
+        当前账号无租户成员关系,无法确定租户上下文。平台管理员跨租户维护执业兽医备案的界面将在 S3.1-2 提供(platform UI deferred)。
+      </div>
       <FaTable
         v-loading="loading"
         table-root-class="rounded-lg overflow-hidden"

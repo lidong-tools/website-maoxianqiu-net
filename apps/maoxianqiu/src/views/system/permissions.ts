@@ -111,4 +111,15 @@ export const PERMISSIONS = [
   { code: 'prescription.issue', label: '开具处方' },
   { code: 'prescription.extend_validity', label: '延长处方有效期' },
   { code: 'prescription.controlled_issue', label: '开具受控药品处方' },
+  // ===== S3.1-PARALLEL-01:Regulatory 监管运营域权限 =====
+  { code: 'license.read', label: '查看动物诊疗许可证' },
+  { code: 'license.manage', label: '管理动物诊疗许可证' },
+  { code: 'regulatory_report.read', label: '查看年度诊疗活动报告' },
+  { code: 'regulatory_report.generate', label: '生成年度诊疗活动报告' },
+  { code: 'regulatory_report.submit', label: '提交年度诊疗活动报告' },
+  { code: 'epidemic.read', label: '查看疫情事件台账' },
+  { code: 'epidemic.report', label: '上报/维护疫情事件' },
+  { code: 'epidemic.resolve', label: '解除疫情事件' },
+  { code: 'waste.read', label: '查看医疗废弃物台账' },
+  { code: 'waste.manage', label: '管理医疗废弃物台账' },
 ] as const

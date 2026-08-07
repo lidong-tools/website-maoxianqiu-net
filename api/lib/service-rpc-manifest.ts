@@ -92,6 +92,16 @@ export const SERVICE_ROLE_ONLY_RPC: readonly string[] = [
   'upsert_veterinarian_registration',
   'issue_prescription',
   'extend_prescription_validity',
+  // ---- regulatory(S3.1-PARALLEL-01 监管运营) ----
+  'save_institution_license',
+  'change_license_status',
+  'generate_regulatory_report',
+  'submit_regulatory_report',
+  'save_epidemic_event',
+  'isolate_epidemic_event',
+  'resolve_epidemic_event',
+  'save_waste_record',
+  'handover_waste',
   // ---- 审计结论(S30-F02):仅服务端/内部辅助,无前端直连,撤销 authenticated ----
   'generate_customer_no',
   'generate_invoice_no',

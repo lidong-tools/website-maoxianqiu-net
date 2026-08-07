@@ -383,6 +383,36 @@ set permissions = array(
 )
 where code in ('doctor') and is_system = true;
 
+-- FINAL-01(第三轮审计):新增租户级默认角色 tenant_owner(scope = tenant)
+-- 背景:store_manager/doctor 均为 scope=store,不能冒充 tenant-wide role,
+--      此前备案 read/manage 只给了平台 system_admin,导致真实医院租户
+--      无法自行维护执业兽医备案(开方前置条件死锁)。
+-- 修复:建立真正的 tenant-level 默认角色 tenant_owner:
+--      * role.scope = 'tenant'(migration 26/27 触发器强制 store_id IS NULL 分配);
+--      * 授予 veterinarian_registration.read / .manage;
+--      * 不把 tenant-level 备案权限塞回 store scope 角色(维持 F05 基线);
+--      * 租户初始化(给首位 owner 自动分配)由 S3.1-2 负责,本 Sprint 只建角色+权限模型。
+insert into public.roles (code, name, description, permissions, is_system, scope)
+values ('tenant_owner', '租户所有者', '租户级管理角色,可维护本租户执业兽医备案等租户级数据',
+        array['veterinarian_registration.read', 'veterinarian_registration.manage'],
+        true, 'tenant')
+on conflict (code) do update set
+  name = excluded.name,
+  description = excluded.description,
+  permissions = excluded.permissions,
+  is_system = excluded.is_system,
+  scope = excluded.scope;
+
+insert into public.role_permissions (role_id, permission_id)
+select r.id, p.id
+from public.roles r
+cross join public.permissions p
+where r.code = 'tenant_owner'
+  and p.code in ('veterinarian_registration.read', 'veterinarian_registration.manage')
+  and not exists (
+    select 1 from public.role_permissions rp where rp.role_id = r.id and rp.permission_id = p.id
+  );
+
 -- ============================================================
 -- 11. 默认权限收紧
 --     新表写入仅 service_role(通过 security definer RPC 执行);

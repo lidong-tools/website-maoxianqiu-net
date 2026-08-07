@@ -30,6 +30,13 @@
 --   F04  Part 6/8:真实库存原子断言——失败场景库存不变、
 --        成功场景精确扣减、二次发药失败库存不二次减少
 --
+-- 第三轮定向审计回归(FINAL-01/FINAL-02):
+--   FINAL-01 Part 10:tenant_owner 租户级角色权限矩阵——
+--        tenant_owner read/manage PASS;store_manager/doctor tenant 上下文 FAIL;
+--        租户 A owner 访问租户 B FAIL;platform_admin 平台上下文放行
+--   FINAL-02 Part 5:备案资格生效/失效边界 = 中国业务日期
+--        (now() at time zone 'Asia/Shanghai')::date,补零点边界测试
+--
 -- 本文件独立可执行(psql "$DATABASE_URL" -f supabase/tests/compliance_s3_1.sql):
 --   - 自建 tests.assert_* 断言函数,不依赖其他测试文件;
 --   - 单一事务 begin/rollback,无任何残留;
@@ -428,8 +435,8 @@ begin
     p_registration_no => 'S31-REG-001',
     p_registration_authority => '测试主管机构',
     p_registration_region => '测试地区',
-    p_valid_from => (current_date - interval '1 year')::date,
-    p_valid_until => (current_date + interval '1 year')::date,
+    p_valid_from => ((now() at time zone 'Asia/Shanghai')::date - interval '1 year')::date,
+    p_valid_until => ((now() at time zone 'Asia/Shanghai')::date + interval '1 year')::date,
     p_status => 'active',
     p_operator_employee_id => '99999999-0000-0000-0000-0000000000c2'::uuid);
   perform tests.assert_true(v_row.id is not null, '执业兽医备案 upsert 应成功');
@@ -495,7 +502,57 @@ do $$
 begin
   execute 'reset role';
   update public.veterinarian_registrations
-  set status = 'active', valid_until = (current_date + interval '1 year')::date, updated_at = now()
+  set status = 'active',
+      valid_until = ((now() at time zone 'Asia/Shanghai')::date + interval '1 year')::date,
+      updated_at = now()
+  where license_no = 'S31-LIC-001';
+end;
+$$;
+
+-- ============================================================
+-- FINAL-02:备案资格日期零点边界(中国业务时区)
+-- 资格判断/默认生效日统一为 (now() at time zone 'Asia/Shanghai')::date,
+-- 避免 session 时区为 UTC 时中国时间 00:00~07:59 被当作前一天。
+--   场景1:备案仅从"上海明日"生效 → 即使 UTC 仍处于"今天"也必须拒绝开方
+--   场景2:备案 valid_from = 上海今日(且 valid_until = 上海今日)→ 可开方
+-- ============================================================
+do $$
+declare
+  v_rx uuid := gen_random_uuid();
+  v_row public.prescriptions;
+  v_sh_today date := (now() at time zone 'Asia/Shanghai')::date;
+begin
+  execute 'reset role';
+  -- 场景1:上海明日才生效的备案,当前必须拒绝开方
+  update public.veterinarian_registrations
+  set status = 'active', valid_from = v_sh_today + 1, valid_until = null, updated_at = now()
+  where license_no = 'S31-LIC-001';
+
+  insert into public.prescriptions (id, tenant_id, store_id, encounter_id, customer_id, pet_id, doctor_id, status)
+  values (v_rx, '99999999-0000-0000-0000-000000000001', '99999999-0000-0000-0000-000000000002',
+          '99999999-0000-0000-0000-0000000000d1', '99999999-0000-0000-0000-0000000000c3', '99999999-0000-0000-0000-0000000000c4',
+          '99999999-0000-0000-0000-0000000000aa', 'draft');
+  insert into public.prescription_items (prescription_id, catalog_item_id, drug_name, dosage, frequency, duration_days, quantity, unit, sort_order)
+  values (v_rx, '99999999-0000-0000-0000-0000000000e1', '普通消炎药', '1片', 'tid', 3, 9, '片', 0);
+
+  perform tests.assert_raises(
+    format($sql$select public.issue_prescription('%s'::uuid, '99999999-0000-0000-0000-0000000000c1'::uuid, '99999999-0000-0000-0000-0000000000aa'::uuid)$sql$, v_rx),
+    'PRESCRIBER_NOT_REGISTERED', 'FINAL-02:上海明日才生效的备案,当前必须拒绝开方');
+
+  -- 场景2:valid_from = 上海今日、valid_until = 上海今日(当日有效边界),应可开方
+  update public.veterinarian_registrations
+  set status = 'active', valid_from = v_sh_today, valid_until = v_sh_today, updated_at = now()
+  where license_no = 'S31-LIC-001';
+  select * into v_row from public.issue_prescription(
+    v_rx, '99999999-0000-0000-0000-0000000000c1'::uuid, '99999999-0000-0000-0000-0000000000aa'::uuid);
+  perform tests.assert_true(v_row.status = 'issued', 'FINAL-02:上海当日生效/失效的备案应可开方');
+
+  -- 恢复备案为长期有效(后续受控药测试使用)
+  update public.veterinarian_registrations
+  set status = 'active',
+      valid_from = (v_sh_today - interval '1 year')::date,
+      valid_until = (v_sh_today + interval '1 year')::date,
+      updated_at = now()
   where license_no = 'S31-LIC-001';
 end;
 $$;
@@ -921,6 +978,125 @@ begin
   perform tests.assert_raises(
     format($sql$select public.sign_encounter('%s'::uuid, '99999999-0000-0000-0000-0000000000aa'::uuid)$sql$, v_enc),
     'ARCHIVED_RECORD_IMMUTABLE', 'R06:归档后不可签署');
+end;
+$$;
+
+-- ============================================================
+-- Part 10:FINAL-01 tenant_owner 租户级角色权限矩阵
+-- 断言矩阵(第三轮审计 S31-1-FINAL-01):
+--   P1 tenant_owner → veterinarian_registration.read  PASS(租户上下文)
+--   P2 tenant_owner → veterinarian_registration.manage PASS(租户上下文)
+--   P3 租户 A owner → 租户 B 备案 FAIL(跨租户隔离)
+--   P4 store_manager → 租户上下文备案 read/manage FAIL(store 角色不得提升)
+--   P5 doctor → 租户上下文备案 manage FAIL
+--   P6 platform_admin → 任意租户上下文备案 manage PASS(平台专用授权来源)
+-- 说明:has_permission 在租户上下文(p_store_id IS NULL)仅接受
+--       scope ∈ (system, tenant) 且分配 store_id IS NULL 的角色(见 migration 26)。
+-- ============================================================
+-- Part 10 夹具:store_manager / doctor / platform_admin 用户与角色分配
+do $$
+begin
+  execute 'reset role';
+  -- 用户:bb=店长 cc=医生 dd=平台管理员
+  insert into auth.users (id, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, aud, role, created_at, updated_at)
+  values
+    ('99999999-0000-0000-0000-0000000000bb', 's31-sm@test.local', crypt('password', gen_salt('bf')), now(), '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now()),
+    ('99999999-0000-0000-0000-0000000000cc', 's31-dr@test.local', crypt('password', gen_salt('bf')), now(), '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now()),
+    ('99999999-0000-0000-0000-0000000000dd', 's31-pa@test.local', crypt('password', gen_salt('bf')), now(), '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now())
+  on conflict (id) do nothing;
+
+  insert into public.employees (id, tenant_id, user_id, employee_no, name, status)
+  values
+    ('99999999-0000-0000-0000-0000000000c5', '99999999-0000-0000-0000-000000000001', '99999999-0000-0000-0000-0000000000bb', 'S31-SM', '测试店长', 'active'),
+    ('99999999-0000-0000-0000-0000000000c6', '99999999-0000-0000-0000-000000000001', '99999999-0000-0000-0000-0000000000cc', 'S31-DR2', '测试医生', 'active')
+  on conflict (id) do nothing;
+
+  -- tenant_owner 分配:scope=tenant + store_id IS NULL(触发器 TENANT_ROLE_FORBIDS_STORE 兜底)
+  insert into public.employee_role_assignments (tenant_id, employee_id, role_id, store_id)
+  values ('99999999-0000-0000-0000-000000000001', '99999999-0000-0000-0000-0000000000c1',
+          (select id from public.roles where code = 'tenant_owner'), null)
+  on conflict do nothing;
+
+  -- store_manager / doctor 分配:scope=store + 门店级 store_id
+  insert into public.employee_role_assignments (tenant_id, employee_id, role_id, store_id)
+  values
+    ('99999999-0000-0000-0000-000000000001', '99999999-0000-0000-0000-0000000000c5',
+     (select id from public.roles where code = 'store_manager'), '99999999-0000-0000-0000-000000000002'),
+    ('99999999-0000-0000-0000-000000000001', '99999999-0000-0000-0000-0000000000c6',
+     (select id from public.roles where code = 'doctor'), '99999999-0000-0000-0000-000000000002')
+  on conflict do nothing;
+
+  -- platform_admin 平台级授权(独立来源 platform_user_roles,不依赖租户成员关系)
+  insert into public.platform_user_roles (user_id, role)
+  values ('99999999-0000-0000-0000-0000000000dd', 'platform_admin')
+  on conflict do nothing;
+end;
+$$;
+
+-- P1/P2:tenant_owner 租户上下文 read/manage PASS
+do $$
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', '{"sub":"99999999-0000-0000-0000-0000000000aa","role":"authenticated"}', true);
+  perform tests.assert_true(
+    public.has_permission('99999999-0000-0000-0000-000000000001', null, 'veterinarian_registration.read'),
+    'P1: tenant_owner 租户上下文应持有 veterinarian_registration.read');
+  perform tests.assert_true(
+    public.has_permission('99999999-0000-0000-0000-000000000001', null, 'veterinarian_registration.manage'),
+    'P2: tenant_owner 租户上下文应持有 veterinarian_registration.manage');
+end;
+$$;
+
+-- P3:租户 A owner 访问租户 B 备案 FAIL(跨租户隔离)
+do $$
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', '{"sub":"99999999-0000-0000-0000-0000000000aa","role":"authenticated"}', true);
+  perform tests.assert_true(
+    not public.has_permission('99999999-0000-0000-0000-0000000000ab', null, 'veterinarian_registration.read'),
+    'P3: 租户 A owner 不应持有租户 B 的备案读权限');
+  perform tests.assert_true(
+    not public.has_permission('99999999-0000-0000-0000-0000000000ab', null, 'veterinarian_registration.manage'),
+    'P3: 租户 A owner 不应持有租户 B 的备案管理权限');
+end;
+$$;
+
+-- P4:store_manager 租户上下文备案权限 FAIL(store 角色不得提升为 tenant-wide)
+do $$
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', '{"sub":"99999999-0000-0000-0000-0000000000bb","role":"authenticated"}', true);
+  perform tests.assert_true(
+    not public.has_permission('99999999-0000-0000-0000-000000000001', null, 'veterinarian_registration.read'),
+    'P4: store_manager 租户上下文不应持有备案读权限');
+  perform tests.assert_true(
+    not public.has_permission('99999999-0000-0000-0000-000000000001', null, 'veterinarian_registration.manage'),
+    'P4: store_manager 租户上下文不应持有备案管理权限');
+end;
+$$;
+
+-- P5:doctor 租户上下文备案 manage FAIL
+do $$
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', '{"sub":"99999999-0000-0000-0000-0000000000cc","role":"authenticated"}', true);
+  perform tests.assert_true(
+    not public.has_permission('99999999-0000-0000-0000-000000000001', null, 'veterinarian_registration.manage'),
+    'P5: doctor 租户上下文不应持有备案管理权限');
+end;
+$$;
+
+-- P6:platform_admin 平台授权来源放行(任意租户上下文,不依赖租户成员关系)
+do $$
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', '{"sub":"99999999-0000-0000-0000-0000000000dd","role":"authenticated"}', true);
+  perform tests.assert_true(
+    public.has_permission('99999999-0000-0000-0000-000000000001', null, 'veterinarian_registration.manage'),
+    'P6: platform_admin 应通过平台授权来源持有备案管理权限');
+  perform tests.assert_true(
+    public.has_permission('99999999-0000-0000-0000-0000000000ab', null, 'veterinarian_registration.read'),
+    'P6: platform_admin 应可跨租户持有备案读权限');
 end;
 $$;
 

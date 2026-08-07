@@ -18,6 +18,7 @@ import inpatientRoutes from './routes/inpatient'
 import inventoryRoutes from './routes/inventory'
 import operationsRoutes from './routes/operations'
 import petsRoutes from './routes/pets'
+import regulatoryRoutes from './routes/regulatory'
 import reportDataRoutes from './routes/report-data'
 import roleRoutes from './routes/roles'
 import storeRoutes from './routes/stores'
@@ -101,6 +102,8 @@ app.route('/inpatient', inpatientRoutes)
 app.route('/diagnostics', diagnosticsRoutes)
 // S3.1-1:Compliance 病历归档/修订/兽医备案/处方开具合规
 app.route('/compliance', complianceRoutes)
+// S3.1-PARALLEL-01:Regulatory 监管运营(许可证/年度报告/疫情台账/医疗废弃物)
+app.route('/regulatory', regulatoryRoutes)
 
 // 统一错误处理(MXQ-2001):业务错误带明确 HTTP 状态与错误码
 app.notFound((c) => {
