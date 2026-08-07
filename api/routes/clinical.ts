@@ -1,0 +1,1146 @@
+import type { AppEnv } from '../lib/types'
+import { Hono } from 'hono'
+import { z } from 'zod'
+import { writeAudit } from '../lib/audit'
+import { err } from '../lib/errors'
+import { assertTenantAccess, requirePermission } from '../lib/permission'
+import { loadContext } from '../lib/request-context'
+import { ok } from '../lib/result'
+import { createServiceClient } from '../lib/supabase'
+import { parseJsonBody } from '../lib/validation'
+import { authMiddleware, loadCaller } from '../middlewares/auth'
+
+/**
+ * Clinical 诊疗核心领域路由(MXQ-7001~7011)
+ *
+ * 分层:
+ *   - Query(list/detail):Hono 聚合查询 + 对应 *.view 权限
+ *   - Command(create/update/transition/sign/revise/save_prescription):Hono 调 PostgreSQL RPC,禁止前端直连写
+ *
+ * 状态机:
+ *   预约:pending→confirmed→checked_in→in_progress→completed;任意非终态→cancelled/no_show
+ *   就诊:in_progress→completed→signed(终态,需修订)
+ *   处方:draft→dispensed;draft→cancelled
+ */
+const clinicalRoutes = new Hono<AppEnv>()
+
+clinicalRoutes.use('*', authMiddleware(), loadCaller(), loadContext())
+
+// ============================================================
+// 预约 MXQ-7001 / MXQ-7002
+// ============================================================
+
+const appointmentListSchema = z.object({
+  storeId: z.string().uuid().optional(),
+  doctorId: z.string().uuid().optional(),
+  petId: z.string().uuid().optional(),
+  customerId: z.string().uuid().optional(),
+  status: z.enum(['pending', 'confirmed', 'checked_in', 'in_progress', 'completed', 'cancelled', 'no_show']).optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+  page: z.coerce.number().int().positive().max(1000).default(1),
+  pageSize: z.coerce.number().int().positive().max(200).default(20),
+})
+
+/**
+ * 预约列表(MXQ-7001)
+ * - 权限:appointment.view
+ * - 支持 storeId/doctorId/petId/customerId/status/日期范围筛选
+ */
+clinicalRoutes.get('/appointments', async (c) => {
+  const input = appointmentListSchema.parse(c.req.query())
+  await requirePermission(c, { code: 'appointment.view', storeId: input.storeId })
+
+  const service = createServiceClient()
+  let query = service
+    .from('appointments')
+    .select('*', { count: 'exact' })
+
+  if (input.storeId) {
+    query = query.eq('store_id', input.storeId)
+  }
+  if (input.doctorId) {
+    query = query.eq('doctor_id', input.doctorId)
+  }
+  if (input.petId) {
+    query = query.eq('pet_id', input.petId)
+  }
+  if (input.customerId) {
+    query = query.eq('customer_id', input.customerId)
+  }
+  if (input.status) {
+    query = query.eq('status', input.status)
+  }
+  if (input.dateFrom) {
+    query = query.gte('scheduled_start', input.dateFrom)
+  }
+  if (input.dateTo) {
+    query = query.lte('scheduled_start', input.dateTo)
+  }
+
+  const from = (input.page - 1) * input.pageSize
+  const { data, error, count } = await query
+    .order('scheduled_start', { ascending: true })
+    .range(from, from + input.pageSize - 1)
+
+  if (error) {
+    throw err.internal(`查询预约列表失败: ${error.message}`)
+  }
+
+  return ok(c, { list: data ?? [], total: count ?? 0, page: input.page, pageSize: input.pageSize })
+})
+
+/**
+ * 候诊队列(MXQ-7002)
+ * - 权限:appointment.view
+ * - 返回 status=checked_in 的预约,按 scheduled_start 排序
+ */
+clinicalRoutes.get('/appointments/waiting', async (c) => {
+  const storeId = c.req.query('storeId')
+  if (storeId) {
+    await requirePermission(c, { code: 'appointment.view', storeId })
+  }
+  else {
+    await requirePermission(c, { code: 'appointment.view' })
+  }
+
+  const service = createServiceClient()
+  let query = service
+    .from('appointments')
+    .select('*')
+    .eq('status', 'checked_in')
+    .order('scheduled_start', { ascending: true })
+
+  if (storeId) {
+    query = query.eq('store_id', storeId)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    throw err.internal(`查询候诊队列失败: ${error.message}`)
+  }
+
+  return ok(c, { list: data ?? [] })
+})
+
+const createAppointmentSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid().optional(),
+  customerId: z.string().uuid('客户 id 格式错误'),
+  petId: z.string().uuid('宠物 id 格式错误'),
+  doctorId: z.string().uuid().optional(),
+  scheduledStart: z.string(),
+  scheduledEnd: z.string(),
+  reason: z.string().max(500).optional(),
+  source: z.enum(['walk_in', 'phone', 'online']).optional(),
+  remark: z.string().max(1000).optional(),
+})
+
+/**
+ * 创建预约(MXQ-7001)
+ * - 权限:appointment.manage
+ * - 走 service client 写入(RLS 兜底),created_by 记录创建人
+ * - 创建前校验租户归属 + 医生时段冲突(同门店/同医生/非终态/时间重叠)
+ */
+clinicalRoutes.post('/appointments', async (c) => {
+  const input = await parseJsonBody(c, createAppointmentSchema)
+  await requirePermission(c, { code: 'appointment.manage', storeId: input.storeId })
+  // 租户归属校验:请求体 tenantId 必须属于调用者
+  assertTenantAccess(c, input.tenantId)
+
+  const service = createServiceClient()
+  const user = c.get('user')
+
+  // 医生时段冲突校验:同门店 + 同医生 + 非终态 + 时间区间重叠
+  if (input.doctorId) {
+    let conflictQuery = service
+      .from('appointments')
+      .select('id', { count: 'exact', head: true })
+    conflictQuery = input.storeId
+      ? conflictQuery.eq('store_id', input.storeId)
+      : conflictQuery.is('store_id', null)
+    const { count: conflictCount, error: conflictError } = await conflictQuery
+      .eq('doctor_id', input.doctorId)
+      .in('status', ['pending', 'confirmed', 'checked_in', 'arrived', 'in_progress'])
+      .lt('scheduled_start', input.scheduledEnd)
+      .gt('scheduled_end', input.scheduledStart)
+    if (conflictError) {
+      throw err.internal(`校验医生时段冲突失败: ${conflictError.message}`)
+    }
+    if (conflictCount && conflictCount > 0) {
+      throw err.conflict('该医生在该时段已有预约')
+    }
+  }
+
+  const { data, error } = await service
+    .from('appointments')
+    .insert({
+      tenant_id: input.tenantId,
+      store_id: input.storeId ?? null,
+      customer_id: input.customerId,
+      pet_id: input.petId,
+      doctor_id: input.doctorId ?? null,
+      scheduled_start: input.scheduledStart,
+      scheduled_end: input.scheduledEnd,
+      reason: input.reason ?? null,
+      source: input.source ?? 'walk_in',
+      remark: input.remark ?? null,
+      created_by: user.id,
+      status: 'pending',
+    })
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`创建预约失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'appointment.create',
+    entityType: 'appointment',
+    entityId: data.id,
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+    metadata: { customerId: input.customerId, petId: input.petId },
+  })
+
+  return ok(c, data)
+})
+
+const updateAppointmentSchema = z.object({
+  doctorId: z.string().uuid().optional().or(z.literal('')),
+  scheduledStart: z.string().optional(),
+  scheduledEnd: z.string().optional(),
+  reason: z.string().max(500).optional(),
+  source: z.enum(['walk_in', 'phone', 'online']).optional(),
+  remark: z.string().max(1000).optional(),
+})
+
+/**
+ * 更新预约(MXQ-7001)
+ * - 权限:appointment.manage
+ * - 仅非终态可编辑
+ */
+clinicalRoutes.patch('/appointments/:id', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, updateAppointmentSchema)
+  await requirePermission(c, { code: 'appointment.manage' })
+
+  const service = createServiceClient()
+  const { data: existing, error: fetchError } = await service
+    .from('appointments')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (fetchError || !existing) {
+    throw err.notFound('预约不存在')
+  }
+  await requirePermission(c, { code: 'appointment.manage', storeId: existing.store_id ?? undefined })
+
+  if (['completed', 'cancelled', 'no_show'].includes(existing.status)) {
+    throw err.conflict('终态预约不可编辑')
+  }
+
+  const patch: Record<string, unknown> = {}
+  if (input.doctorId !== undefined) {
+    patch.doctor_id = input.doctorId || null
+  }
+  if (input.scheduledStart !== undefined) {
+    patch.scheduled_start = input.scheduledStart
+  }
+  if (input.scheduledEnd !== undefined) {
+    patch.scheduled_end = input.scheduledEnd
+  }
+  if (input.reason !== undefined) {
+    patch.reason = input.reason
+  }
+  if (input.source !== undefined) {
+    patch.source = input.source
+  }
+  if (input.remark !== undefined) {
+    patch.remark = input.remark
+  }
+
+  const { data, error } = await service
+    .from('appointments')
+    .update(patch)
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`更新预约失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'appointment.update',
+    entityType: 'appointment',
+    entityId: id,
+    tenantId: existing.tenant_id,
+    storeId: existing.store_id ?? undefined,
+    metadata: patch,
+  })
+
+  return ok(c, data)
+})
+
+const transitionAppointmentSchema = z.object({
+  targetStatus: z.enum(['pending', 'confirmed', 'checked_in', 'in_progress', 'completed', 'cancelled', 'no_show']),
+})
+
+/**
+ * 预约状态转换(MXQ-7010)
+ * - 权限:appointment.manage
+ * - 调 transition_appointment RPC,校验状态机合法性
+ */
+clinicalRoutes.post('/appointments/:id/transition', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, transitionAppointmentSchema)
+  await requirePermission(c, { code: 'appointment.manage' })
+
+  const service = createServiceClient()
+  const user = c.get('user')
+
+  const { data: existing, error: fetchError } = await service
+    .from('appointments')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (fetchError || !existing) {
+    throw err.notFound('预约不存在')
+  }
+  await requirePermission(c, { code: 'appointment.manage', storeId: existing.store_id ?? undefined })
+
+  const { data, error: rpcError } = await service.rpc('transition_appointment', {
+    p_appointment_id: id,
+    p_target_status: input.targetStatus,
+    p_operator_id: user.id,
+  })
+
+  if (rpcError) {
+    if (rpcError.message.includes('APPOINTMENT_NOT_FOUND')) {
+      throw err.notFound('预约不存在')
+    }
+    if (rpcError.message.includes('INVALID_APPOINTMENT_STATUS') || rpcError.message.includes('APPOINTMENT_INVALID_TRANSITION')) {
+      throw err.conflict(`预约状态转换不合法: ${existing.status} → ${input.targetStatus}`)
+    }
+    throw err.internal(`预约状态转换失败: ${rpcError.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'appointment.transition',
+    entityType: 'appointment',
+    entityId: id,
+    tenantId: existing.tenant_id,
+    storeId: existing.store_id ?? undefined,
+    metadata: { from: existing.status, to: input.targetStatus },
+  })
+
+  return ok(c, data)
+})
+
+// ============================================================
+// 就诊/病历 MXQ-7003 / MXQ-7005
+// ============================================================
+
+const encounterListSchema = z.object({
+  storeId: z.string().uuid().optional(),
+  doctorId: z.string().uuid().optional(),
+  petId: z.string().uuid().optional(),
+  status: z.enum(['in_progress', 'completed', 'signed']).optional(),
+  page: z.coerce.number().int().positive().max(1000).default(1),
+  pageSize: z.coerce.number().int().positive().max(200).default(20),
+})
+
+/**
+ * 就诊列表(MXQ-7003)
+ * - 权限:encounter.view
+ */
+clinicalRoutes.get('/encounters', async (c) => {
+  const input = encounterListSchema.parse(c.req.query())
+  await requirePermission(c, { code: 'encounter.view', storeId: input.storeId })
+
+  const service = createServiceClient()
+  let query = service
+    .from('encounters')
+    .select('*', { count: 'exact' })
+
+  if (input.storeId) {
+    query = query.eq('store_id', input.storeId)
+  }
+  if (input.doctorId) {
+    query = query.eq('doctor_id', input.doctorId)
+  }
+  if (input.petId) {
+    query = query.eq('pet_id', input.petId)
+  }
+  if (input.status) {
+    query = query.eq('status', input.status)
+  }
+
+  const from = (input.page - 1) * input.pageSize
+  const { data, error, count } = await query
+    .order('started_at', { ascending: false })
+    .range(from, from + input.pageSize - 1)
+
+  if (error) {
+    throw err.internal(`查询就诊列表失败: ${error.message}`)
+  }
+
+  return ok(c, { list: data ?? [], total: count ?? 0, page: input.page, pageSize: input.pageSize })
+})
+
+/**
+ * 就诊详情(MXQ-7003 / MXQ-7005)
+ * - 权限:encounter.view
+ * - 返回病历 + 修订历史
+ */
+clinicalRoutes.get('/encounters/:id', async (c) => {
+  const id = c.req.param('id')
+  await requirePermission(c, { code: 'encounter.view' })
+
+  const service = createServiceClient()
+  const { data: encounter, error } = await service
+    .from('encounters')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (error || !encounter) {
+    throw err.notFound('病历不存在')
+  }
+
+  // 并行查询修订历史
+  const { data: revisions, error: revError } = await service
+    .from('encounter_revisions')
+    .select('*')
+    .eq('encounter_id', id)
+    .order('revision_no', { ascending: true })
+
+  if (revError) {
+    throw err.internal(`查询修订历史失败: ${revError.message}`)
+  }
+
+  return ok(c, { encounter, revisions: revisions ?? [] })
+})
+
+const createEncounterSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid().optional(),
+  appointmentId: z.string().uuid().optional(),
+  customerId: z.string().uuid('客户 id 格式错误'),
+  petId: z.string().uuid('宠物 id 格式错误'),
+  doctorId: z.string().uuid().optional(),
+  nurseId: z.string().uuid().optional(),
+  chiefComplaint: z.string().max(2000).optional(),
+})
+
+/**
+ * 创建就诊(MXQ-7003)
+ * - 权限:encounter.work
+ * - 创建时 status=in_progress,关联预约若有则同步推进到 in_progress
+ */
+clinicalRoutes.post('/encounters', async (c) => {
+  const input = await parseJsonBody(c, createEncounterSchema)
+  await requirePermission(c, { code: 'encounter.work', storeId: input.storeId })
+  // 租户归属校验:请求体 tenantId 必须属于调用者
+  assertTenantAccess(c, input.tenantId)
+
+  const service = createServiceClient()
+  const user = c.get('user')
+  const { data, error } = await service
+    .from('encounters')
+    .insert({
+      tenant_id: input.tenantId,
+      store_id: input.storeId ?? null,
+      appointment_id: input.appointmentId ?? null,
+      customer_id: input.customerId,
+      pet_id: input.petId,
+      doctor_id: input.doctorId ?? user.id,
+      nurse_id: input.nurseId ?? null,
+      chief_complaint: input.chiefComplaint ?? null,
+      status: 'in_progress',
+    })
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`创建就诊失败: ${error.message}`)
+  }
+
+  // 若关联预约,同步推进预约到 in_progress
+  if (input.appointmentId) {
+    await service.rpc('transition_appointment', {
+      p_appointment_id: input.appointmentId,
+      p_target_status: 'in_progress',
+      p_operator_id: user.id,
+    }).then(({ error: rpcError }) => {
+      // 状态不匹配(如已完成)不阻断就诊创建,仅记录
+      if (rpcError && !rpcError.message.includes('APPOINTMENT_INVALID_TRANSITION')) {
+        console.warn('[clinical] 同步预约状态失败', rpcError.message)
+      }
+    })
+  }
+
+  await writeAudit(c, {
+    action: 'encounter.create',
+    entityType: 'encounter',
+    entityId: data.id,
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+    metadata: { customerId: input.customerId, petId: input.petId, appointmentId: input.appointmentId },
+  })
+
+  return ok(c, data)
+})
+
+const updateEncounterSchema = z.object({
+  chiefComplaint: z.string().max(2000).optional(),
+  historyPresent: z.string().max(5000).optional(),
+  examFindings: z.string().max(5000).optional(),
+  diagnosisCodes: z.array(z.string().max(100)).optional(),
+  diagnosisText: z.string().max(2000).optional(),
+  treatmentPlan: z.string().max(5000).optional(),
+  followUpDate: z.string().date().optional(),
+  nurseId: z.string().uuid().optional().or(z.literal('')),
+  status: z.enum(['in_progress', 'completed']).optional(),
+})
+
+/**
+ * 更新病历(MXQ-7003)
+ * - 权限:encounter.work
+ * - 已签署(signed)病历不可直接修改,RLS 兜底 + 此处显式校验
+ */
+clinicalRoutes.patch('/encounters/:id', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, updateEncounterSchema)
+  await requirePermission(c, { code: 'encounter.work' })
+
+  const service = createServiceClient()
+  const { data: existing, error: fetchError } = await service
+    .from('encounters')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (fetchError || !existing) {
+    throw err.notFound('病历不存在')
+  }
+  await requirePermission(c, { code: 'encounter.work', storeId: existing.store_id ?? undefined })
+
+  if (existing.status === 'signed') {
+    throw err.conflict('已签署病历不可直接修改,请使用修订功能')
+  }
+
+  const patch: Record<string, unknown> = {}
+  if (input.chiefComplaint !== undefined) {
+    patch.chief_complaint = input.chiefComplaint
+  }
+  if (input.historyPresent !== undefined) {
+    patch.history_present = input.historyPresent
+  }
+  if (input.examFindings !== undefined) {
+    patch.exam_findings = input.examFindings
+  }
+  if (input.diagnosisCodes !== undefined) {
+    patch.diagnosis_codes = input.diagnosisCodes
+  }
+  if (input.diagnosisText !== undefined) {
+    patch.diagnosis_text = input.diagnosisText
+  }
+  if (input.treatmentPlan !== undefined) {
+    patch.treatment_plan = input.treatmentPlan
+  }
+  if (input.followUpDate !== undefined) {
+    patch.follow_up_date = input.followUpDate
+  }
+  if (input.nurseId !== undefined) {
+    patch.nurse_id = input.nurseId || null
+  }
+  if (input.status !== undefined) {
+    // 状态机:仅允许 in_progress→completed;signed 为终态不可经此修改(zod 已限制,此处为防御)
+    patch.status = input.status
+    if (patch.status === 'signed') {
+      throw err.conflict('病历状态不可直接改为已签署,请使用签署功能')
+    }
+    if (existing.status === 'completed' && patch.status === 'in_progress') {
+      throw err.conflict('已完成的病历不可回退到进行中')
+    }
+    if (patch.status === 'completed') {
+      patch.ended_at = new Date().toISOString()
+    }
+  }
+
+  const { data, error } = await service
+    .from('encounters')
+    .update(patch)
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`更新病历失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'encounter.update',
+    entityType: 'encounter',
+    entityId: id,
+    tenantId: existing.tenant_id,
+    storeId: existing.store_id ?? undefined,
+    metadata: patch,
+  })
+
+  return ok(c, data)
+})
+
+const signEncounterSchema = z.object({
+  doctorId: z.string().uuid('医生 id 格式错误').optional(),
+})
+
+/**
+ * 签署病历(MXQ-7005)
+ * - 权限:encounter.sign
+ * - 调 sign_encounter RPC:校验主治医生 + 状态 + 原子写入签名与审计
+ * - doctorId 未传时默认当前登录用户;强制签署人=主治医生本人(防代签)
+ */
+clinicalRoutes.post('/encounters/:id/sign', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, signEncounterSchema)
+  await requirePermission(c, { code: 'encounter.sign' })
+
+  const service = createServiceClient()
+  const user = c.get('user')
+  const doctorId = input.doctorId ?? user.id
+  if (doctorId !== user.id) {
+    throw err.forbidden('仅可签署本人负责的病历')
+  }
+
+  const { data, error: rpcError } = await service.rpc('sign_encounter', {
+    p_encounter_id: id,
+    p_doctor_id: doctorId,
+  })
+
+  if (rpcError) {
+    if (rpcError.message.includes('ENCOUNTER_NOT_FOUND')) {
+      throw err.notFound('病历不存在')
+    }
+    if (rpcError.message.includes('ENCOUNTER_NOT_OWNER')) {
+      throw err.forbidden('仅主治医生可签署病历')
+    }
+    if (rpcError.message.includes('ENCOUNTER_NOT_SIGNABLE')) {
+      throw err.conflict('当前状态不可签署')
+    }
+    throw err.internal(`签署病历失败: ${rpcError.message}`)
+  }
+
+  return ok(c, data)
+})
+
+const reviseEncounterSchema = z.object({
+  content: z.record(z.string(), z.unknown()),
+  reason: z.string().min(1, '修订原因不能为空').max(500),
+})
+
+/**
+ * 修订病历(MXQ-7005)
+ * - 权限:encounter.revise
+ * - 调 revise_encounter RPC:校验已签署 + 创建修订版本(原文保留)
+ */
+clinicalRoutes.post('/encounters/:id/revise', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, reviseEncounterSchema)
+  await requirePermission(c, { code: 'encounter.revise' })
+
+  const service = createServiceClient()
+  const user = c.get('user')
+  const { data, error: rpcError } = await service.rpc('revise_encounter', {
+    p_encounter_id: id,
+    p_content: input.content,
+    p_reason: input.reason,
+    p_operator_id: user.id,
+  })
+
+  if (rpcError) {
+    if (rpcError.message.includes('ENCOUNTER_NOT_FOUND')) {
+      throw err.notFound('病历不存在')
+    }
+    if (rpcError.message.includes('ENCOUNTER_NOT_SIGNED')) {
+      throw err.conflict('仅已签署病历可修订')
+    }
+    throw err.internal(`修订病历失败: ${rpcError.message}`)
+  }
+
+  return ok(c, data)
+})
+
+// ============================================================
+// 处方 MXQ-7006
+// ============================================================
+
+/**
+ * 处方列表(MXQ-7006)
+ * - 权限:prescription.view
+ */
+clinicalRoutes.get('/prescriptions', async (c) => {
+  const encounterId = c.req.query('encounterId')
+  const storeId = c.req.query('storeId')
+  const petId = c.req.query('petId')
+  const status = c.req.query('status')
+  await requirePermission(c, { code: 'prescription.view', storeId: storeId || undefined })
+
+  const service = createServiceClient()
+  let query = service
+    .from('prescriptions')
+    .select('*', { count: 'exact' })
+
+  if (encounterId) {
+    query = query.eq('encounter_id', encounterId)
+  }
+  if (storeId) {
+    query = query.eq('store_id', storeId)
+  }
+  if (petId) {
+    query = query.eq('pet_id', petId)
+  }
+  if (status) {
+    query = query.eq('status', status)
+  }
+
+  const { data, error, count } = await query
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    throw err.internal(`查询处方列表失败: ${error.message}`)
+  }
+
+  return ok(c, { list: data ?? [], total: count ?? 0 })
+})
+
+/**
+ * 处方详情(含明细)(MXQ-7006)
+ * - 权限:prescription.view
+ */
+clinicalRoutes.get('/prescriptions/:id', async (c) => {
+  const id = c.req.param('id')
+  await requirePermission(c, { code: 'prescription.view' })
+
+  const service = createServiceClient()
+  const { data: prescription, error } = await service
+    .from('prescriptions')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (error || !prescription) {
+    throw err.notFound('处方不存在')
+  }
+
+  const { data: items, error: itemsError } = await service
+    .from('prescription_items')
+    .select('*')
+    .eq('prescription_id', id)
+    .order('sort_order', { ascending: true })
+
+  if (itemsError) {
+    throw err.internal(`查询处方明细失败: ${itemsError.message}`)
+  }
+
+  return ok(c, { prescription, items: items ?? [] })
+})
+
+const prescriptionItemSchema = z.object({
+  catalogItemId: z.string().uuid().optional().or(z.literal('')),
+  drugName: z.string().min(1, '药品名称不能为空').max(200),
+  dosage: z.string().max(200).optional(),
+  frequency: z.string().max(200).optional(),
+  durationDays: z.number().int().nonnegative().optional(),
+  quantity: z.number().nonnegative().optional(),
+  unit: z.string().max(50).optional(),
+  instructions: z.string().max(1000).optional(),
+  sortOrder: z.number().int().optional(),
+})
+
+const savePrescriptionSchema = z.object({
+  encounterId: z.string().uuid('就诊 id 格式错误'),
+  items: z.array(prescriptionItemSchema).min(1, '处方明细不能为空').max(100),
+})
+
+/**
+ * 保存处方(MXQ-7006)
+ * - 权限:prescription.create
+ * - 调 save_prescription RPC:事务化创建/更新处方 + 明细
+ */
+clinicalRoutes.post('/prescriptions/save', async (c) => {
+  const input = await parseJsonBody(c, savePrescriptionSchema)
+  await requirePermission(c, { code: 'prescription.create' })
+
+  const service = createServiceClient()
+  const user = c.get('user')
+
+  // 先取就诊做门店范围校验
+  const { data: encounter, error: fetchError } = await service
+    .from('encounters')
+    .select('id, tenant_id, store_id')
+    .eq('id', input.encounterId)
+    .maybeSingle()
+
+  if (fetchError || !encounter) {
+    throw err.notFound('就诊不存在')
+  }
+  await requirePermission(c, { code: 'prescription.create', storeId: encounter.store_id ?? undefined })
+
+  // 组装明细 JSON(RPC 入参)
+  const itemsJson = input.items.map((item, idx) => ({
+    catalog_item_id: item.catalogItemId || '',
+    drug_name: item.drugName,
+    dosage: item.dosage ?? '',
+    frequency: item.frequency ?? '',
+    duration_days: item.durationDays != null ? String(item.durationDays) : '',
+    quantity: item.quantity != null ? String(item.quantity) : '',
+    unit: item.unit ?? '',
+    instructions: item.instructions ?? '',
+    sort_order: String(item.sortOrder ?? idx),
+  }))
+
+  const { data, error: rpcError } = await service.rpc('save_prescription', {
+    p_encounter_id: input.encounterId,
+    p_items_json: itemsJson,
+    p_doctor_id: user.id,
+  })
+
+  if (rpcError) {
+    if (rpcError.message.includes('ENCOUNTER_NOT_FOUND')) {
+      throw err.notFound('就诊不存在')
+    }
+    throw err.internal(`保存处方失败: ${rpcError.message}`)
+  }
+
+  return ok(c, data)
+})
+
+/**
+ * 发药(MXQ-7006)
+ * - 权限:prescription.dispense
+ * - 调 dispense_prescription RPC:draft→dispensed
+ * - 库存扣减由 Inventory dispense RPC 完成,此处仅转换处方状态
+ */
+clinicalRoutes.post('/prescriptions/:id/dispense', async (c) => {
+  const id = c.req.param('id')
+  await requirePermission(c, { code: 'prescription.dispense' })
+
+  const service = createServiceClient()
+  const user = c.get('user')
+
+  const { data: existing, error: fetchError } = await service
+    .from('prescriptions')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (fetchError || !existing) {
+    throw err.notFound('处方不存在')
+  }
+  await requirePermission(c, { code: 'prescription.dispense', storeId: existing.store_id ?? undefined })
+
+  const { data, error: rpcError } = await service.rpc('dispense_prescription', {
+    p_prescription_id: id,
+    p_operator_id: user.id,
+  })
+
+  if (rpcError) {
+    if (rpcError.message.includes('PRESCRIPTION_NOT_FOUND')) {
+      throw err.notFound('处方不存在')
+    }
+    if (rpcError.message.includes('PRESCRIPTION_NOT_DRAFT')) {
+      throw err.conflict('仅待发药处方可发药')
+    }
+    throw err.internal(`发药失败: ${rpcError.message}`)
+  }
+
+  return ok(c, data)
+})
+
+/**
+ * 取消处方(MXQ-7006)
+ * - 权限:prescription.create
+ * - draft→cancelled
+ */
+clinicalRoutes.post('/prescriptions/:id/cancel', async (c) => {
+  const id = c.req.param('id')
+  await requirePermission(c, { code: 'prescription.create' })
+
+  const service = createServiceClient()
+  const { data: existing, error: fetchError } = await service
+    .from('prescriptions')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (fetchError || !existing) {
+    throw err.notFound('处方不存在')
+  }
+  await requirePermission(c, { code: 'prescription.create', storeId: existing.store_id ?? undefined })
+
+  if (existing.status !== 'draft') {
+    throw err.conflict('仅待发药处方可取消')
+  }
+
+  const { data, error } = await service
+    .from('prescriptions')
+    .update({ status: 'cancelled' })
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`取消处方失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'prescription.cancel',
+    entityType: 'prescription',
+    entityId: id,
+    tenantId: existing.tenant_id,
+    storeId: existing.store_id ?? undefined,
+  })
+
+  return ok(c, data)
+})
+
+// ============================================================
+// 护士任务 MXQ-7007
+// ============================================================
+
+const nurseTaskListSchema = z.object({
+  storeId: z.string().uuid().optional(),
+  assigneeId: z.string().uuid().optional(),
+  petId: z.string().uuid().optional(),
+  encounterId: z.string().uuid().optional(),
+  status: z.enum(['pending', 'in_progress', 'done', 'skipped']).optional(),
+  taskType: z.enum(['medication', 'observation', 'care', 'sample_collection', 'other']).optional(),
+  page: z.coerce.number().int().positive().max(1000).default(1),
+  pageSize: z.coerce.number().int().positive().max(200).default(20),
+})
+
+/**
+ * 护士任务列表(MXQ-7007)
+ * - 权限:nurse_task.view
+ */
+clinicalRoutes.get('/nurse-tasks', async (c) => {
+  const input = nurseTaskListSchema.parse(c.req.query())
+  await requirePermission(c, { code: 'nurse_task.view', storeId: input.storeId })
+
+  const service = createServiceClient()
+  let query = service
+    .from('nurse_tasks')
+    .select('*', { count: 'exact' })
+
+  if (input.storeId) {
+    query = query.eq('store_id', input.storeId)
+  }
+  if (input.assigneeId) {
+    query = query.eq('assigned_to', input.assigneeId)
+  }
+  if (input.petId) {
+    query = query.eq('pet_id', input.petId)
+  }
+  if (input.encounterId) {
+    query = query.eq('encounter_id', input.encounterId)
+  }
+  if (input.status) {
+    query = query.eq('status', input.status)
+  }
+  if (input.taskType) {
+    query = query.eq('task_type', input.taskType)
+  }
+
+  const from = (input.page - 1) * input.pageSize
+  const { data, error, count } = await query
+    .order('created_at', { ascending: false })
+    .range(from, from + input.pageSize - 1)
+
+  if (error) {
+    throw err.internal(`查询护士任务列表失败: ${error.message}`)
+  }
+
+  return ok(c, { list: data ?? [], total: count ?? 0, page: input.page, pageSize: input.pageSize })
+})
+
+const createNurseTaskSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid().optional(),
+  encounterId: z.string().uuid().optional(),
+  petId: z.string().uuid('宠物 id 格式错误'),
+  assignedTo: z.string().uuid().optional().or(z.literal('')),
+  taskType: z.enum(['medication', 'observation', 'care', 'sample_collection', 'other']).optional(),
+  description: z.string().min(1, '任务描述不能为空').max(1000),
+  scheduledAt: z.string().optional(),
+})
+
+/**
+ * 创建护士任务(MXQ-7007)
+ * - 权限:nurse_task.manage
+ */
+clinicalRoutes.post('/nurse-tasks', async (c) => {
+  const input = await parseJsonBody(c, createNurseTaskSchema)
+  await requirePermission(c, { code: 'nurse_task.manage', storeId: input.storeId })
+  // 租户归属校验:请求体 tenantId 必须属于调用者
+  assertTenantAccess(c, input.tenantId)
+
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('nurse_tasks')
+    .insert({
+      tenant_id: input.tenantId,
+      store_id: input.storeId ?? null,
+      encounter_id: input.encounterId ?? null,
+      pet_id: input.petId,
+      assigned_to: input.assignedTo || null,
+      task_type: input.taskType ?? 'other',
+      description: input.description,
+      scheduled_at: input.scheduledAt ?? null,
+      status: 'pending',
+    })
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`创建护士任务失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'nurse_task.create',
+    entityType: 'nurse_task',
+    entityId: data.id,
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+    metadata: { petId: input.petId, taskType: input.taskType },
+  })
+
+  return ok(c, data)
+})
+
+const updateNurseTaskSchema = z.object({
+  assignedTo: z.string().uuid().optional().or(z.literal('')),
+  taskType: z.enum(['medication', 'observation', 'care', 'sample_collection', 'other']).optional(),
+  description: z.string().max(1000).optional(),
+  scheduledAt: z.string().optional().or(z.literal('')),
+  status: z.enum(['pending', 'in_progress', 'done', 'skipped']).optional(),
+  note: z.string().max(1000).optional(),
+})
+
+/**
+ * 更新护士任务(MXQ-7007)
+ * - 权限:nurse_task.manage
+ * - 完成(status=done)时自动填充 completed_at/completed_by
+ */
+clinicalRoutes.patch('/nurse-tasks/:id', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, updateNurseTaskSchema)
+  await requirePermission(c, { code: 'nurse_task.manage' })
+
+  const service = createServiceClient()
+  const user = c.get('user')
+  const { data: existing, error: fetchError } = await service
+    .from('nurse_tasks')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (fetchError || !existing) {
+    throw err.notFound('护士任务不存在')
+  }
+  await requirePermission(c, { code: 'nurse_task.manage', storeId: existing.store_id ?? undefined })
+
+  const patch: Record<string, unknown> = {}
+  if (input.assignedTo !== undefined) {
+    patch.assigned_to = input.assignedTo || null
+  }
+  if (input.taskType !== undefined) {
+    patch.task_type = input.taskType
+  }
+  if (input.description !== undefined) {
+    patch.description = input.description
+  }
+  if (input.scheduledAt !== undefined) {
+    patch.scheduled_at = input.scheduledAt || null
+  }
+  if (input.note !== undefined) {
+    patch.note = input.note
+  }
+  if (input.status !== undefined) {
+    patch.status = input.status
+    if (input.status === 'done') {
+      patch.completed_at = new Date().toISOString()
+      patch.completed_by = user.id
+    }
+  }
+
+  const { data, error } = await service
+    .from('nurse_tasks')
+    .update(patch)
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`更新护士任务失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'nurse_task.update',
+    entityType: 'nurse_task',
+    entityId: id,
+    tenantId: existing.tenant_id,
+    storeId: existing.store_id ?? undefined,
+    metadata: patch,
+  })
+
+  return ok(c, data)
+})
+
+/**
+ * 删除护士任务(MXQ-7007)
+ * - 权限:nurse_task.manage
+ */
+clinicalRoutes.delete('/nurse-tasks/:id', async (c) => {
+  const id = c.req.param('id')
+  await requirePermission(c, { code: 'nurse_task.manage' })
+
+  const service = createServiceClient()
+  const { data: existing, error: fetchError } = await service
+    .from('nurse_tasks')
+    .select('id, tenant_id, store_id')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (fetchError || !existing) {
+    throw err.notFound('护士任务不存在')
+  }
+  await requirePermission(c, { code: 'nurse_task.manage', storeId: existing.store_id ?? undefined })
+
+  const { error } = await service
+    .from('nurse_tasks')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    throw err.internal(`删除护士任务失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'nurse_task.delete',
+    entityType: 'nurse_task',
+    entityId: id,
+    tenantId: existing.tenant_id,
+    storeId: existing.store_id ?? undefined,
+  })
+
+  return ok(c, { deleted: true })
+})
+
+export default clinicalRoutes
