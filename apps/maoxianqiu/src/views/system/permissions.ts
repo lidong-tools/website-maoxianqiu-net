@@ -125,4 +125,14 @@ export const PERMISSIONS = [
   // ===== S3.1-A:Tenant Initialization 租户初始化权限 =====
   { code: 'tenant.initialize', label: '初始化租户' },
   { code: 'tenant.initialization.read', label: '查看租户初始化状态' },
+  // ===== CORE-04:审计与安全权限 =====
+  { code: 'audit.view', label: '查看审计日志' },
+  { code: 'audit.export', label: '导出审计日志' },
+  // ===== CORE-05:审批中心权限 =====
+  { code: 'approval.inbox.view', label: '查看审批中心' },
+  // ===== CORE-06:系统设置权限 =====
+  { code: 'settings.tenant.read', label: '查看医院设置' },
+  { code: 'settings.tenant.manage', label: '管理医院设置' },
+  { code: 'settings.store.read', label: '查看门店设置' },
+  { code: 'settings.store.manage', label: '管理门店设置' },
 ] as const

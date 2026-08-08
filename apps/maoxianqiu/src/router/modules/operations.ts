@@ -18,6 +18,17 @@ import type { RouteRecordRaw } from 'vue-router'
  */
 const routes: RouteRecordRaw[] = [
   {
+    // CORE-05:审批中心(折扣 + 病历修订统一待办)
+    path: '/operations/approvals',
+    name: 'operationsApprovals',
+    component: () => import('@/views/operations/approvals/index.vue'),
+    meta: {
+      title: '审批中心',
+      icon: 'i-ri:file-shield-2-line',
+      auth: 'approval.inbox.view',
+    },
+  },
+  {
     path: '/operations/imports',
     name: 'operationsImports',
     component: () => import('@/views/operations/imports/index.vue'),

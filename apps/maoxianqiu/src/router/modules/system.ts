@@ -54,6 +54,28 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    // CORE-04:审计与安全(审计日志 + 安全事件)
+    path: '/system/audit',
+    name: 'systemAudit',
+    component: () => import('@/views/system/audit/index.vue'),
+    meta: {
+      title: '审计与安全',
+      icon: 'i-ic:round-manage-search',
+      auth: 'audit.view',
+    },
+  },
+  {
+    // CORE-06:系统设置(医院信息/门店营业/业务规则/支付/打印/字典)
+    path: '/system/settings',
+    name: 'systemSettings',
+    component: () => import('@/views/system/settings/index.vue'),
+    meta: {
+      title: '系统设置',
+      icon: 'i-ic:round-tune',
+      auth: ['settings.tenant.read', 'settings.store.read'],
+    },
+  },
+  {
     // UI Foundation 业务组件演示页(Story,隐藏菜单,仅内部验证用)
     path: '/system/component-demo',
     name: 'systemComponentDemo',
