@@ -36,14 +36,11 @@ import tenantRoutes from './routes/tenants'
 import userRoutes from './routes/user'
 
 /**
- * Vercel 函数路由唯一入口:api/[...route].ts 匹配 /api/{多段路径}。
+ * Vercel 函数路由唯一入口。vercel.json 将 /api/* 重写到此固定入口，
+ * Hono 仍使用原始请求路径完成业务路由匹配。
  *
- * 注意:必须使用单方括号 catch-all `[...route]`,不能使用双括号 `[[...route]]`。
- * 线上实测:Vercel 的非 Next.js 项目将 `[[...route]]` 编译为单段动态路由
- * `:route`,导致 /api/me/context 等多段路径 404;`[...route]` 才匹配多段。
- * 另:api 目录下每个文件都是互相隔离的独立函数入口,入口之间不能互相
- * import(如 import './index' 会 FUNCTION_INVOCATION_FAILED),故 Hono app
- * 与全部路由挂载均直接定义于此单一入口内。
+ * 使用固定入口避免 Vercel 在非 Next.js 项目中将 catch-all 文件误判为普通动态段，
+ * 导致 /api/me/context 等多段路径在平台层直接返回 404。
  */
 export const runtime = 'nodejs'
 
@@ -156,9 +153,26 @@ app.onError((e, c) => {
   return failError(c, e)
 })
 
-export const GET = handle(app)
-export const POST = handle(app)
-export const PUT = handle(app)
-export const PATCH = handle(app)
-export const DELETE = handle(app)
-export const OPTIONS = handle(app)
+const honoHandler = handle(app)
+
+/**
+ * 还原 vercel.json 重写前的 API 路径，使固定函数入口能够分发任意层级的 Hono 路由。
+ */
+function handleRewrittenRequest(request: Request) {
+  const url = new URL(request.url)
+  const path = url.searchParams.get('path')
+  if (!path) {
+    return honoHandler(request)
+  }
+
+  url.pathname = `/api/${path.replace(/^\/+/, '')}`
+  url.searchParams.delete('path')
+  return honoHandler(new Request(url, request))
+}
+
+export const GET = handleRewrittenRequest
+export const POST = handleRewrittenRequest
+export const PUT = handleRewrittenRequest
+export const PATCH = handleRewrittenRequest
+export const DELETE = handleRewrittenRequest
+export const OPTIONS = handleRewrittenRequest

@@ -6,6 +6,7 @@
   "outputDirectory": "apps/maoxianqiu/dist",
   "rewrites": [
     { "source": "/health", "destination": "/api/health" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    { "source": "/api/:path*", "destination": "/api?path=:path*" },
+    { "source": "/:path*", "destination": "/index.html" }
   ]
 }
