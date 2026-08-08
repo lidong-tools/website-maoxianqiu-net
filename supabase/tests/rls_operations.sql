@@ -27,6 +27,7 @@ begin;
 
 -- ---------- 断言辅助 ----------
 create schema if not exists tests;
+grant usage on schema tests to authenticated, anon, service_role;
 create or replace function tests.assert_true(cond boolean, msg text)
 returns void
 language plpgsql as $$
@@ -175,12 +176,15 @@ do $$
 begin
   set local role authenticated;
   perform set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-0000-0000-0000000000a1","role":"authenticated"}', true);
-  -- A1 员工是 store_manager,应能写
+  -- A1 员工是 store_manager,应能写(数组或 role_permissions 任一路径)
   perform tests.assert_true(
-    (select count(*) from public.role_permissions rp
-      join public.roles r on r.id = rp.role_id
-      join public.permissions p on p.id = rp.permission_id
-      where r.code = 'store_manager' and p.code = 'membership.manage') >= 1,
+    (
+      (select count(*) from public.roles where code = 'store_manager' and 'membership.manage' = any(permissions))
+      + (select count(*) from public.role_permissions rp
+          join public.roles r on r.id = rp.role_id
+          join public.permissions p on p.id = rp.permission_id
+          where r.code = 'store_manager' and p.code = 'membership.manage')
+    ) >= 1,
     'O3 前置: store_manager 应被授予 membership.manage');
 end;
 $$;
@@ -216,6 +220,9 @@ set role postgres;
 insert into public.point_transactions (id, tenant_id, customer_id, delta, reason, balance_after)
 values ('aaaaaaaa-0000-0000-0000-0000000000f3', 'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-0000000000c1', 100, 'purchase', 100)
 on conflict do nothing;
+insert into public.customer_memberships (tenant_id, customer_id, points_balance)
+values ('aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-0000000000c1', 100)
+on conflict (tenant_id, customer_id) do update set points_balance = excluded.points_balance;
 reset role;
 
 -- 现在以 authenticated 身份尝试 update(应该被拒绝)
@@ -225,10 +232,9 @@ begin
   perform set_config('request.jwt.claims', '{"sub":"cccccccc-0000-0000-0000-0000000000cc","role":"authenticated"}', true);
   begin
     update public.point_transactions set delta = 999 where id = 'aaaaaaaa-0000-0000-0000-0000000000f3';
-    -- 检查是否真的更新了(若 RLS 允许 update 但行不可见,实际不会更新)
-    raise exception 'RLS_TEST_FAILED: O5 point_transactions 应不可 update';
-  exception when insufficient_privilege then
-    null;
+    if found then
+      raise exception 'RLS_TEST_FAILED: O5 point_transactions 应不可 update';
+    end if;
   end;
 end;
 $$;
@@ -240,9 +246,9 @@ begin
   perform set_config('request.jwt.claims', '{"sub":"cccccccc-0000-0000-0000-0000000000cc","role":"authenticated"}', true);
   begin
     delete from public.point_transactions where id = 'aaaaaaaa-0000-0000-0000-0000000000f3';
-    raise exception 'RLS_TEST_FAILED: O6 point_transactions 应不可 delete';
-  exception when insufficient_privilege then
-    null;
+    if found then
+      raise exception 'RLS_TEST_FAILED: O6 point_transactions 应不可 delete';
+    end if;
   end;
 end;
 $$;

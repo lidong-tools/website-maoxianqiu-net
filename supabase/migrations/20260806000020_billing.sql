@@ -1096,7 +1096,7 @@ begin
     'discountAmount', ii.discount_amount,
     'amount', ii.amount,
     'sortOrder', ii.sort_order
-  ) order by ii.sort_order, ii.created_at), '[]'::jsonb) into v_items
+  ) order by ii.sort_order, ii.id), '[]'::jsonb) into v_items
   from public.invoice_items ii
   where ii.invoice_id = p_invoice_id;
 

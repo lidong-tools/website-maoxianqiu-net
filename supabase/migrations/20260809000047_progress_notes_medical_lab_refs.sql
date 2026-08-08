@@ -238,8 +238,7 @@ begin
     raise exception 'ADMISSION_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_admission.status <> 'admitted' then
-    raise exception 'ADMISSION_NOT_ADMITTED' using errcode = 'P0003',
-      message = '仅住院中的记录可书写病程';
+    raise exception 'ADMISSION_NOT_ADMITTED' using errcode = 'P0003';
   end if;
 
   -- 生成租户内唯一病程编号
@@ -286,8 +285,7 @@ begin
     raise exception 'PROGRESS_NOTE_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_note.status <> 'draft' then
-    raise exception 'PROGRESS_NOTE_ALREADY_SIGNED' using errcode = 'P0003',
-      message = '病程已签署,不可重复签署';
+    raise exception 'PROGRESS_NOTE_ALREADY_SIGNED' using errcode = 'P0003';
   end if;
 
   update public.inpatient_progress_notes
@@ -343,8 +341,7 @@ begin
 
   -- 跨租户引用防护
   if v_order.tenant_id <> v_lab.tenant_id then
-    raise exception 'CROSS_TENANT_REF' using errcode = 'P0003',
-      message = '医嘱与检验申请不属于同一租户';
+    raise exception 'CROSS_TENANT_REF' using errcode = 'P0003';
   end if;
 
   -- 幂等:已存在直接返回

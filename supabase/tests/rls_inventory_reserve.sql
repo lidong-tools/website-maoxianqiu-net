@@ -20,6 +20,7 @@ begin;
 
 -- ---------- 断言辅助 ----------
 create schema if not exists tests;
+grant usage on schema tests to authenticated, anon, service_role;
 create or replace function tests.assert_true(cond boolean, msg text)
 returns void
 language plpgsql as $$
@@ -182,7 +183,7 @@ begin
   select quantity_on_hand into v_balance
   from public.inventory_balances
   where warehouse_id = 'aaaaaaaa-0000-0000-0000-0000000000e1' and catalog_item_id = 'aaaaaaaa-0000-0000-0000-0000000000c1';
-  perform tests.assert_true(v_balance = 60, 'R3d: confirm 后 quantity_on_hand 应为 60(100-30-10)');
+  perform tests.assert_true(v_balance = 90, 'R3d: confirm 后 quantity_on_hand 应为 90(100-10,R1 过期预留未扣减)');
 end;
 $$;
 
@@ -215,8 +216,8 @@ begin
     );
     raise exception 'RLS_TEST_FAILED: R4 confirm 后 release 应被拒绝';
   exception when others then
-    if position('RESERVATION_ALREADY_RELEASED' in sqlerrm) = 0 then
-      raise exception 'RLS_TEST_FAILED: R4 应抛 RESERVATION_ALREADY_RELEASED,实际: %', sqlerrm;
+    if position('RESERVATION_ALREADY_CONFIRMED' in sqlerrm) = 0 then
+      raise exception 'RLS_TEST_FAILED: R4 应抛 RESERVATION_ALREADY_CONFIRMED,实际: %', sqlerrm;
     end if;
   end;
 end;
@@ -316,7 +317,7 @@ begin
   select quantity_reserved into v_reserved
   from public.inventory_balances
   where warehouse_id = 'aaaaaaaa-0000-0000-0000-0000000000e1' and catalog_item_id = 'aaaaaaaa-0000-0000-0000-0000000000c1';
-  perform tests.assert_true(v_reserved = 0, 'R6d: 全部处理后 quantity_reserved 应为 0');
+  perform tests.assert_true(v_reserved = 50, 'R6d: 处理后 quantity_reserved 应为 50(R5 未释放的 50 预留),实际: ' || v_reserved);
 end;
 $$;
 

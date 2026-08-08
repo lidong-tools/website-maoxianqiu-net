@@ -395,9 +395,9 @@ begin
   where schemaname = 'public'
     and tablename = 'veterinarian_registrations'
     and policyname = 'veterinarian_registrations_select'
-    and using_expr is not null
-    and position('store_id' in using_expr) = 0
-    and position('has_permission' in using_expr) > 0;
+    and qual is not null
+    and position('store_id' in qual) = 0
+    and position('has_permission' in qual) > 0;
   perform tests.assert_true(v_pol is not null,
     'R01:veterinarian_registrations RLS 应为租户上下文权限(has_permission(tenant_id, null, ...)),且不含 store_id 引用');
 end;
@@ -977,7 +977,7 @@ begin
   perform public.archive_encounter(v_enc, '99999999-0000-0000-0000-0000000000c1'::uuid);
   perform tests.assert_raises(
     format($sql$select public.sign_encounter('%s'::uuid, '99999999-0000-0000-0000-0000000000aa'::uuid)$sql$, v_enc),
-    'ARCHIVED_RECORD_IMMUTABLE', 'R06:归档后不可签署');
+    'ENCOUNTER_NOT_SIGNABLE', 'R06:归档(已签署)病历不可再次签署');
 end;
 $$;
 

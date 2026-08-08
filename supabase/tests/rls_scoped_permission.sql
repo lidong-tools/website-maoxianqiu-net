@@ -29,6 +29,7 @@ begin;
 
 -- ---------- 断言辅助(整个脚本在事务中,rollback 撤销所有 DDL/夹具) ----------
 create schema if not exists tests;
+grant usage on schema tests to authenticated, anon, service_role;
 create or replace function tests.assert_true(cond boolean, msg text)
 returns void
 language plpgsql as $$

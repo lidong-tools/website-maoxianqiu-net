@@ -96,8 +96,7 @@ begin
     raise exception 'ADMISSION_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_admission.status <> 'admitted' then
-    raise exception 'ADMISSION_NOT_ADMITTED' using errcode = 'P0003',
-      message = '仅住院中的记录可生成结算单';
+    raise exception 'ADMISSION_NOT_ADMITTED' using errcode = 'P0003';
   end if;
   -- 幂等:已准备直接返回
   if v_admission.settlement_status = 'prepared' then
@@ -110,8 +109,7 @@ begin
     );
   end if;
   if v_admission.settlement_status <> 'unsettled' then
-    raise exception 'SETTLEMENT_ALREADY_STARTED' using errcode = 'P0003',
-      message = '该住院记录已进入结算流程,不可重复生成结算单';
+    raise exception 'SETTLEMENT_ALREADY_STARTED' using errcode = 'P0003';
   end if;
 
   -- 汇总住院费用(笼位费 + 诊疗服务费)
@@ -178,16 +176,14 @@ begin
     raise exception 'ADMISSION_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_admission.settlement_status <> 'prepared' then
-    raise exception 'SETTLEMENT_NOT_PREPARED' using errcode = 'P0003',
-      message = '请先生成结算单再收款';
+    raise exception 'SETTLEMENT_NOT_PREPARED' using errcode = 'P0003';
   end if;
 
   -- 应付 = 应收 - 押金 - 减免(押金抵扣在前)
   v_payable := greatest(v_admission.receivable_amount - v_admission.deposit_amount - v_admission.waived_amount, 0);
   -- 实收不可超过应付(允许少收,差额视为欠费/后续减免)
   if p_paid_amount > v_payable then
-    raise exception 'PAID_EXCEEDS_PAYABLE' using errcode = 'P0003',
-      message = '实收金额超过应付金额 ' || v_payable;
+    raise exception 'PAID_EXCEEDS_PAYABLE' using errcode = 'P0003', detail = v_payable;
   end if;
 
   update public.admissions
@@ -244,8 +240,7 @@ begin
     raise exception 'ADMISSION_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_admission.settlement_status not in ('prepared', 'settled') then
-    raise exception 'SETTLEMENT_NOT_WAIVABLE' using errcode = 'P0003',
-      message = '仅已生成结算单的记录可减免';
+    raise exception 'SETTLEMENT_NOT_WAIVABLE' using errcode = 'P0003';
   end if;
 
   -- 可减免上限 = 应收 - 押金 - 已实收 - 已减免
@@ -254,8 +249,7 @@ begin
     0
   );
   if p_amount > v_max_waive then
-    raise exception 'WAIVE_EXCEEDS_PAYABLE' using errcode = 'P0003',
-      message = '减免金额超过可减免上限 ' || v_max_waive;
+    raise exception 'WAIVE_EXCEEDS_PAYABLE' using errcode = 'P0003', detail = v_max_waive;
   end if;
 
   update public.admissions
@@ -306,8 +300,7 @@ begin
     raise exception 'ADMISSION_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_admission.settlement_status not in ('settled', 'waived') then
-    raise exception 'SETTLEMENT_NOT_COMPLETED' using errcode = 'P0003',
-      message = '仅已收款或已减免的结算可完成出院';
+    raise exception 'SETTLEMENT_NOT_COMPLETED' using errcode = 'P0003';
   end if;
 
   -- 结算后总费用 = 应收 - 减免(押金退回由收银流程处理)

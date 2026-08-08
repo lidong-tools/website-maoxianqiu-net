@@ -207,7 +207,7 @@ create or replace function public.create_medical_order(
   p_encounter_id uuid default null,
   p_admission_id uuid default null,
   p_order_type text default 'treatment',
-  p_item_name text,
+  p_item_name text default null,
   p_dosage text default null,
   p_frequency text default null,
   p_quantity numeric default 1,
@@ -326,8 +326,7 @@ begin
     raise exception 'NURSE_TASK_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_task.status not in ('pending', 'in_progress', 'done') then
-    raise exception 'NURSE_TASK_NOT_RUNNABLE' using errcode = 'P0003',
-      message = '仅待处理/进行中任务可完成';
+    raise exception 'NURSE_TASK_NOT_RUNNABLE' using errcode = 'P0003';
   end if;
 
   update public.nurse_tasks
@@ -383,8 +382,7 @@ begin
     raise exception 'NURSE_TASK_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_task.status not in ('pending', 'in_progress') then
-    raise exception 'NURSE_TASK_ALREADY_EXECUTED' using errcode = 'P0003',
-      message = '已执行任务不可取消(永久保留)';
+    raise exception 'NURSE_TASK_ALREADY_EXECUTED' using errcode = 'P0003';
   end if;
 
   update public.nurse_tasks
@@ -430,8 +428,7 @@ begin
     raise exception 'NURSE_TASK_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_task.status not in ('pending', 'in_progress') then
-    raise exception 'NURSE_TASK_NOT_RUNNABLE' using errcode = 'P0003',
-      message = '仅待处理/进行中任务可标记失败';
+    raise exception 'NURSE_TASK_NOT_RUNNABLE' using errcode = 'P0003';
   end if;
 
   update public.nurse_tasks
@@ -473,8 +470,7 @@ begin
     raise exception 'MEDICAL_ORDER_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_order.status <> 'active' then
-    raise exception 'MEDICAL_ORDER_NOT_ACTIVE' using errcode = 'P0003',
-      message = '仅进行中医嘱可取消';
+    raise exception 'MEDICAL_ORDER_NOT_ACTIVE' using errcode = 'P0003';
   end if;
 
   -- 未执行任务 → cancelled;已执行任务永久保留

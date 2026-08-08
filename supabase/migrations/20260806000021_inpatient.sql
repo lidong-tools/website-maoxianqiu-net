@@ -1072,6 +1072,7 @@ begin
       1, v_cage.daily_rate, v_cage.daily_rate, true
     )
     on conflict (admission_id, charge_date, catalog_item_id)
+    where catalog_item_id is not null
     do nothing;
 
     if found then

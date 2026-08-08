@@ -38,7 +38,7 @@ declare
   v_closing_expected jsonb;
 begin
   -- 业务日期窗口:Asia/Shanghai 时区当日零点 -> 次日零点
-  v_day_start := p_business_date at time zone 'Asia/Shanghai';
+  v_day_start := p_business_date::timestamp at time zone 'Asia/Shanghai';
   v_day_end := v_day_start + interval '1 day';
 
   -- 日结快照期望值(已关闭/已调整才存在)

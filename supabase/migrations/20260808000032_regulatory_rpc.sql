@@ -85,8 +85,7 @@ begin
     end if;
     -- 状态变更走 change_license_status,避免绕过 status_change 审计
     if v_row.status in ('revoked', 'expired') then
-      raise exception 'LICENSE_NOT_EDITABLE' using errcode = 'P0003',
-        message = '已注销/已过期许可证不可编辑,请新增换证记录';
+      raise exception 'LICENSE_NOT_EDITABLE' using errcode = 'P0003';
     end if;
     -- 同一门店同一证号唯一性(排除自身)
     if exists (
@@ -274,8 +273,7 @@ begin
   where tenant_id = p_tenant_id and store_id = p_store_id and report_year = p_report_year
   for update;
   if v_report.id is not null and v_report.status in ('submitted', 'accepted', 'rejected') then
-    raise exception 'REPORT_ALREADY_SUBMITTED' using errcode = 'P0003',
-      message = '该年度报告已提交,禁止重新生成';
+    raise exception 'REPORT_ALREADY_SUBMITTED' using errcode = 'P0003';
   end if;
 
   v_year_start := make_timestamptz(p_report_year, 1, 1, 0, 0, 0, 'Asia/Shanghai');
@@ -459,8 +457,7 @@ begin
     raise exception 'REPORT_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_report.status <> 'generated' then
-    raise exception 'REPORT_NOT_GENERATED' using errcode = 'P0003',
-      message = '仅已生成(generated)状态的报告可提交';
+    raise exception 'REPORT_NOT_GENERATED' using errcode = 'P0003';
   end if;
 
   select exists(
@@ -523,8 +520,7 @@ begin
     raise exception 'SUSPECTED_DISEASE_REQUIRED' using errcode = 'P0003';
   end if;
   if p_status not in ('detected', 'reported') then
-    raise exception 'INVALID_EPIDEMIC_STATUS' using errcode = 'P0003',
-      message = '事件创建/维护仅支持 detected/reported 状态,隔离与解除请走专属动作';
+    raise exception 'INVALID_EPIDEMIC_STATUS' using errcode = 'P0003';
   end if;
 
   select exists(
@@ -550,8 +546,7 @@ begin
       raise exception 'EPIDEMIC_NOT_FOUND' using errcode = 'P0002';
     end if;
     if v_row.status in ('isolated', 'resolved') then
-      raise exception 'EPIDEMIC_NOT_EDITABLE' using errcode = 'P0003',
-        message = '已隔离/已解除事件不可修改';
+      raise exception 'EPIDEMIC_NOT_EDITABLE' using errcode = 'P0003';
     end if;
     v_old_status := v_row.status;
 
@@ -629,8 +624,7 @@ begin
     raise exception 'EPIDEMIC_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_row.status not in ('detected', 'reported') then
-    raise exception 'EPIDEMIC_NOT_ISOLATABLE' using errcode = 'P0003',
-      message = '仅 detected/reported 状态事件可执行隔离';
+    raise exception 'EPIDEMIC_NOT_ISOLATABLE' using errcode = 'P0003';
   end if;
 
   select exists(
@@ -679,8 +673,7 @@ begin
     raise exception 'EPIDEMIC_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_row.status not in ('detected', 'reported', 'isolated') then
-    raise exception 'EPIDEMIC_NOT_RESOLVABLE' using errcode = 'P0003',
-      message = '事件已解除,不可重复解除';
+    raise exception 'EPIDEMIC_NOT_RESOLVABLE' using errcode = 'P0003';
   end if;
 
   select exists(
@@ -744,8 +737,7 @@ begin
     raise exception 'INVALID_WASTE_QUANTITY' using errcode = 'P0003';
   end if;
   if p_status not in ('draft', 'recorded') then
-    raise exception 'INVALID_WASTE_STATUS' using errcode = 'P0003',
-      message = '记录创建/维护仅支持 draft/recorded 状态,交接请走专属动作';
+    raise exception 'INVALID_WASTE_STATUS' using errcode = 'P0003';
   end if;
 
   select exists(
@@ -769,8 +761,7 @@ begin
       where id = p_handler_employee_id and tenant_id = p_tenant_id and status = 'active'
     ) into v_emp_ok;
     if not v_emp_ok then
-      raise exception 'EMPLOYEE_NOT_FOUND' using errcode = 'P0002',
-        message = '交接员工不存在或不属于该租户';
+      raise exception 'EMPLOYEE_NOT_FOUND' using errcode = 'P0002';
     end if;
   end if;
 
@@ -782,8 +773,7 @@ begin
       raise exception 'WASTE_NOT_FOUND' using errcode = 'P0002';
     end if;
     if v_row.status = 'handed_over' then
-      raise exception 'WASTE_NOT_EDITABLE' using errcode = 'P0003',
-        message = '已交接记录不可修改';
+      raise exception 'WASTE_NOT_EDITABLE' using errcode = 'P0003';
     end if;
 
     update public.medical_waste_records
@@ -846,8 +836,7 @@ declare
   v_emp_ok boolean;
 begin
   if coalesce(p_receiver, '') = '' then
-    raise exception 'WASTE_RECEIVER_REQUIRED' using errcode = 'P0003',
-      message = '交接必须填写接收方';
+    raise exception 'WASTE_RECEIVER_REQUIRED' using errcode = 'P0003';
   end if;
 
   select * into v_row from public.medical_waste_records where id = p_record_id for update;
@@ -872,8 +861,7 @@ begin
       where id = p_handler_employee_id and tenant_id = v_row.tenant_id and status = 'active'
     ) into v_emp_ok;
     if not v_emp_ok then
-      raise exception 'EMPLOYEE_NOT_FOUND' using errcode = 'P0002',
-        message = '交接员工不存在或不属于该租户';
+      raise exception 'EMPLOYEE_NOT_FOUND' using errcode = 'P0002';
     end if;
   end if;
 

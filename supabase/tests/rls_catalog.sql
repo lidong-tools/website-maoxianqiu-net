@@ -26,6 +26,7 @@ begin;
 
 -- ---------- 断言辅助 ----------
 create schema if not exists tests;
+grant usage on schema tests to authenticated, anon, service_role;
 create or replace function tests.assert_true(cond boolean, msg text)
 returns void
 language plpgsql as $$
@@ -43,6 +44,23 @@ insert into public.tenants (id, slug, name) values
   ('aaaaaaaa-0000-0000-0000-000000000001', 'tenant-a-catalog', '租户 A'),
   ('bbbbbbbb-0000-0000-0000-000000000001', 'tenant-b-catalog', '租户 B')
 on conflict (slug) do nothing;
+
+-- 类目夹具:为测试租户插入 6 个顶级类目(migration 16 只在迁移时给已存在租户种,测试租户需自建)
+insert into public.catalog_categories (tenant_id, code, name, parent_id, sort_order, is_active)
+select t.id, seed.code, seed.name, null, seed.sort_order, true
+from (values ('aaaaaaaa-0000-0000-0000-000000000001'::uuid), ('bbbbbbbb-0000-0000-0000-000000000001'::uuid)) as t(id)
+cross join (values
+  ('service', '服务', 1),
+  ('product', '商品', 2),
+  ('drug', '药品', 3),
+  ('vaccine', '疫苗', 4),
+  ('exam', '检验', 5),
+  ('consumable', '耗材', 6)
+) as seed(code, name, sort_order)
+where not exists (
+  select 1 from public.catalog_categories cc
+  where cc.tenant_id = t.id and cc.code = seed.code
+);
 
 insert into auth.users (id, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, aud, role, created_at, updated_at)
 values

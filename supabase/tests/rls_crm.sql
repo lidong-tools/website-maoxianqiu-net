@@ -21,6 +21,7 @@ begin;
 
 -- ---------- 断言辅助 ----------
 create schema if not exists tests;
+grant usage on schema tests to authenticated, anon, service_role;
 create or replace function tests.assert_true(cond boolean, msg text)
 returns void
 language plpgsql as $$
@@ -124,71 +125,60 @@ on conflict do nothing;
 -- ======================================================================
 -- C1: 跨租户不可读客户(A1 员工读取 B 租户客户 = 0)
 -- ======================================================================
-set role authenticated;
--- 模拟 A1 员工登录(必须用 set_config 写入完整 claims JSON,set request.jwt.claims.xxx 无效)
-perform set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-0000-0000-0000000000a1","role":"authenticated"}', true);
-
-perform tests.assert_true(
-  (select count(*) from public.customers where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
-  'C1: A1 员工不应读到 B 租户客户'
-);
-
--- C4: 合法门店客户可读(A1 员工读取 A1 门店客户 = 2)
-perform tests.assert_true(
-  (select count(*) from public.customers where store_id = 'aaaaaaaa-0000-0000-0000-0000000000f1') >= 2,
-  'C4: A1 员工应能读到 A1 门店客户'
-);
-
--- C3: 无权门店客户不可读(A1 员工读取 A2 门店客户 = 0)
-perform tests.assert_true(
-  (select count(*) from public.customers where store_id = 'aaaaaaaa-0000-0000-0000-0000000000f2') = 0,
-  'C3: A1 员工不应读到 A2 门店客户'
-);
-
--- C5: 宠物跟随客户隔离(A1 员工读取 B 租户宠物 = 0)
-perform tests.assert_true(
-  (select count(*) from public.pets where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
-  'C5: A1 员工不应读到 B 租户宠物'
-);
-
--- C6: pet_weights 跟随宠物隔离(A1 员工读取 B 租户体重记录 = 0)
-perform tests.assert_true(
-  (select count(*) from public.pet_weights where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
-  'C6: A1 员工不应读到 B 租户体重记录'
-);
-
--- C7: import_jobs 跨租户不可读(A1 员工读取 B 租户导入任务 = 0)
-perform tests.assert_true(
-  (select count(*) from public.import_jobs where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
-  'C7: A1 员工不应读到 B 租户导入任务'
-);
-
--- C8: import_jobs 门店级隔离(A1 员工读取 A2 门店导入任务 = 0)
--- 注意:import_jobs_select 策略要求 can_access_store,A1 员工无 A2 门店权限
--- 但 import_jobs 中 A2 门店没有测试数据,所以这里验证 A1 门店可读即可
-perform tests.assert_true(
-  (select count(*) from public.import_jobs where store_id = 'aaaaaaaa-0000-0000-0000-0000000000f1') >= 1,
-  'C8: A1 员工应能读到 A1 门店导入任务'
-);
-
--- ---------- C2: 跨租户不可写客户 ----------
--- A1 员工尝试写入 B 租户客户(应失败)
 do $$
 begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-0000-0000-0000000000a1","role":"authenticated"}', true);
+
+  perform tests.assert_true(
+    (select count(*) from public.customers where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
+    'C1: A1 员工不应读到 B 租户客户'
+  );
+
+  perform tests.assert_true(
+    (select count(*) from public.customers where store_id = 'aaaaaaaa-0000-0000-0000-0000000000f1') >= 2,
+    'C4: A1 员工应能读到 A1 门店客户'
+  );
+
+  perform tests.assert_true(
+    (select count(*) from public.customers where store_id = 'aaaaaaaa-0000-0000-0000-0000000000f2') = 0,
+    'C3: A1 员工不应读到 A2 门店客户'
+  );
+
+  perform tests.assert_true(
+    (select count(*) from public.pets where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
+    'C5: A1 员工不应读到 B 租户宠物'
+  );
+
+  perform tests.assert_true(
+    (select count(*) from public.pet_weights where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
+    'C6: A1 员工不应读到 B 租户体重记录'
+  );
+
+  perform tests.assert_true(
+    (select count(*) from public.import_jobs where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
+    'C7: A1 员工不应读到 B 租户导入任务'
+  );
+
+  perform tests.assert_true(
+    (select count(*) from public.import_jobs where store_id = 'aaaaaaaa-0000-0000-0000-0000000000f1') >= 1,
+    'C8: A1 员工应能读到 A1 门店导入任务'
+  );
+
+  -- C2: 跨租户不可写客户
   begin
-    insert into public.customers (tenant_id, store_id, customer_no, name, status)
-    values ('bbbbbbbb-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-0000000000f1', 'TEST-CROSS-TENANT', '测试跨租户', 'active');
-    -- 如果到这里说明写入成功(不应该)
-    raise exception 'C2: A1 员工不应能写入 B 租户客户';
-  exception
-    when insufficient_privilege or check_violation then
-      -- 预期:RLS 拒绝写入
-      null;
+    begin
+      insert into public.customers (tenant_id, store_id, customer_no, name, status)
+      values ('bbbbbbbb-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-0000000000f1', 'TEST-CROSS-TENANT', '测试跨租户', 'active');
+      raise exception 'C2: A1 员工不应能写入 B 租户客户';
+    exception
+      when insufficient_privilege or check_violation then
+        null;
+    end;
   end;
 end;
 $$;
 
--- ---------- 恢复角色 ----------
 reset role;
 
 -- ---------- 打印成功 ----------

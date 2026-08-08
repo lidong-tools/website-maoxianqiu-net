@@ -34,8 +34,7 @@ begin
     raise exception 'ENCOUNTER_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_row.status <> 'signed' then
-    raise exception 'ENCOUNTER_NOT_SIGNABLE' using errcode = 'P0003',
-      message = '病历未签署,不可归档';
+    raise exception 'ENCOUNTER_NOT_SIGNABLE' using errcode = 'P0003';
   end if;
   if v_row.archive_status = 'archived' then
     raise exception 'ENCOUNTER_ALREADY_ARCHIVED' using errcode = 'P0003';
@@ -46,8 +45,7 @@ begin
     where id = p_operator_employee_id and tenant_id = v_row.tenant_id and status = 'active'
   ) into v_emp_exists;
   if not v_emp_exists then
-    raise exception 'OPERATOR_NOT_FOUND' using errcode = 'P0002',
-      message = '操作员工不存在或不属于本租户';
+    raise exception 'OPERATOR_NOT_FOUND' using errcode = 'P0002';
   end if;
 
   update public.encounters
@@ -92,8 +90,7 @@ begin
     raise exception 'ADMISSION_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_row.status <> 'discharged' then
-    raise exception 'ADMISSION_NOT_DISCHARGED' using errcode = 'P0003',
-      message = '住院病历未出院,不可归档';
+    raise exception 'ADMISSION_NOT_DISCHARGED' using errcode = 'P0003';
   end if;
   if v_row.archive_status = 'archived' then
     raise exception 'ADMISSION_ALREADY_ARCHIVED' using errcode = 'P0003';
@@ -104,8 +101,7 @@ begin
     where id = p_operator_employee_id and tenant_id = v_row.tenant_id and status = 'active'
   ) into v_emp_exists;
   if not v_emp_exists then
-    raise exception 'OPERATOR_NOT_FOUND' using errcode = 'P0002',
-      message = '操作员工不存在或不属于本租户';
+    raise exception 'OPERATOR_NOT_FOUND' using errcode = 'P0002';
   end if;
 
   update public.admissions
@@ -166,8 +162,7 @@ begin
       raise exception 'ENCOUNTER_NOT_FOUND' using errcode = 'P0002';
     end if;
     if v_archived <> 'archived' then
-      raise exception 'RECORD_NOT_ARCHIVED' using errcode = 'P0003',
-        message = '仅已归档病历可发起修订申请';
+      raise exception 'RECORD_NOT_ARCHIVED' using errcode = 'P0003';
     end if;
     select jsonb_build_object(
       'chief_complaint', chief_complaint, 'history_present', history_present,
@@ -181,8 +176,7 @@ begin
       raise exception 'ADMISSION_NOT_FOUND' using errcode = 'P0002';
     end if;
     if v_archived <> 'archived' then
-      raise exception 'RECORD_NOT_ARCHIVED' using errcode = 'P0003',
-        message = '仅已归档病历可发起修订申请';
+      raise exception 'RECORD_NOT_ARCHIVED' using errcode = 'P0003';
     end if;
     select jsonb_build_object(
       'discharge_reason', discharge_reason, 'discharge_notes', discharge_notes)
@@ -194,8 +188,7 @@ begin
     where id = p_requested_by_employee_id and tenant_id = v_tenant and status = 'active'
   ) into v_emp_exists;
   if not v_emp_exists then
-    raise exception 'OPERATOR_NOT_FOUND' using errcode = 'P0002',
-      message = '申请员工不存在或不属于本租户';
+    raise exception 'OPERATOR_NOT_FOUND' using errcode = 'P0002';
   end if;
 
   -- 同一记录未决申请去重
@@ -262,8 +255,7 @@ begin
     where id = p_reviewer_employee_id and tenant_id = v_row.tenant_id and status = 'active'
   ) into v_emp_exists;
   if not v_emp_exists then
-    raise exception 'OPERATOR_NOT_FOUND' using errcode = 'P0002',
-      message = '审批员工不存在或不属于本租户';
+    raise exception 'OPERATOR_NOT_FOUND' using errcode = 'P0002';
   end if;
 
   update public.medical_record_amendments
@@ -320,8 +312,7 @@ begin
     where id = p_applied_by_employee_id and tenant_id = v_row.tenant_id and status = 'active'
   ) into v_emp_exists;
   if not v_emp_exists then
-    raise exception 'OPERATOR_NOT_FOUND' using errcode = 'P0002',
-      message = '执行员工不存在或不属于本租户';
+    raise exception 'OPERATOR_NOT_FOUND' using errcode = 'P0002';
   end if;
 
   -- 显式放行归档不可变触发器(仅当前事务有效)
@@ -341,7 +332,8 @@ begin
     select coalesce(max(revision_no), 0) + 1 into v_revision_no
     from public.encounter_revisions where encounter_id = v_row.medical_record_id;
     insert into public.encounter_revisions (encounter_id, revision_no, content_diff, revised_by, revised_at, reason)
-    values (v_row.medical_record_id, v_revision_no, p_apply_payload, p_applied_by_employee_id, now(),
+    values (v_row.medical_record_id, v_revision_no, p_apply_payload,
+            (select user_id from public.employees where id = p_applied_by_employee_id), now(),
             'amendment:' || v_row.id::text);
 
     select jsonb_build_object(
@@ -421,8 +413,7 @@ begin
   select id into v_emp from public.employees
   where id = p_employee_id and tenant_id = p_tenant_id and status = 'active';
   if not found then
-    raise exception 'EMPLOYEE_NOT_FOUND' using errcode = 'P0002',
-      message = '备案员工不存在或不属于该租户';
+    raise exception 'EMPLOYEE_NOT_FOUND' using errcode = 'P0002';
   end if;
 
   if p_operator_employee_id is not null then
@@ -519,8 +510,7 @@ begin
     raise exception 'PRESCRIPTION_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_row.status <> 'draft' then
-    raise exception 'PRESCRIPTION_NOT_DRAFT' using errcode = 'P0003',
-      message = '仅草稿状态处方可开具';
+    raise exception 'PRESCRIPTION_NOT_DRAFT' using errcode = 'P0003';
   end if;
 
   -- 开方人必须属于该租户且为在职员工
@@ -529,8 +519,7 @@ begin
     where id = p_prescriber_employee_id and tenant_id = v_row.tenant_id and status = 'active'
   ) into v_emp_exists;
   if not v_emp_exists then
-    raise exception 'PRESCRIBER_NOT_FOUND' using errcode = 'P0002',
-      message = '开方员工不存在或不属于本租户';
+    raise exception 'PRESCRIBER_NOT_FOUND' using errcode = 'P0002';
   end if;
 
   -- 有效执业兽医备案(必须;不得仅凭 role='doctor')
@@ -543,8 +532,7 @@ begin
     and (valid_until is null or valid_until >= (now() at time zone 'Asia/Shanghai')::date)
   limit 1;
   if not found then
-    raise exception 'PRESCRIBER_NOT_REGISTERED' using errcode = 'P0003',
-      message = '开方人无有效执业兽医备案,禁止开具处方';
+    raise exception 'PRESCRIBER_NOT_REGISTERED' using errcode = 'P0003';
   end if;
 
   -- 受控药品规则:单独处方 / 麻醉一日量
@@ -567,8 +555,7 @@ begin
       and cde.controlled_class is not null and cde.controlled_class <> 'none';
 
     if array_length(v_controlled_classes, 1) > 1 then
-      raise exception 'CONTROLLED_MIX_CLASS' using errcode = 'P0003',
-        message = '受控药品必须单独处方,不得混合开具不同受控类别';
+      raise exception 'CONTROLLED_MIX_CLASS' using errcode = 'P0003';
     end if;
 
     -- 受控药不得与非受控药混开
@@ -579,8 +566,7 @@ begin
     where pi.prescription_id = p_prescription_id
       and (cde.controlled_class is null or cde.controlled_class = 'none');
     if v_non_controlled_count > 0 then
-      raise exception 'CONTROLLED_MIX_REGULAR' using errcode = 'P0003',
-        message = '受控药品必须单独处方,不得与非受控药品混开';
+      raise exception 'CONTROLLED_MIX_REGULAR' using errcode = 'P0003';
     end if;
 
     -- 麻醉药品每张处方不超过一日量(duration_days <= 1)
@@ -590,8 +576,7 @@ begin
       where prescription_id = p_prescription_id
         and (duration_days is null or duration_days > 1);
       if v_narcotic_count > 0 then
-        raise exception 'NARCOTIC_DAILY_LIMIT' using errcode = 'P0003',
-          message = '麻醉药品每张处方不得超过一日量';
+        raise exception 'NARCOTIC_DAILY_LIMIT' using errcode = 'P0003';
       end if;
     end if;
   end if;
@@ -603,12 +588,10 @@ begin
   --   时区声明:毛线球当前仅服务中国大陆,统一业务时区 Asia/Shanghai,
   --   不按 tenant/store 配置解析时区(产品决策,见交付说明)。
   if p_valid_until is not null and p_valid_until <= now() then
-    raise exception 'PRESCRIPTION_VALIDITY_IN_PAST' using errcode = 'P0003',
-      message = '处方有效期不得早于开具时刻';
+    raise exception 'PRESCRIPTION_VALIDITY_IN_PAST' using errcode = 'P0003';
   end if;
   if p_valid_until is not null and p_valid_until > now() + interval '3 days' then
-    raise exception 'VALIDITY_EXCEEDS_MAX' using errcode = 'P0003',
-      message = '处方有效期最长不得超过开具时刻 + 3 天';
+    raise exception 'VALIDITY_EXCEEDS_MAX' using errcode = 'P0003';
   end if;
 
   -- 保存期:受控 5 年,普通 3 年
@@ -668,20 +651,17 @@ begin
     raise exception 'PRESCRIPTION_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_row.status <> 'issued' then
-    raise exception 'PRESCRIPTION_NOT_ISSUED' using errcode = 'P0003',
-      message = '仅已开具处方可延长有效期';
+    raise exception 'PRESCRIPTION_NOT_ISSUED' using errcode = 'P0003';
   end if;
   if v_row.issued_at is null then
     raise exception 'PRESCRIPTION_NOT_ISSUED' using errcode = 'P0003';
   end if;
   if p_new_valid_until <= v_row.valid_until then
-    raise exception 'VALIDITY_NOT_EXTENDED' using errcode = 'P0003',
-      message = '新有效期必须晚于当前有效期';
+    raise exception 'VALIDITY_NOT_EXTENDED' using errcode = 'P0003';
   end if;
   -- F03 边界:上限 = issued_at + 3 天(todo.md A5 规则4,72 小时硬上限)
   if p_new_valid_until > v_row.issued_at + interval '3 days' then
-    raise exception 'VALIDITY_EXCEEDS_MAX' using errcode = 'P0003',
-      message = '处方有效期最长不得超过开具时刻 + 3 天';
+    raise exception 'VALIDITY_EXCEEDS_MAX' using errcode = 'P0003';
   end if;
 
   select exists(
@@ -732,8 +712,7 @@ begin
 
   -- 归档后禁止保存(归档不可变触发器同时兜底)
   if v_encounter.archive_status = 'archived' then
-    raise exception 'ARCHIVED_RECORD_IMMUTABLE' using errcode = 'P0003',
-      message = '已归档病历不可修改处方,必须走 Amendment 流程';
+    raise exception 'ARCHIVED_RECORD_IMMUTABLE' using errcode = 'P0003';
   end if;
 
   -- 已开具/已发药后禁止覆盖式保存
@@ -742,8 +721,7 @@ begin
     where encounter_id = p_encounter_id and status in ('issued', 'dispensed')
   ) into v_existing_issued;
   if v_existing_issued then
-    raise exception 'PRESCRIPTION_ALREADY_ISSUED' using errcode = 'P0003',
-      message = '该就诊已开具处方,禁止覆盖式修改';
+    raise exception 'PRESCRIPTION_ALREADY_ISSUED' using errcode = 'P0003';
   end if;
 
   select * into v_rx from public.prescriptions
@@ -758,7 +736,7 @@ begin
     delete from public.prescription_items where prescription_id = v_rx.id;
   end if;
 
-  for v_item in select * from jsonb_array_elements(p_items_json)
+  for v_item in select value from jsonb_array_elements(p_items_json)
   loop
     insert into public.prescription_items (
       prescription_id, catalog_item_id, drug_name, dosage, frequency,
@@ -766,15 +744,15 @@ begin
     )
     values (
       v_rx.id,
-      nullif(v_item->>'catalog_item_id', '')::uuid,
-      v_item->>'drug_name',
-      v_item->>'dosage',
-      v_item->>'frequency',
-      nullif(v_item->>'duration_days', '')::integer,
-      coalesce(nullif(v_item->>'quantity', '')::numeric, 1),
-      v_item->>'unit',
-      v_item->>'instructions',
-      coalesce(nullif(v_item->>'sort_order', '')::integer, 0)
+      nullif(v_item.value->>'catalog_item_id', '')::uuid,
+      v_item.value->>'drug_name',
+      v_item.value->>'dosage',
+      v_item.value->>'frequency',
+      nullif(v_item.value->>'duration_days', '')::integer,
+      coalesce(nullif(v_item.value->>'quantity', '')::numeric, 1),
+      v_item.value->>'unit',
+      v_item.value->>'instructions',
+      coalesce(nullif(v_item.value->>'sort_order', '')::integer, 0)
     );
   end loop;
 
@@ -821,17 +799,14 @@ begin
   end if;
   -- R04:仅 issued 处方可发药(draft 必须先开具,禁止直接发药)
   if v_row.status <> 'issued' then
-    raise exception 'PRESCRIPTION_NOT_DISPENSABLE' using errcode = 'P0003',
-      message = '仅已开具(issued)处方可发药,草稿处方必须先开具';
+    raise exception 'PRESCRIPTION_NOT_DISPENSABLE' using errcode = 'P0003';
   end if;
   -- 已开具处方必须未过期
   if v_row.valid_until is null then
-    raise exception 'PRESCRIPTION_EXPIRED' using errcode = 'P0003',
-      message = '处方缺少有效期,禁止发药';
+    raise exception 'PRESCRIPTION_EXPIRED' using errcode = 'P0003';
   end if;
   if v_row.valid_until < now() then
-    raise exception 'PRESCRIPTION_EXPIRED' using errcode = 'P0003',
-      message = '处方已过期,禁止发药';
+    raise exception 'PRESCRIPTION_EXPIRED' using errcode = 'P0003';
   end if;
 
   -- 发药员工:由登录用户(p_operator_id)反查在职员工,服务端推导
@@ -862,8 +837,7 @@ begin
     -- F02:库存商品若无可用仓库必须失败,禁止"无出库但标记 dispensed"
     --     (该租户/门店未配置启用仓库 = 账实一致性 P0)
     if v_wh.id is null then
-      raise exception 'DISPENSE_WAREHOUSE_NOT_FOUND' using errcode = 'P0003',
-        message = '该租户/门店下无可用仓库,无法发药';
+      raise exception 'DISPENSE_WAREHOUSE_NOT_FOUND' using errcode = 'P0003';
     end if;
 
     -- 优先确认该处方的预留流水(预留转正式扣减,FEFO 批次)
@@ -979,8 +953,7 @@ begin
   end if;
   -- 归档后不可签署
   if v_row.archive_status = 'archived' then
-    raise exception 'ARCHIVED_RECORD_IMMUTABLE' using errcode = 'P0003',
-      message = '已归档病历不可签署';
+    raise exception 'ARCHIVED_RECORD_IMMUTABLE' using errcode = 'P0003';
   end if;
 
   -- 签署员工:由登录用户反查在职员工档案(服务端推导)

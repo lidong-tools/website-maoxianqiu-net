@@ -115,8 +115,7 @@ begin
         and (store_id is null or store_id = p_store_id)
         and status = 'uploaded'
     ) then
-      raise exception 'FILE_SCOPE_MISMATCH' using errcode = 'P0003',
-        message = '证照附件不属于当前租户/门店或不可用';
+      raise exception 'FILE_SCOPE_MISMATCH' using errcode = 'P0003';
     end if;
   end if;
 
@@ -131,8 +130,7 @@ begin
     end if;
     -- 状态变更走 change_license_status,避免绕过 status_change 审计
     if v_before.status in ('revoked', 'expired') then
-      raise exception 'LICENSE_NOT_EDITABLE' using errcode = 'P0003',
-        message = '已注销/已过期许可证不可编辑,请新增换证记录';
+      raise exception 'LICENSE_NOT_EDITABLE' using errcode = 'P0003';
     end if;
     -- 同一门店同一证号唯一性(排除自身)
     if exists (
@@ -248,8 +246,7 @@ begin
     or (v_row.status = 'active' and p_new_status in ('suspended', 'revoked', 'expired'))
     or (v_row.status = 'suspended' and p_new_status in ('active', 'revoked', 'expired'))
   ) then
-    raise exception 'INVALID_LICENSE_TRANSITION' using errcode = 'P0003',
-      message = '许可证不允许该状态流转(终态不可复活): ' || v_row.status || ' -> ' || p_new_status;
+    raise exception 'INVALID_LICENSE_TRANSITION' using errcode = 'P0003', detail = v_row.status || ' -> ' || p_new_status;
   end if;
 
   v_old_status := v_row.status;
@@ -333,8 +330,7 @@ begin
   where tenant_id = p_tenant_id and store_id = p_store_id and report_year = p_report_year
   for update;
   if v_report.id is not null and v_report.status in ('submitted', 'accepted', 'rejected') then
-    raise exception 'REPORT_ALREADY_SUBMITTED' using errcode = 'P0003',
-      message = '该年度报告已提交,禁止重新生成';
+    raise exception 'REPORT_ALREADY_SUBMITTED' using errcode = 'P0003';
   end if;
 
   v_year_start := make_timestamptz(p_report_year, 1, 1, 0, 0, 0, 'Asia/Shanghai');
@@ -521,8 +517,7 @@ begin
     raise exception 'REPORT_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_report.status <> 'generated' then
-    raise exception 'REPORT_NOT_GENERATED' using errcode = 'P0003',
-      message = '仅已生成(generated)状态的报告可提交';
+    raise exception 'REPORT_NOT_GENERATED' using errcode = 'P0003';
   end if;
 
   select exists(
@@ -590,8 +585,7 @@ begin
     raise exception 'SUSPECTED_DISEASE_REQUIRED' using errcode = 'P0003';
   end if;
   if p_status not in ('detected', 'reported') then
-    raise exception 'INVALID_EPIDEMIC_STATUS' using errcode = 'P0003',
-      message = '事件创建/维护仅支持 detected/reported 状态,隔离与解除请走专属动作';
+    raise exception 'INVALID_EPIDEMIC_STATUS' using errcode = 'P0003';
   end if;
 
   select exists(
@@ -617,8 +611,7 @@ begin
       select 1 from public.customers
       where id = p_customer_id and tenant_id = p_tenant_id
     ) then
-      raise exception 'CUSTOMER_SCOPE_MISMATCH' using errcode = 'P0003',
-        message = '客户不属于该租户';
+      raise exception 'CUSTOMER_SCOPE_MISMATCH' using errcode = 'P0003';
     end if;
   end if;
   -- pet 必须属于目标租户;同时传 customer 时校验 pet.customer_id 归属一致
@@ -627,16 +620,14 @@ begin
       select 1 from public.pets
       where id = p_pet_id and tenant_id = p_tenant_id
     ) then
-      raise exception 'PET_SCOPE_MISMATCH' using errcode = 'P0003',
-        message = '宠物不属于该租户';
+      raise exception 'PET_SCOPE_MISMATCH' using errcode = 'P0003';
     end if;
     if p_customer_id is not null then
       if not exists (
         select 1 from public.pets
         where id = p_pet_id and customer_id = p_customer_id
       ) then
-        raise exception 'RELATED_ENTITY_MISMATCH' using errcode = 'P0003',
-          message = '宠物与客户关联不一致';
+        raise exception 'RELATED_ENTITY_MISMATCH' using errcode = 'P0003';
       end if;
     end if;
   end if;
@@ -646,15 +637,13 @@ begin
       select 1 from public.encounters
       where id = p_encounter_id and tenant_id = p_tenant_id
     ) then
-      raise exception 'ENCOUNTER_SCOPE_MISMATCH' using errcode = 'P0003',
-        message = '就诊记录不属于该租户';
+      raise exception 'ENCOUNTER_SCOPE_MISMATCH' using errcode = 'P0003';
     end if;
     if not exists (
       select 1 from public.encounters
       where id = p_encounter_id and store_id = p_store_id
     ) then
-      raise exception 'ENCOUNTER_SCOPE_MISMATCH' using errcode = 'P0003',
-        message = '就诊记录不属于该门店';
+      raise exception 'ENCOUNTER_SCOPE_MISMATCH' using errcode = 'P0003';
     end if;
     if p_customer_id is not null or p_pet_id is not null then
       if not exists (
@@ -663,8 +652,7 @@ begin
           and (p_customer_id is null or customer_id = p_customer_id)
           and (p_pet_id is null or pet_id = p_pet_id)
       ) then
-        raise exception 'RELATED_ENTITY_MISMATCH' using errcode = 'P0003',
-          message = '就诊记录与客户/宠物关联不一致';
+        raise exception 'RELATED_ENTITY_MISMATCH' using errcode = 'P0003';
       end if;
     end if;
   end if;
@@ -678,13 +666,11 @@ begin
       raise exception 'EPIDEMIC_NOT_FOUND' using errcode = 'P0002';
     end if;
     if v_row.status in ('isolated', 'resolved') then
-      raise exception 'EPIDEMIC_NOT_EDITABLE' using errcode = 'P0003',
-        message = '已隔离/已解除事件不可修改';
+      raise exception 'EPIDEMIC_NOT_EDITABLE' using errcode = 'P0003';
     end if;
     -- B06:禁止 reported -> detected 回退
     if v_row.status = 'reported' and p_status = 'detected' then
-      raise exception 'INVALID_EPIDEMIC_TRANSITION' using errcode = 'P0003',
-        message = '疫情事件不允许回退状态: reported -> detected';
+      raise exception 'INVALID_EPIDEMIC_TRANSITION' using errcode = 'P0003';
     end if;
     v_old_status := v_row.status;
 
@@ -769,8 +755,7 @@ begin
     raise exception 'EPIDEMIC_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_row.status not in ('detected', 'reported') then
-    raise exception 'EPIDEMIC_NOT_ISOLATABLE' using errcode = 'P0003',
-      message = '仅 detected/reported 状态事件可执行隔离';
+    raise exception 'EPIDEMIC_NOT_ISOLATABLE' using errcode = 'P0003';
   end if;
 
   select exists(
@@ -821,8 +806,7 @@ begin
     raise exception 'EPIDEMIC_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_row.status not in ('detected', 'reported', 'isolated') then
-    raise exception 'EPIDEMIC_NOT_RESOLVABLE' using errcode = 'P0003',
-      message = '事件已解除,不可重复解除';
+    raise exception 'EPIDEMIC_NOT_RESOLVABLE' using errcode = 'P0003';
   end if;
 
   select exists(
@@ -888,8 +872,7 @@ begin
     raise exception 'INVALID_WASTE_QUANTITY' using errcode = 'P0003';
   end if;
   if p_status not in ('draft', 'recorded') then
-    raise exception 'INVALID_WASTE_STATUS' using errcode = 'P0003',
-      message = '记录创建/维护仅支持 draft/recorded 状态,交接请走专属动作';
+    raise exception 'INVALID_WASTE_STATUS' using errcode = 'P0003';
   end if;
 
   select exists(
@@ -914,8 +897,7 @@ begin
       where id = p_handler_employee_id and tenant_id = p_tenant_id and status = 'active'
     ) into v_emp_ok;
     if not v_emp_ok then
-      raise exception 'EMPLOYEE_NOT_FOUND' using errcode = 'P0002',
-        message = '交接员工不存在或不属于该租户';
+      raise exception 'EMPLOYEE_NOT_FOUND' using errcode = 'P0002';
     end if;
   end if;
 
@@ -928,8 +910,7 @@ begin
         and (store_id is null or store_id = p_store_id)
         and status = 'uploaded'
     ) then
-      raise exception 'FILE_SCOPE_MISMATCH' using errcode = 'P0003',
-        message = '附件不属于当前租户/门店或不可用';
+      raise exception 'FILE_SCOPE_MISMATCH' using errcode = 'P0003';
     end if;
   end if;
 
@@ -941,8 +922,7 @@ begin
       raise exception 'WASTE_NOT_FOUND' using errcode = 'P0002';
     end if;
     if v_row.status = 'handed_over' then
-      raise exception 'WASTE_NOT_EDITABLE' using errcode = 'P0003',
-        message = '已交接记录不可修改';
+      raise exception 'WASTE_NOT_EDITABLE' using errcode = 'P0003';
     end if;
 
     update public.medical_waste_records
@@ -1006,8 +986,7 @@ declare
   v_operator_user_id uuid;
 begin
   if coalesce(p_receiver, '') = '' then
-    raise exception 'WASTE_RECEIVER_REQUIRED' using errcode = 'P0003',
-      message = '交接必须填写接收方';
+    raise exception 'WASTE_RECEIVER_REQUIRED' using errcode = 'P0003';
   end if;
 
   select * into v_row from public.medical_waste_records where id = p_record_id for update;
@@ -1033,8 +1012,7 @@ begin
       where id = p_handler_employee_id and tenant_id = v_row.tenant_id and status = 'active'
     ) into v_emp_ok;
     if not v_emp_ok then
-      raise exception 'EMPLOYEE_NOT_FOUND' using errcode = 'P0002',
-        message = '交接员工不存在或不属于该租户';
+      raise exception 'EMPLOYEE_NOT_FOUND' using errcode = 'P0002';
     end if;
   end if;
 

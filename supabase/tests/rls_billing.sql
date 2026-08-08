@@ -24,6 +24,7 @@ begin;
 
 -- ---------- 断言辅助 ----------
 create schema if not exists tests;
+grant usage on schema tests to authenticated, anon, service_role;
 create or replace function tests.assert_true(cond boolean, msg text)
 returns void
 language plpgsql as $$
@@ -181,6 +182,7 @@ begin
     'B4: A1 员工应能读取本店发票');
 end;
 $$;
+reset role;
 
 
 -- ============================================================
@@ -211,6 +213,7 @@ begin
     'B1: A 用户不应读取到 B 租户的发票');
 end;
 $$;
+reset role;
 
 
 -- ============================================================
@@ -229,6 +232,7 @@ begin
   end;
 end;
 $$;
+reset role;
 
 
 -- ============================================================
@@ -259,6 +263,7 @@ begin
     'B3: A1 员工不应读取到 A2 门店的发票');
 end;
 $$;
+reset role;
 
 
 -- ============================================================
@@ -563,36 +568,37 @@ begin
   -- update payments 应被拒绝(无 update policy)
   begin
     update public.payments set amount = 999 where id = v_payment_id;
-    raise exception 'RLS_TEST_FAILED: B5a 支付流水不应可 update';
-  exception when insufficient_privilege then
-    null;
+    if found then
+      raise exception 'RLS_TEST_FAILED: B5a 支付流水不应可 update';
+    end if;
   end;
 
   -- delete payments 应被拒绝(无 delete policy)
   begin
     delete from public.payments where id = v_payment_id;
-    raise exception 'RLS_TEST_FAILED: B5b 支付流水不应可 delete';
-  exception when insufficient_privilege then
-    null;
+    if found then
+      raise exception 'RLS_TEST_FAILED: B5b 支付流水不应可 delete';
+    end if;
   end;
 
   -- update refunds 应被拒绝
   begin
     update public.refunds set amount = 999 where id = v_refund_id;
-    raise exception 'RLS_TEST_FAILED: B5c 退款流水不应可 update';
-  exception when insufficient_privilege then
-    null;
+    if found then
+      raise exception 'RLS_TEST_FAILED: B5c 退款流水不应可 update';
+    end if;
   end;
 
   -- delete refunds 应被拒绝
   begin
     delete from public.refunds where id = v_refund_id;
-    raise exception 'RLS_TEST_FAILED: B5d 退款流水不应可 delete';
-  exception when insufficient_privilege then
-    null;
+    if found then
+      raise exception 'RLS_TEST_FAILED: B5d 退款流水不应可 delete';
+    end if;
   end;
 end;
 $$;
+reset role;
 
 
 -- ============================================================
@@ -612,6 +618,7 @@ begin
     'B12: system_admin 应能读取 B 租户发票');
 end;
 $$;
+reset role;
 
 
 -- ============================================================

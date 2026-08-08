@@ -22,6 +22,7 @@ begin;
 
 -- ---------- 断言辅助 ----------
 create schema if not exists tests;
+grant usage on schema tests to authenticated, anon, service_role;
 create or replace function tests.assert_true(cond boolean, msg text)
 returns void
 language plpgsql as $$
@@ -136,98 +137,80 @@ on conflict do nothing;
 -- ======================================================================
 -- 以 A1 医生身份执行测试
 -- ======================================================================
-set role authenticated;
--- 必须用 set_config 写入完整 claims JSON,set request.jwt.claims.xxx 无效(auth.uid() 恒 NULL)
-perform set_config('request.jwt.claims', '{"sub":"aaaaaaaa-7000-0000-0000-0000000000d1","role":"authenticated"}', true);
-
--- C1: 跨租户不可读预约(A1 医生读取 B 租户预约 = 0)
-perform tests.assert_true(
-  (select count(*) from public.appointments where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
-  'C1: A1 医生不应读到 B 租户预约'
-);
-
--- C2: 跨门店不可读预约(A1 医生读取 A2 门店预约 = 0)
-perform tests.assert_true(
-  (select count(*) from public.appointments where store_id = 'aaaaaaaa-7000-0000-0000-0000000000f2') = 0,
-  'C2: A1 医生不应读到 A2 门店预约'
-);
-
--- C3: 合法门店预约可读(A1 医生读取 A1 门店预约 >= 1)
-perform tests.assert_true(
-  (select count(*) from public.appointments where store_id = 'aaaaaaaa-7000-0000-0000-0000000000f1') >= 1,
-  'C3: A1 医生应能读到 A1 门店预约'
-);
-
--- C4: 跨租户不可读病历(A1 医生读取 B 租户病历 = 0)
-perform tests.assert_true(
-  (select count(*) from public.encounters where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
-  'C4: A1 医生不应读到 B 租户病历'
-);
-
--- C5: 跨门店不可读处方(A1 医生读取 B 租户处方 = 0)
-perform tests.assert_true(
-  (select count(*) from public.prescriptions where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
-  'C5: A1 医生不应读到 B 租户处方'
-);
-
--- C6: 护士任务跨租户隔离(A1 医生读取 B 租户护士任务 = 0)
-perform tests.assert_true(
-  (select count(*) from public.nurse_tasks where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
-  'C6: A1 医生不应读到 B 租户护士任务'
-);
-
--- ---------- C7: 未签署病历不可被非主治医生修改 ----------
--- A1 医生尝试修改 A2 门店的已签署病历(应被 RLS 拒绝)
--- encounters_update 策略:using 要求 status<>'signed',且 can_access_store(A1 无 A2 门店权限)
 do $$
 begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', '{"sub":"aaaaaaaa-7000-0000-0000-0000000000d1","role":"authenticated"}', true);
+
+  perform tests.assert_true(
+    (select count(*) from public.appointments where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
+    'C1: A1 医生不应读到 B 租户预约'
+  );
+
+  perform tests.assert_true(
+    (select count(*) from public.appointments where store_id = 'aaaaaaaa-7000-0000-0000-0000000000f2') = 0,
+    'C2: A1 医生不应读到 A2 门店预约'
+  );
+
+  perform tests.assert_true(
+    (select count(*) from public.appointments where store_id = 'aaaaaaaa-7000-0000-0000-0000000000f1') >= 1,
+    'C3: A1 医生应能读到 A1 门店预约'
+  );
+
+  perform tests.assert_true(
+    (select count(*) from public.encounters where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
+    'C4: A1 医生不应读到 B 租户病历'
+  );
+
+  perform tests.assert_true(
+    (select count(*) from public.prescriptions where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
+    'C5: A1 医生不应读到 B 租户处方'
+  );
+
+  perform tests.assert_true(
+    (select count(*) from public.nurse_tasks where tenant_id = 'bbbbbbbb-0000-0000-0000-000000000001') = 0,
+    'C6: A1 医生不应读到 B 租户护士任务'
+  );
+
   begin
-    update public.encounters set chief_complaint = '篡改' where id = 'aaaaaaaa-7003-0000-0000-0000000000e2';
-    -- 若影响 0 行也算通过(RLS using 过滤掉),只有影响 >0 才算失败
-    if found then
-      raise exception 'C7: A1 医生不应能修改 A2 门店的已签署病历';
-    end if;
-  exception
-    when insufficient_privilege or check_violation then
-      null;
+    begin
+      update public.encounters set chief_complaint = '篡改' where id = 'aaaaaaaa-7003-0000-0000-0000000000e2';
+      if found then
+        raise exception 'C7: A1 医生不应能修改 A2 门店的已签署病历';
+      end if;
+    exception
+      when insufficient_privilege or check_violation then
+        null;
+    end;
   end;
+
+  begin
+    begin
+      insert into public.appointments (tenant_id, store_id, customer_id, pet_id, scheduled_start, scheduled_end, status, source)
+      values ('bbbbbbbb-0000-0000-0000-000000000001', 'bbbbbbbb-7000-0000-0000-0000000000f1', 'bbbbbbbb-7000-0000-0000-0000000000c1', 'bbbbbbbb-7000-0000-0000-0000000000b1', now(), now() + interval '1 hour', 'pending', 'walk_in');
+      raise exception 'C8: A1 医生不应能写入 B 租户预约';
+    exception
+      when insufficient_privilege or check_violation then
+        null;
+    end;
+  end;
+
+  perform tests.assert_true(
+    (select count(*) from public.encounters where store_id = 'aaaaaaaa-7000-0000-0000-0000000000f1' and status = 'in_progress') >= 1,
+    'C9a: A1 医生应能读到 A1 门店进行中病历'
+  );
+
+  update public.encounters
+  set chief_complaint = '咳嗽(已更新)'
+  where id = 'aaaaaaaa-7003-0000-0000-0000000000e1'
+    and status = 'in_progress';
+  perform tests.assert_true(
+    found,
+    'C9b: A1 医生应能更新 A1 门店进行中病历'
+  );
 end;
 $$;
 
--- ---------- C8: 跨租户写入预约被拒绝 ----------
-do $$
-begin
-  begin
-    insert into public.appointments (tenant_id, store_id, customer_id, pet_id, scheduled_start, scheduled_end, status, source)
-    values ('bbbbbbbb-0000-0000-0000-000000000001', 'bbbbbbbb-7000-0000-0000-0000000000f1', 'bbbbbbbb-7000-0000-0000-0000000000c1', 'bbbbbbbb-7000-0000-0000-0000000000b1', now(), now() + interval '1 hour', 'pending', 'walk_in');
-    raise exception 'C8: A1 医生不应能写入 B 租户预约';
-  exception
-    when insufficient_privilege or check_violation then
-      null;
-  end;
-end;
-$$;
-
--- ---------- C9: 已签署病历不可直接修改(自身门店也不行) ----------
--- A1 医生对 A1 门店的 in_progress 病历可改,但若把状态改成 signed 后再改应被拒绝
--- 此处直接验证:A1 医生无法 update 已签署的 A2 病历(已在 C7 验证)
--- 额外验证:A1 医生可读自身门店的 in_progress 病历并可 update(权限正常)
-perform tests.assert_true(
-  (select count(*) from public.encounters where store_id = 'aaaaaaaa-7000-0000-0000-0000000000f1' and status = 'in_progress') >= 1,
-  'C9a: A1 医生应能读到 A1 门店进行中病历'
-);
-
--- A1 医生可正常更新自己门店 in_progress 病历(应成功)
-update public.encounters
-set chief_complaint = '咳嗽(已更新)'
-where id = 'aaaaaaaa-7003-0000-0000-0000000000e1'
-  and status = 'in_progress';
-perform tests.assert_true(
-  found,
-  'C9b: A1 医生应能更新 A1 门店进行中病历'
-);
-
--- ---------- 恢复角色 ----------
 reset role;
 
 -- ---------- 打印成功 ----------

@@ -83,8 +83,7 @@ begin
     raise exception 'CRITICAL_ALERT_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_alert.status = 'resolved' then
-    raise exception 'CRITICAL_ALERT_RESOLVED' using errcode = 'P0003',
-      message = '已解除的危急值不可再通知';
+    raise exception 'CRITICAL_ALERT_RESOLVED' using errcode = 'P0003';
   end if;
 
   update public.critical_value_alerts
@@ -138,14 +137,12 @@ begin
     (v_alert.status = 'pending' and p_to_status = 'acknowledged')
     or (v_alert.status = 'acknowledged' and p_to_status = 'resolved')
   ) then
-    raise exception 'INVALID_CRITICAL_TRANSITION' using errcode = 'P0003',
-      message = '危急值状态不可由 ' || v_alert.status || ' 转为 ' || p_to_status;
+    raise exception 'INVALID_CRITICAL_TRANSITION' using errcode = 'P0003', detail = v_alert.status || ' 转为 ' || p_to_status;
   end if;
 
   -- 确认必须已通知(闭环强制:critical → notify → acknowledge)
   if p_to_status = 'acknowledged' and v_alert.notified_at is null then
-    raise exception 'CRITICAL_NOT_NOTIFIED' using errcode = 'P0003',
-      message = '危急值须先通知后方可确认';
+    raise exception 'CRITICAL_NOT_NOTIFIED' using errcode = 'P0003';
   end if;
 
   update public.critical_value_alerts

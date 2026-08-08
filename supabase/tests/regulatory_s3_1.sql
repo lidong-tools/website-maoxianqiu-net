@@ -255,7 +255,7 @@ begin
     p_diagnosis_scope => '犬猫内科',
     p_issued_at => current_date,
     p_valid_from => current_date,
-    p_valid_until => current_date + interval '3 years',
+    p_valid_until => (current_date + interval '3 years')::date,
     p_status => 'active',
     p_certificate_file_id => '99999999-0000-0000-0000-0000000000fa'::uuid,
     p_operator_employee_id => '99999999-0000-0000-0000-0000000000e2'::uuid);

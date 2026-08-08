@@ -21,6 +21,7 @@ begin;
 
 -- ---------- 断言辅助(整个脚本在事务中,rollback 会撤销所有 DDL/夹具) ----------
 create schema if not exists tests;
+grant usage on schema tests to authenticated, anon, service_role;
 create or replace function tests.assert_true(cond boolean, msg text)
 returns void
 language plpgsql as $$
@@ -122,19 +123,20 @@ $$;
 -- ---------- T3 无权门店不可读 ----------
 -- 说明:stores 目录为租户级参考数据(租户成员可见全部本租户门店,用于门店选择器);
 -- "无权门店不可读"作用于门店级业务数据,Phase 1 用 employee_store_assignments(门店级敏感表)验证。
+-- 注:A1 被授予 tenant-wide 的 tenant_manager 角色(可访问本租户全部门店),门店级隔离用仅绑定 A2 门店的 A2 员工验证。
 do $$
 begin
   set local role authenticated;
-  perform set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-0000-0000-0000000000a1","role":"authenticated"}', true);
+  perform set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-0000-0000-0000000000a2","role":"authenticated"}', true);
   -- 门店目录:租户内可见(非跨租户)
   perform tests.assert_true(
     (select count(*) from public.stores where tenant_id = 'aaaaaaaa-0000-0000-0000-000000000001') = 2,
-    'T3 前置: A1 员工可见本租户两个门店目录');
-  -- 门店级敏感数据:无权门店 A2 的分配明细不可读
+    'T3 前置: A2 员工可见本租户两个门店目录');
+  -- 门店级敏感数据:无权门店 A1 的分配明细不可读
   perform tests.assert_true(
     (select count(*) from public.employee_store_assignments
-      where store_id = 'aaaaaaaa-0000-0000-0000-0000000000f2' and tenant_id = 'aaaaaaaa-0000-0000-0000-000000000001') = 0,
-    'T3: A1 员工不应读取到 A2 门店的分配明细(无权门店不可读)');
+      where store_id = 'aaaaaaaa-0000-0000-0000-0000000000f1' and tenant_id = 'aaaaaaaa-0000-0000-0000-000000000001') = 0,
+    'T3: A2 员工不应读取到 A1 门店的分配明细(无权门店不可读)');
 end;
 $$;
 
@@ -142,15 +144,15 @@ $$;
 do $$
 begin
   set local role authenticated;
-  perform set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-0000-0000-0000000000a1","role":"authenticated"}', true);
+  perform set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-0000-0000-0000000000a2","role":"authenticated"}', true);
   begin
     insert into public.employee_store_assignments (tenant_id, employee_id, store_id)
     values (
       'aaaaaaaa-0000-0000-0000-000000000001',
-      (select id from public.employees where employee_no = 'EMP-A1'),
-      'aaaaaaaa-0000-0000-0000-0000000000f2'
+      (select id from public.employees where employee_no = 'EMP-A2'),
+      'aaaaaaaa-0000-0000-0000-0000000000f1'
     );
-    raise exception 'RLS_TEST_FAILED: T4 A1 员工不应向 A2 门店写入分配';
+    raise exception 'RLS_TEST_FAILED: T4 A2 员工不应向 A1 门店写入分配';
   exception when insufficient_privilege then
     null;
   end;

@@ -26,6 +26,7 @@ begin;
 
 -- ---------- 断言辅助 ----------
 create schema if not exists tests;
+grant usage on schema tests to authenticated, anon, service_role;
 create or replace function tests.assert_true(cond boolean, msg text)
 returns void
 language plpgsql as $$
@@ -105,6 +106,7 @@ begin
     'DG1: A 用户不应读取到 B 租户的疫苗接种');
 end;
 $$;
+reset role;
 
 -- ---------- DG2 跨租户不可写疫苗接种 ----------
 do $$
@@ -121,6 +123,7 @@ begin
   end;
 end;
 $$;
+reset role;
 
 -- ---------- DG3 无权门店疫苗接种不可读 ----------
 do $$
@@ -132,6 +135,7 @@ begin
     'DG3: A1 员工不应读取到 A2 门店的疫苗接种');
 end;
 $$;
+reset role;
 
 -- ---------- DG4 合法门店疫苗接种可读 ----------
 -- 用 A1 店长身份写入一条疫苗接种,再验证可读
@@ -150,6 +154,7 @@ begin
   perform tests.assert_true(v_count >= 1, 'DG4: A1 员工应能读取本店疫苗接种(至少 1 条)');
 end;
 $$;
+reset role;
 
 -- ---------- DG5 疫苗接种状态机:scheduled→administered 合法转换 ----------
 do $$
@@ -200,6 +205,7 @@ do $$
 declare
   v_cert public.vaccine_certificates;
   v_cert_no text;
+  v_vaccination_id uuid;
 begin
   -- 使用 DG5 中已转为 administered 的疫苗接种
   select id into v_vaccination_id
@@ -266,7 +272,7 @@ begin
 
   perform public.publish_lab_results(
     v_order_id,
-    '[{"id":"' || (select id from public.lab_order_analytes where lab_order_id = v_order_id limit 1) || '","result_value":"正常","is_abnormal":false,"is_critical":false}]'::jsonb,
+    ('[{"id":"' || (select id from public.lab_order_analytes where lab_order_id = v_order_id limit 1) || '","result_value":"正常","is_abnormal":false,"is_critical":false}]')::jsonb,
     '33333333-0000-0000-0000-0000000000de'
   );
 
@@ -354,8 +360,8 @@ $$;
 -- ---------- DG12 扫描提醒 RPC:幂等(同条件重复扫描不产生重复提醒) ----------
 do $$
 declare
-  v_first public.scan_diag_reminders%rowtype;
-  v_second public.scan_diag_reminders%rowtype;
+  v_first record;
+  v_second record;
   v_reminder_count integer;
 begin
   -- 创建一条 scheduled 状态、scheduled_date 在未来 3 天的疫苗接种
@@ -395,6 +401,7 @@ begin
     'DG13: system_admin 应能读取任意租户疫苗接种(不报错)');
 end;
 $$;
+reset role;
 
 -- 全部断言通过
 select 'RLS_DIAGNOSTICS_TEST_PASSED' as result;

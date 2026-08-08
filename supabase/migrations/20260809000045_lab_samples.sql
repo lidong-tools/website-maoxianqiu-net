@@ -182,8 +182,7 @@ begin
     raise exception 'LAB_ORDER_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_order.status not in ('requested', 'collected') then
-    raise exception 'LAB_ORDER_NOT_ACCEPTING_SAMPLE' using errcode = 'P0003',
-      message = '仅待采集/已采集状态的检验申请可添加标本';
+    raise exception 'LAB_ORDER_NOT_ACCEPTING_SAMPLE' using errcode = 'P0003';
   end if;
 
   -- 生成租户内唯一标本编号
@@ -246,8 +245,7 @@ begin
     or (v_sample.status = 'received' and p_to_status in ('testing', 'rejected'))
     or (v_sample.status = 'testing' and p_to_status in ('completed', 'rejected'))
   ) then
-    raise exception 'INVALID_SAMPLE_TRANSITION' using errcode = 'P0003',
-      message = '标本状态不可由 ' || v_sample.status || ' 转为 ' || p_to_status;
+    raise exception 'INVALID_SAMPLE_TRANSITION' using errcode = 'P0003', detail = v_sample.status || ' 转为 ' || p_to_status;
   end if;
 
   -- rejected 必须填写原因

@@ -77,7 +77,7 @@ values
   ('99999999-0000-0000-0000-0000000000e1', 's31-clo-mgr@test.local', crypt('password', gen_salt('bf')), now(), '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now()),
   ('99999999-0000-0000-0000-0000000000c1', 's31-clo-cash@test.local', crypt('password', gen_salt('bf')), now(), '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now()),
   ('99999999-0000-0000-0000-0000000000f1', 's31-clo-out@test.local', crypt('password', gen_salt('bf')), now(), '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now()),
-  ('99999999-0000-0000-0000-0000000000o1', 's31-clo-owner@test.local', crypt('password', gen_salt('bf')), now(), '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now()),
+  ('99999999-0000-0000-0000-000000000001', 's31-clo-owner@test.local', crypt('password', gen_salt('bf')), now(), '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now()),
   ('99999999-0000-0000-0000-0000000000b1', 's31-clo-mgrb@test.local', crypt('password', gen_salt('bf')), now(), '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now())
 on conflict (id) do nothing;
 
@@ -86,7 +86,7 @@ values
   ('99999999-0000-0000-0000-0000000000e2', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000e1', 'CLO-MGR', '日结测试店长', 'active'),
   ('99999999-0000-0000-0000-0000000000c2', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000c1', 'CLO-CASH', '日结测试收银', 'active'),
   ('99999999-0000-0000-0000-0000000000f2', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000f1', 'CLO-OUT', '日结测试无权限', 'active'),
-  ('99999999-0000-0000-0000-0000000000o2', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000o1', 'CLO-OWNER', '日结测试租户所有者', 'active'),
+  ('99999999-0000-0000-0000-000000000002', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-000000000001', 'CLO-OWNER', '日结测试租户所有者', 'active'),
   ('99999999-0000-0000-0000-0000000000b2', '99999999-0000-0000-0000-000000000041', '99999999-0000-0000-0000-0000000000b1', 'CLOB-MGR', '日结测试店长B', 'active')
 on conflict (id) do nothing;
 
@@ -95,7 +95,7 @@ values
   ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000e1', 'active'),
   ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000c1', 'active'),
   ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000f1', 'active'),
-  ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000o1', 'active'),
+  ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-000000000001', 'active'),
   ('99999999-0000-0000-0000-000000000041', '99999999-0000-0000-0000-0000000000b1', 'active')
 on conflict (tenant_id, user_id) do nothing;
 
@@ -114,7 +114,7 @@ values
    (select id from public.roles where code = 'store_manager'), '99999999-0000-0000-0000-000000000032'),
   ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000c2',
    (select id from public.roles where code = 'cashier'), '99999999-0000-0000-0000-000000000032'),
-  ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000o2',
+  ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-000000000002',
    (select id from public.roles where code = 'tenant_owner'), null),
   ('99999999-0000-0000-0000-000000000041', '99999999-0000-0000-0000-0000000000b2',
    (select id from public.roles where code = 'store_manager'), '99999999-0000-0000-0000-000000000042')
@@ -145,16 +145,16 @@ on conflict (id) do nothing;
 
 insert into public.payments (id, tenant_id, invoice_id, amount, method, transaction_no, idempotency_key, created_at)
 values
-  ('99999999-0000-0000-0000-0000000000p1', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a1', 100, 'cash', 'CLO-PAY-01', 'clo-pay-01', '2026-07-15 10:01:00+08'),
-  ('99999999-0000-0000-0000-0000000000p2', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a2', 200, 'wechat', 'CLO-PAY-02', 'clo-pay-02', '2026-07-15 11:01:00+08'),
-  ('99999999-0000-0000-0000-0000000000p3', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a3', 30, 'wechat', 'CLO-PAY-03', 'clo-pay-03', '2026-07-15 12:01:00+08'),
-  ('99999999-0000-0000-0000-0000000000p4', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000b1', 700, 'cash', 'CLO-PAY-04', 'clo-pay-04', '2026-07-15 10:31:00+08'),
-  ('99999999-0000-0000-0000-0000000000p5', '99999999-0000-0000-0000-000000000041', '99999999-0000-0000-0000-0000000000c1', 900, 'wechat', 'CLO-PAY-05', 'clo-pay-05', '2026-07-15 10:01:00+08')
+  ('99999999-0000-0000-0000-0000000000d1', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a1', 100, 'cash', 'CLO-PAY-01', 'clo-pay-01', '2026-07-15 10:01:00+08'),
+  ('99999999-0000-0000-0000-0000000000d2', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a2', 200, 'wechat', 'CLO-PAY-02', 'clo-pay-02', '2026-07-15 11:01:00+08'),
+  ('99999999-0000-0000-0000-0000000000d3', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a3', 30, 'wechat', 'CLO-PAY-03', 'clo-pay-03', '2026-07-15 12:01:00+08'),
+  ('99999999-0000-0000-0000-0000000000d4', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000b1', 700, 'cash', 'CLO-PAY-04', 'clo-pay-04', '2026-07-15 10:31:00+08'),
+  ('99999999-0000-0000-0000-0000000000d5', '99999999-0000-0000-0000-000000000041', '99999999-0000-0000-0000-0000000000c1', 900, 'wechat', 'CLO-PAY-05', 'clo-pay-05', '2026-07-15 10:01:00+08')
 on conflict (id) do nothing;
 
 insert into public.refunds (id, tenant_id, invoice_id, payment_id, amount, reason, idempotency_key, created_at)
 values
-  ('99999999-0000-0000-0000-0000000000r1', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a1', '99999999-0000-0000-0000-0000000000p1', 50, 'CLO-REFUND-01', 'clo-refund-01', '2026-07-15 14:00:00+08')
+  ('99999999-0000-0000-0000-0000000000d6', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a1', '99999999-0000-0000-0000-0000000000d1', 50, 'CLO-REFUND-01', 'clo-refund-01', '2026-07-15 14:00:00+08')
 on conflict (id) do nothing;
 
 -- ============================================================
@@ -218,7 +218,7 @@ $$;
 do $$
 begin
   set local role authenticated;
-  perform set_config('request.jwt.claims', '{"sub":"99999999-0000-0000-0000-0000000000o1","role":"authenticated"}', true);
+  perform set_config('request.jwt.claims', '{"sub":"99999999-0000-0000-0000-000000000001","role":"authenticated"}', true);
   perform tests.assert_true(public.has_permission('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-000000000032', 'daily_closing.read'), '租户所有者应持有 daily_closing.read');
   perform tests.assert_true(public.has_permission('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-000000000032', 'daily_closing.close'), '租户所有者应持有 daily_closing.close');
   perform tests.assert_true(public.has_permission('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-000000000032', 'daily_closing.adjust'), '租户所有者应持有 daily_closing.adjust');
@@ -390,7 +390,7 @@ begin
     p_adjustment_type => 'cash_short',
     p_amount => -20,
     p_reason => '测试:现金短款 20',
-    p_operator_employee_id => '99999999-0000-0000-0000-0000000000o2'::uuid
+    p_operator_employee_id => '99999999-0000-0000-0000-000000000002'::uuid
   );
   perform tests.assert_true((v_res ->> 'status') = 'adjusted', '调整后状态应为 adjusted');
   perform tests.assert_true((v_res -> 'adjustment_summary' ->> 'count') = '1', '调整 summary count 应为 1');
@@ -402,7 +402,7 @@ begin
     p_adjustment_type => 'manual_correction',
     p_amount => 10,
     p_reason => '测试:人工更正 +10',
-    p_operator_employee_id => '99999999-0000-0000-0000-0000000000o2'::uuid
+    p_operator_employee_id => '99999999-0000-0000-0000-000000000002'::uuid
   );
   perform tests.assert_true((v_res -> 'adjustment_summary' ->> 'count') = '2', '再次调整 summary count 应为 2');
   perform tests.assert_true((v_res -> 'adjustment_summary' ->> 'total') = '-10.00', '调整 summary total 应为 -10.00(-20+10)');
@@ -414,35 +414,35 @@ begin
   values ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-000000000032', date '2026-07-16', 'open', '99999999-0000-0000-0000-0000000000e2')
   on conflict (tenant_id, store_id, business_date) do nothing;
   perform tests.assert_raises(
-    'select public.adjust_daily_closing(' || (select id from public.daily_closings where tenant_id = ''99999999-0000-0000-0000-000000000031''::uuid and store_id = ''99999999-0000-0000-0000-000000000032''::uuid and business_date = date ''2026-07-16'')::text || ', ''cash_short'', -10, ''测试'', ''99999999-0000-0000-0000-0000000000o2''::uuid)',
+    'select public.adjust_daily_closing(''' || (select id from public.daily_closings where tenant_id = '99999999-0000-0000-0000-000000000031'::uuid and store_id = '99999999-0000-0000-0000-000000000032'::uuid and business_date = date '2026-07-16')::text || ''', ''cash_short'', -10, ''测试'', ''99999999-0000-0000-0000-000000000002''::uuid)',
     'CLOSING_NOT_CLOSED',
     'open 状态日结不可调整'
   );
 
   -- 金额为 0 拒绝
   perform tests.assert_raises(
-    'select public.adjust_daily_closing(''' || v_closing_id || ''', ''cash_short'', 0, ''测试'', ''99999999-0000-0000-0000-0000000000o2''::uuid)',
+    'select public.adjust_daily_closing(''' || v_closing_id || ''', ''cash_short'', 0, ''测试'', ''99999999-0000-0000-0000-000000000002''::uuid)',
     'INVALID_ADJUSTMENT_AMOUNT',
     '调整金额为 0 应拒绝'
   );
 
   -- 原因必填
   perform tests.assert_raises(
-    'select public.adjust_daily_closing(''' || v_closing_id || ''', ''cash_short'', -10, '' '', ''99999999-0000-0000-0000-0000000000o2''::uuid)',
+    'select public.adjust_daily_closing(''' || v_closing_id || ''', ''cash_short'', -10, '' '', ''99999999-0000-0000-0000-000000000002''::uuid)',
     'ADJUSTMENT_REASON_REQUIRED',
     '调整原因必填'
   );
 
   -- 非法调整类型
   perform tests.assert_raises(
-    'select public.adjust_daily_closing(''' || v_closing_id || ''', ''discount'', -10, ''测试'', ''99999999-0000-0000-0000-0000000000o2''::uuid)',
+    'select public.adjust_daily_closing(''' || v_closing_id || ''', ''discount'', -10, ''测试'', ''99999999-0000-0000-0000-000000000002''::uuid)',
     'INVALID_ADJUSTMENT_TYPE',
     '非法调整类型应拒绝'
   );
 
   -- 日结不存在
   perform tests.assert_raises(
-    'select public.adjust_daily_closing(''99999999-0000-0000-0000-0000000000ff''::uuid, ''cash_short'', -10, ''测试'', ''99999999-0000-0000-0000-0000000000o2''::uuid)',
+    'select public.adjust_daily_closing(''99999999-0000-0000-0000-0000000000ff''::uuid, ''cash_short'', -10, ''测试'', ''99999999-0000-0000-0000-000000000002''::uuid)',
     'CLOSING_NOT_FOUND',
     '不存在的日结应拒绝'
   );
@@ -472,10 +472,10 @@ begin
 
   -- 租户所有者:租户级分配(store_id IS NULL)可见全门店(含门店 A2)
   set local role authenticated;
-  perform set_config('request.jwt.claims', '{"sub":"99999999-0000-0000-0000-0000000000o1","role":"authenticated"}', true);
+  perform set_config('request.jwt.claims', '{"sub":"99999999-0000-0000-0000-000000000001","role":"authenticated"}', true);
   select count(*) into v_cnt from public.daily_closings
   where tenant_id = '99999999-0000-0000-0000-000000000031'::uuid;
-  perform tests.assert_true(v_cnt = 2, '租户所有者应可见本租户全部门店日结(2 行)');
+  perform tests.assert_true(v_cnt = 3, '租户所有者应可见本租户全部门店日结(3 行:032/033 已关账 + 032/07-16 open 占位),实际: ' || v_cnt);
 end;
 $$;
 

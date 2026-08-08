@@ -102,8 +102,7 @@ begin
     where tenant_id = p_tenant_id and store_id = p_store_id and business_date = p_business_date
     for update;
     if not found then
-      raise exception 'CLOSING_LOCK_FAILED' using errcode = 'P0003',
-        message = '日结占位行创建失败,请重试';
+      raise exception 'CLOSING_LOCK_FAILED' using errcode = 'P0003';
     end if;
   end if;
 
@@ -118,7 +117,7 @@ begin
   end if;
 
   -- 业务日期窗口:Asia/Shanghai 时区当日零点 -> 次日零点
-  v_day_start := p_business_date at time zone 'Asia/Shanghai';
+  v_day_start := p_business_date::timestamp at time zone 'Asia/Shanghai';
   v_day_end := v_day_start + interval '1 day';
 
   -- 应收总额(gross):非取消发票 total 之和
@@ -163,8 +162,13 @@ begin
     and p.created_at >= v_day_start and p.created_at < v_day_end;
 
   -- 发票数量与状态拆分(非取消)
-  select count(*), coalesce(jsonb_object_agg(status, cnt), '{}'::jsonb)
-  into v_invoice_count, v_status_breakdown
+  select count(*) into v_invoice_count
+  from public.invoices
+  where tenant_id = p_tenant_id and store_id = p_store_id
+    and status <> 'cancelled'
+    and created_at >= v_day_start and created_at < v_day_end;
+
+  select coalesce(jsonb_object_agg(status, cnt), '{}'::jsonb) into v_status_breakdown
   from (
     select status, count(*) as cnt
     from public.invoices
@@ -279,8 +283,7 @@ begin
     raise exception 'INVALID_ADJUSTMENT_TYPE' using errcode = 'P0003';
   end if;
   if p_amount is null or p_amount = 0 then
-    raise exception 'INVALID_ADJUSTMENT_AMOUNT' using errcode = 'P0003',
-      message = '调整金额不可为 0';
+    raise exception 'INVALID_ADJUSTMENT_AMOUNT' using errcode = 'P0003';
   end if;
   if p_reason is null or btrim(p_reason) = '' then
     raise exception 'ADJUSTMENT_REASON_REQUIRED' using errcode = 'P0003';
@@ -292,8 +295,7 @@ begin
     raise exception 'CLOSING_NOT_FOUND' using errcode = 'P0002';
   end if;
   if v_closing.status not in ('closed', 'adjusted') then
-    raise exception 'CLOSING_NOT_CLOSED' using errcode = 'P0003',
-      message = '仅已关闭/已调整的日结可执行调整';
+    raise exception 'CLOSING_NOT_CLOSED' using errcode = 'P0003';
   end if;
 
   -- 操作人校验

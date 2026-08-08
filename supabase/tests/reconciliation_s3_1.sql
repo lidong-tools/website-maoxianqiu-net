@@ -80,7 +80,7 @@ values
   ('99999999-0000-0000-0000-0000000000e1', 's31-rec-mgr@test.local', crypt('password', gen_salt('bf')), now(), '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now()),
   ('99999999-0000-0000-0000-0000000000c1', 's31-rec-cash@test.local', crypt('password', gen_salt('bf')), now(), '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now()),
   ('99999999-0000-0000-0000-0000000000f1', 's31-rec-out@test.local', crypt('password', gen_salt('bf')), now(), '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now()),
-  ('99999999-0000-0000-0000-0000000000o1', 's31-rec-owner@test.local', crypt('password', gen_salt('bf')), now(), '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now())
+  ('99999999-0000-0000-0000-000000000001', 's31-rec-owner@test.local', crypt('password', gen_salt('bf')), now(), '{"provider":"email"}'::jsonb, '{}'::jsonb, 'authenticated', 'authenticated', now(), now())
 on conflict (id) do nothing;
 
 insert into public.employees (id, tenant_id, user_id, employee_no, name, status)
@@ -88,7 +88,7 @@ values
   ('99999999-0000-0000-0000-0000000000e2', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000e1', 'REC-MGR', '对账测试店长', 'active'),
   ('99999999-0000-0000-0000-0000000000c2', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000c1', 'REC-CASH', '对账测试收银', 'active'),
   ('99999999-0000-0000-0000-0000000000f2', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000f1', 'REC-OUT', '对账测试无权限', 'active'),
-  ('99999999-0000-0000-0000-0000000000o2', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000o1', 'REC-OWNER', '对账测试租户所有者', 'active')
+  ('99999999-0000-0000-0000-000000000002', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-000000000001', 'REC-OWNER', '对账测试租户所有者', 'active')
 on conflict (id) do nothing;
 
 insert into public.tenant_memberships (tenant_id, user_id, status)
@@ -96,7 +96,7 @@ values
   ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000e1', 'active'),
   ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000c1', 'active'),
   ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000f1', 'active'),
-  ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000o1', 'active')
+  ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-000000000001', 'active')
 on conflict (tenant_id, user_id) do nothing;
 
 insert into public.employee_store_assignments (tenant_id, employee_id, store_id, is_primary)
@@ -112,7 +112,7 @@ values
    (select id from public.roles where code = 'store_manager'), '99999999-0000-0000-0000-000000000032'),
   ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000c2',
    (select id from public.roles where code = 'cashier'), '99999999-0000-0000-0000-000000000032'),
-  ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000o2',
+  ('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-000000000002',
    (select id from public.roles where code = 'tenant_owner'), null)
 on conflict do nothing;
 
@@ -127,15 +127,15 @@ on conflict (id) do nothing;
 
 insert into public.payments (id, tenant_id, invoice_id, amount, method, transaction_no, idempotency_key, created_at)
 values
-  ('99999999-0000-0000-0000-0000000000p1', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a1', 100, 'cash', 'REC-PAY-01', 'rec-pay-01', '2026-07-15 10:01:00+08'),
-  ('99999999-0000-0000-0000-0000000000p2', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a2', 200, 'wechat', 'REC-PAY-02', 'rec-pay-02', '2026-07-15 11:01:00+08'),
-  ('99999999-0000-0000-0000-0000000000p3', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a3', 30, 'wechat', 'REC-PAY-03', 'rec-pay-03', '2026-07-15 12:01:00+08'),
-  ('99999999-0000-0000-0000-0000000000p4', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000b1', 700, 'cash', 'REC-PAY-04', 'rec-pay-04', '2026-07-15 10:31:00+08')
+  ('99999999-0000-0000-0000-0000000000d1', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a1', 100, 'cash', 'REC-PAY-01', 'rec-pay-01', '2026-07-15 10:01:00+08'),
+  ('99999999-0000-0000-0000-0000000000d2', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a2', 200, 'wechat', 'REC-PAY-02', 'rec-pay-02', '2026-07-15 11:01:00+08'),
+  ('99999999-0000-0000-0000-0000000000d3', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a3', 30, 'wechat', 'REC-PAY-03', 'rec-pay-03', '2026-07-15 12:01:00+08'),
+  ('99999999-0000-0000-0000-0000000000d4', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000b1', 700, 'cash', 'REC-PAY-04', 'rec-pay-04', '2026-07-15 10:31:00+08')
 on conflict (id) do nothing;
 
 insert into public.refunds (id, tenant_id, invoice_id, payment_id, amount, reason, idempotency_key, created_at)
 values
-  ('99999999-0000-0000-0000-0000000000r1', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a1', '99999999-0000-0000-0000-0000000000p1', 50, 'REC-REFUND-01', 'rec-refund-01', '2026-07-15 14:00:00+08')
+  ('99999999-0000-0000-0000-0000000000d6', '99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-0000000000a1', '99999999-0000-0000-0000-0000000000d1', 50, 'REC-REFUND-01', 'rec-refund-01', '2026-07-15 14:00:00+08')
 on conflict (id) do nothing;
 
 -- 预先关账(门店 A 与 A2),对账依赖已关闭的日结
@@ -215,7 +215,7 @@ $$;
 do $$
 begin
   set local role authenticated;
-  perform set_config('request.jwt.claims', '{"sub":"99999999-0000-0000-0000-0000000000o1","role":"authenticated"}', true);
+  perform set_config('request.jwt.claims', '{"sub":"99999999-0000-0000-0000-000000000001","role":"authenticated"}', true);
   perform tests.assert_true(public.has_permission('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-000000000032', 'reconciliation.edit'), '租户所有者应持有 reconciliation.edit');
   perform tests.assert_true(public.has_permission('99999999-0000-0000-0000-000000000031', '99999999-0000-0000-0000-000000000032', 'reconciliation.confirm'), '租户所有者应持有 reconciliation.confirm');
 end;

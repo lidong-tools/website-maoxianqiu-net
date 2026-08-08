@@ -130,7 +130,7 @@ create table if not exists public.medical_record_amendments (
   requested_by uuid not null,                          -- 员工 id(employees.id)
   requested_at timestamptz not null default now(),
   reason text not null,
-  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected', 'applied')),
+  status text not null default 'pending',
   reviewed_by uuid,                                   -- 负责人员工 id(employees.id)
   reviewed_at timestamptz,
   rejected_reason text,
@@ -161,7 +161,7 @@ create table if not exists public.veterinarian_registrations (
   registration_region text,
   valid_from date not null,
   valid_until date,
-  status text not null default 'active' check (status in ('active', 'inactive', 'expired')),
+  status text not null default 'active',
   signature_specimen_file_id uuid,
   electronic_signature_provider text,
   electronic_signature_subject_id text,
@@ -188,8 +188,7 @@ begin
   if old.archive_status = 'archived'
      and coalesce(current_setting('app.allow_archived_update', true), '') <> 'true' then
     raise exception 'ARCHIVED_RECORD_IMMUTABLE'
-      using errcode = 'P0003',
-            message = '已归档病历不可直接修改,必须走 Amendment 流程';
+      using errcode = 'P0003';
   end if;
   return new;
 end;

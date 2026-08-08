@@ -20,6 +20,7 @@ begin;
 
 -- ---------- 断言辅助 ----------
 create schema if not exists tests;
+grant usage on schema tests to authenticated, anon, service_role;
 create or replace function tests.assert_true(cond boolean, msg text)
 returns void
 language plpgsql as $$
@@ -106,6 +107,7 @@ begin
     'I1: A 用户不应读取到 B 租户的库存批次');
 end;
 $$;
+reset role;
 
 -- ---------- I2 跨租户不可写 ----------
 do $$
@@ -121,6 +123,7 @@ begin
   end;
 end;
 $$;
+reset role;
 
 -- ---------- I3 无权门店库存不可读 ----------
 do $$
@@ -132,6 +135,7 @@ begin
     'I3: A1 员工不应读取到 A2 门店仓库的批次');
 end;
 $$;
+reset role;
 
 -- ---------- I4 合法门店库存可读 ----------
 -- 先用 service role 在 A1 仓库入库一条
@@ -157,28 +161,30 @@ begin
     'I4: A1 员工应能读取本店仓库批次');
 end;
 $$;
+reset role;
 
 -- ---------- I5 流水不可变(尝试 update/delete movement = 拒绝) ----------
 do $$
 begin
   set local role authenticated;
   perform set_config('request.jwt.claims', '{"sub":"dddddddd-0000-0000-0000-0000000000a1","role":"authenticated"}', true);
-  -- update 应被拒绝(无 update policy)
+  -- update 应被拒绝(无 update policy,RLS 静默过滤 0 行)
   begin
     update public.inventory_movements set quantity = 999 where warehouse_id = 'dddddddd-0000-0000-0000-0000000000e1';
-    raise exception 'RLS_TEST_FAILED: I5 流水不应可 update';
-  exception when insufficient_privilege then
-    null;
+    if found then
+      raise exception 'RLS_TEST_FAILED: I5 流水不应可 update';
+    end if;
   end;
-  -- delete 应被拒绝(无 delete policy)
+  -- delete 应被拒绝(无 delete policy,RLS 静默过滤 0 行)
   begin
     delete from public.inventory_movements where warehouse_id = 'dddddddd-0000-0000-0000-0000000000e1';
-    raise exception 'RLS_TEST_FAILED: I5 流水不应可 delete';
-  exception when insufficient_privilege then
-    null;
+    if found then
+      raise exception 'RLS_TEST_FAILED: I5 流水不应可 delete';
+    end if;
   end;
 end;
 $$;
+reset role;
 
 -- ---------- I6 并发幂等:同 idempotency_key 调 dispense 两次 ----------
 -- 第一次发药 30,余额应从 100 减至 70
@@ -255,6 +261,7 @@ begin
     'I8: system_admin 应能读取任意租户仓库');
 end;
 $$;
+reset role;
 
 -- ---------- I9 调拨幂等:同 key 调两次,余额不重复变动 ----------
 -- 先在 A2 仓库入库 50,再从 A1 调拨 20 到 A2(幂等调两次)

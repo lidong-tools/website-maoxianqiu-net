@@ -222,7 +222,7 @@ begin
     'R16 process_refund');
   -- R17 inventory:商品预留 reserve_inventory(p_tenant_id, p_warehouse_id, p_catalog_item_id, p_quantity)
   perform tests.assert_rpc_denied(
-    $sql$select public.reserve_inventory('00000000-0000-0000-0000-000000000026'::uuid, '00000000-0000-0000-0000-000000000027'::uuid, '00000000-0000-0000-0000-000000000028'::uuid, 2::numeric)$sql$,
+    $sql$select public.reserve_inventory('00000000-0000-0000-0000-000000000026'::uuid, '00000000-0000-0000-0000-000000000027'::uuid, '00000000-0000-0000-0000-000000000028'::uuid, 2::numeric, null, null, null, null, null)$sql$,
     'R17 reserve_inventory');
   -- R18 inventory:确认预留 confirm_inventory_reservation(p_tenant_id, p_reservation_id)
   perform tests.assert_rpc_denied(

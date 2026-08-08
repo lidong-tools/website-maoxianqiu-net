@@ -50,8 +50,7 @@ begin
     raise exception 'INVALID_RECONCILIATION_CHANNEL' using errcode = 'P0003';
   end if;
   if p_actual_amount is null or p_actual_amount < 0 then
-    raise exception 'INVALID_ACTUAL_AMOUNT' using errcode = 'P0003',
-      message = '实际金额必须大于等于 0';
+    raise exception 'INVALID_ACTUAL_AMOUNT' using errcode = 'P0003';
   end if;
 
   -- 门店存在且归属租户
@@ -77,16 +76,13 @@ begin
   from public.daily_closings
   where tenant_id = p_tenant_id and store_id = p_store_id and business_date = p_business_date;
   if v_closing.id is null then
-    raise exception 'CLOSING_REQUIRED' using errcode = 'P0003',
-      message = '该门店该业务日期尚未执行日结,请先关账';
+    raise exception 'CLOSING_REQUIRED' using errcode = 'P0003';
   end if;
   if v_closing.status not in ('closed', 'adjusted') then
-    raise exception 'CLOSING_REQUIRED' using errcode = 'P0003',
-      message = '日结尚未完成,无法对账';
+    raise exception 'CLOSING_REQUIRED' using errcode = 'P0003';
   end if;
   if p_closing_id is not null and p_closing_id <> v_closing.id then
-    raise exception 'CLOSING_MISMATCH' using errcode = 'P0003',
-      message = '对账关联的日结与门店/日期不匹配';
+    raise exception 'CLOSING_MISMATCH' using errcode = 'P0003';
   end if;
 
   -- system_expected 一律从日结快照推导(不信任客户端)
@@ -119,15 +115,13 @@ begin
       and business_date = p_business_date and channel = p_channel
     for update;
     if not found then
-      raise exception 'RECONCILIATION_LOCK_FAILED' using errcode = 'P0003',
-        message = '对账记录创建失败,请重试';
+      raise exception 'RECONCILIATION_LOCK_FAILED' using errcode = 'P0003';
     end if;
   end if;
 
   -- 已确认记录不可修改
   if v_record.status in ('confirmed', 'difference_confirmed') then
-    raise exception 'RECONCILIATION_LOCKED' using errcode = 'P0003',
-      message = '该渠道对账已确认,不可再修改实际金额';
+    raise exception 'RECONCILIATION_LOCKED' using errcode = 'P0003';
   end if;
 
   -- 更新实际金额与差异
@@ -210,8 +204,7 @@ begin
   -- 有差异必须填写原因
   if v_record.difference <> 0
     and (p_difference_reason is null or btrim(p_difference_reason) = '') then
-    raise exception 'DIFFERENCE_REASON_REQUIRED' using errcode = 'P0003',
-      message = '对账存在差异,必须填写差异原因';
+    raise exception 'DIFFERENCE_REASON_REQUIRED' using errcode = 'P0003';
   end if;
 
   -- 状态流转

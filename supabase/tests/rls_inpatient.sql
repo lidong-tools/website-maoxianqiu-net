@@ -24,6 +24,7 @@ begin;
 
 -- ---------- 断言辅助 ----------
 create schema if not exists tests;
+grant usage on schema tests to authenticated, anon, service_role;
 create or replace function tests.assert_true(cond boolean, msg text)
 returns void
 language plpgsql as $$
@@ -120,6 +121,7 @@ begin
     'IP1: A 用户不应读取到 B 租户的笼位');
 end;
 $$;
+reset role;
 
 -- ---------- IP2 跨租户不可写 ----------
 do $$
@@ -135,6 +137,7 @@ begin
   end;
 end;
 $$;
+reset role;
 
 -- ---------- IP3 无权门店笼位不可读 ----------
 do $$
@@ -146,6 +149,7 @@ begin
     'IP3: A1 员工不应读取到 A2 门店的笼位');
 end;
 $$;
+reset role;
 
 -- ---------- IP4 合法门店笼位可读 ----------
 do $$
@@ -157,6 +161,7 @@ begin
     'IP4: A1 员工应能读取本店笼位(至少 2 个)');
 end;
 $$;
+reset role;
 
 -- ---------- IP5 无 inpatient.view 权限不可读住院记录 ----------
 -- 用 u_a2(A2 店长,有 inpatient.view)能读 A1 住院?不能——A2 未分配 A1 门店
@@ -170,6 +175,7 @@ begin
     'IP5: A2 员工不应读取到 A1 门店住院记录(无门店分配)');
 end;
 $$;
+reset role;
 
 -- ---------- IP6 并发房位锁:两入院同时抢同一笼位,只有一个成功 ----------
 -- 这是 MXQ-11003 的核心并发安全测试。
@@ -416,6 +422,7 @@ begin
     'IP11: system_admin 应能读取任意租户笼位');
 end;
 $$;
+reset role;
 
 -- 全部断言通过
 select 'RLS_INPATIENT_TEST_PASSED' as result;
