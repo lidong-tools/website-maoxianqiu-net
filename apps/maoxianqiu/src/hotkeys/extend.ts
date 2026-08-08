@@ -9,7 +9,13 @@ import type { HotkeyBinding } from '@fantastic-admin/hotkeys'
  *   demoOpen: 'demo.open',
  * } as const
  */
-export const EXT_HOTKEY_ID = {} as const
+export const EXT_HOTKEY_ID = {
+  globalSearchOpen: 'global.search.open',
+  globalSearchMoveUp: 'global.search.moveUp',
+  globalSearchMoveDown: 'global.search.moveDown',
+  globalSearchConfirm: 'global.search.confirm',
+  globalSearchClose: 'global.search.close',
+} as const
 
 type ExtendHotkeyId = typeof EXT_HOTKEY_ID[keyof typeof EXT_HOTKEY_ID]
 
@@ -36,7 +42,23 @@ type ExtendHotkeyId = typeof EXT_HOTKEY_ID[keyof typeof EXT_HOTKEY_ID]
  *   },
  * ] satisfies HotkeyBinding<ExtendHotkeyId>[]
  */
-export const extendGlobalHotkeyBindings = [] satisfies HotkeyBinding<ExtendHotkeyId>[]
+export const extendGlobalHotkeyBindings = [
+  {
+    id: EXT_HOTKEY_ID.globalSearchOpen,
+    keys: ['command+shift+k', 'ctrl+shift+k'],
+    enabled: () => true,
+    help: {
+      group: 'global',
+      titleKey: 'global.globalSearch',
+      order: 89,
+      visible: () => true,
+      displayKeys: {
+        default: ['Ctrl', 'Shift', 'K'],
+        mac: ['⌘', '⇧', 'K'],
+      },
+    },
+  },
+] satisfies HotkeyBinding<ExtendHotkeyId>[]
 
 /**
  * 业务扩展局部快捷键
@@ -54,4 +76,21 @@ export const extendGlobalHotkeyBindings = [] satisfies HotkeyBinding<ExtendHotke
  *   },
  * ] satisfies HotkeyBinding<ExtendHotkeyId>[]
  */
-export const extendScopedHotkeyBindings = [] satisfies HotkeyBinding<ExtendHotkeyId>[]
+export const extendScopedHotkeyBindings = [
+  {
+    id: EXT_HOTKEY_ID.globalSearchMoveUp,
+    keys: ['up'],
+  },
+  {
+    id: EXT_HOTKEY_ID.globalSearchMoveDown,
+    keys: ['down'],
+  },
+  {
+    id: EXT_HOTKEY_ID.globalSearchConfirm,
+    keys: ['enter'],
+  },
+  {
+    id: EXT_HOTKEY_ID.globalSearchClose,
+    keys: ['esc'],
+  },
+] satisfies HotkeyBinding<ExtendHotkeyId>[]

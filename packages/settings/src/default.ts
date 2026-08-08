@@ -51,6 +51,10 @@ const settingsDefault: RequiredDeep<SettingsOptions> = {
       enable: true,
       hotkeys: true,
     },
+    globalSearch: {
+      enable: true,
+      hotkeys: true,
+    },
     fullscreen: false,
     pageReload: false,
     colorScheme: false,

@@ -238,6 +238,21 @@ export interface ToolbarMenuSearchSettings {
   hotkeys?: boolean
 }
 
+export interface ToolbarGlobalSearchSettings {
+  /**
+   * 业务全局搜索
+   * @description 控制是否启用业务全局搜索(客户/宠物/就诊/发票/商品)
+   * @default true
+   */
+  enable?: boolean
+  /**
+   * 快捷键
+   * @description 控制是否启用业务全局搜索快捷键(Ctrl/⌘+Shift+K)
+   * @default true
+   */
+  hotkeys?: boolean
+}
+
 export interface ToolbarSettings {
   /**
    * 面包屑导航
@@ -249,6 +264,10 @@ export interface ToolbarSettings {
    * 导航搜索配置
    */
   menuSearch?: ToolbarMenuSearchSettings
+  /**
+   * 业务全局搜索配置
+   */
+  globalSearch?: ToolbarGlobalSearchSettings
   /**
    * 全屏
    * @description 控制是否启用全屏切换功能

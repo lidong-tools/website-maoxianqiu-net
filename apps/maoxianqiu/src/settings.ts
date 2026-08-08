@@ -32,6 +32,9 @@ export default setSettings({
     menuSearch: {
       hotkeys: false,
     },
+    globalSearch: {
+      hotkeys: true,
+    },
     fullscreen: true,
     pageReload: true,
     colorScheme: true,
