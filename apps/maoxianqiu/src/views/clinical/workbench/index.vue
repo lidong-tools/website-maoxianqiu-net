@@ -24,6 +24,13 @@ const labOrders = ref<any[]>([])
 const saving = ref(false)
 const lastSavedAt = ref<Date | null>(null)
 
+/** P0-25:全局未保存保护接入,切门店由 ToolbarStart confirmLeave 统一处理 */
+const workbenchGuard = useUnsavedChangesGuard().register('clinical-workbench')
+/** 表单基线:最近一次加载/保存时的服务器值,用于 dirty 判定 */
+const baselineEncounter = ref<EncounterRecord | null>(null)
+/** P0-26:409 冲突弹窗 */
+const conflictVisible = ref(false)
+
 const petMap = ref<Record<string, PetRecord>>({})
 const customerMap = ref<Record<string, CustomerRecord>>({})
 
@@ -36,6 +43,23 @@ const encounterForm = reactive({
   followUpDate: '',
 })
 
+/** 表单与基线不一致即为 dirty(P0-25 数据丢失保护核心) */
+const isDirty = computed(() => {
+  if (!activeEncounter.value || !baselineEncounter.value) {
+    return false
+  }
+  const f = encounterForm
+  const e = baselineEncounter.value
+  return f.chiefComplaint !== (e.chief_complaint ?? '')
+    || f.historyPresent !== (e.history_present ?? '')
+    || f.examFindings !== (e.exam_findings ?? '')
+    || f.diagnosisText !== (e.diagnosis_text ?? '')
+    || f.treatmentPlan !== (e.treatment_plan ?? '')
+    || f.followUpDate !== (e.follow_up_date ?? '')
+})
+
+watch(isDirty, (d) => workbenchGuard.setDirty(d), { immediate: true })
+
 const todayStart = computed(() => {
   const d = new Date()
   d.setHours(0, 0, 0, 0)
@@ -47,17 +71,20 @@ const todayEnd = computed(() => {
   return d.toISOString()
 })
 
+/** P0-04:候诊主队列只允许 checked_in/in_progress,取消/未到店/已完成不得进入 */
 const queueRows = computed(() =>
-  todayAppointments.value.map((a) => {
-    const pet = a.pet_id ? petMap.value[a.pet_id] : undefined
-    const customer = a.customer_id ? customerMap.value[a.customer_id] : undefined
-    return {
-      ...a,
-      petName: pet?.name ?? '未知宠物',
-      customerName: customer?.name ?? '未知主人',
-      phone: customer?.phone ?? '',
-    }
-  }),
+  todayAppointments.value
+    .filter(a => a.status === 'checked_in' || a.status === 'in_progress')
+    .map((a) => {
+      const pet = a.pet_id ? petMap.value[a.pet_id] : undefined
+      const customer = a.customer_id ? customerMap.value[a.customer_id] : undefined
+      return {
+        ...a,
+        petName: pet?.name ?? '未知宠物',
+        customerName: customer?.name ?? '未知主人',
+        phone: customer?.phone ?? '',
+      }
+    }),
 )
 
 /** 批量富化 pet/customer 名称,替代 raw UUID */
@@ -95,7 +122,13 @@ async function loadTodayAppointments() {
 }
 
 async function loadRecentEncounters() {
+  // P0-05:选中患者后,最近就诊 = 当前 pet_id,禁止把全店历史混入
+  if (!activeEncounter.value?.pet_id) {
+    recentEncounters.value = []
+    return
+  }
   const res: any = await apiClinical.listEncounters({
+    petId: activeEncounter.value.pet_id,
     storeId: tenantStore.currentStoreId || undefined,
     pageSize: 10,
   })
@@ -104,6 +137,13 @@ async function loadRecentEncounters() {
 }
 
 async function onSelectAppointment(row: AppointmentRecord) {
+  // P0-25:切换患者前确认未保存内容
+  if (isDirty.value) {
+    const ok = await confirmSwitchPatient()
+    if (!ok) {
+      return
+    }
+  }
   if (row.status === 'checked_in') {
     try {
       await apiClinical.startAppointment(row.id)
@@ -154,10 +194,13 @@ async function applyEncounter(encounter: EncounterRecord) {
   encounterForm.diagnosisText = encounter.diagnosis_text ?? ''
   encounterForm.treatmentPlan = encounter.treatment_plan ?? ''
   encounterForm.followUpDate = encounter.follow_up_date ?? ''
+  baselineEncounter.value = encounter
+  workbenchGuard.setDirty(false)
   await Promise.all([
     loadActivePet(encounter.pet_id),
     loadPrescriptions(encounter.id),
-    loadLabOrders(encounter.pet_id),
+    // P0-05:本次就诊检验 = current encounter_id
+    loadLabOrders(encounter.id),
   ])
   loadRecentEncounters()
 }
@@ -177,9 +220,9 @@ async function loadPrescriptions(encounterId: string) {
   }
 }
 
-async function loadLabOrders(petId: string) {
+async function loadLabOrders(encounterId: string) {
   try {
-    const res: any = await apiDiagnostics.listLabOrders({ petId, pageSize: 20 })
+    const res: any = await apiDiagnostics.listLabOrders({ encounterId, pageSize: 20 })
     labOrders.value = res.data.list ?? []
   }
   catch {
@@ -205,15 +248,125 @@ async function onSaveDraft() {
       expectedVersion: activeEncounter.value.version,
     })
     activeEncounter.value = res.data
+    baselineEncounter.value = res.data
+    workbenchGuard.setDirty(false)
     lastSavedAt.value = new Date()
     useFaToast().success('病历已保存')
   }
   catch (e: any) {
+    // P0-26:乐观锁冲突走专门 UX,禁止只给普通 Error Toast / 覆盖服务器最新版本
+    if (e?.response?.status === 409) {
+      conflictVisible.value = true
+      return
+    }
     useFaToast().error(e?.message || '保存失败')
   }
   finally {
     saving.value = false
   }
+}
+
+async function fetchLatestEncounter(id: string): Promise<EncounterRecord> {
+  const res: any = await apiClinical.getEncounter(id)
+  return res.data.encounter as EncounterRecord
+}
+
+/** 409 弹窗动作1:查看最新版本(丢弃本地未保存内容) */
+async function onConflictViewLatest() {
+  if (!activeEncounter.value) { return }
+  try {
+    const latest = await fetchLatestEncounter(activeEncounter.value.id)
+    conflictVisible.value = false
+    await applyEncounter(latest)
+    useFaToast().success('已载入服务器最新版本')
+  }
+  catch (e: any) {
+    useFaToast().error(e?.message || '加载最新版本失败')
+  }
+}
+
+/** 409 弹窗动作2:复制我的未保存内容(载入最新,保留本地编辑,由用户确认后重新保存) */
+async function onConflictKeepMine() {
+  const mine = {
+    chiefComplaint: encounterForm.chiefComplaint,
+    historyPresent: encounterForm.historyPresent,
+    examFindings: encounterForm.examFindings,
+    diagnosisText: encounterForm.diagnosisText,
+    treatmentPlan: encounterForm.treatmentPlan,
+    followUpDate: encounterForm.followUpDate,
+  }
+  if (!activeEncounter.value) { return }
+  try {
+    const latest = await fetchLatestEncounter(activeEncounter.value.id)
+    conflictVisible.value = false
+    await applyEncounter(latest)
+    encounterForm.chiefComplaint = mine.chiefComplaint
+    encounterForm.historyPresent = mine.historyPresent
+    encounterForm.examFindings = mine.examFindings
+    encounterForm.diagnosisText = mine.diagnosisText
+    encounterForm.treatmentPlan = mine.treatmentPlan
+    encounterForm.followUpDate = mine.followUpDate
+    workbenchGuard.setDirty(true)
+    useFaToast().warning('已载入最新版本,你的未保存内容已保留,请核对后重新保存')
+  }
+  catch (e: any) {
+    useFaToast().error(e?.message || '加载最新版本失败')
+  }
+}
+
+/** 409 弹窗动作3:稍后处理 */
+function onConflictLater() {
+  conflictVisible.value = false
+}
+
+/** P0-25:切换患者前确认 */
+function confirmSwitchPatient(): Promise<boolean> {
+  return new Promise((resolve) => {
+    useFaModal().confirm({
+      title: '未保存的病历',
+      content: '当前病历有尚未保存的内容,切换患者将丢失这些修改。',
+      confirmButtonText: '放弃并切换',
+      cancelButtonText: '取消',
+      onConfirm: () => { workbenchGuard.setDirty(false); resolve(true) },
+      onCancel: () => resolve(false),
+    })
+  })
+}
+
+/** P0-25:路由离开保护 */
+onBeforeRouteLeave(async () => {
+  if (!isDirty.value) { return true }
+  return new Promise((resolve) => {
+    useFaModal().confirm({
+      title: '未保存的病历',
+      content: '当前病历有尚未保存的内容,确定要离开吗?',
+      confirmButtonText: '放弃并离开',
+      cancelButtonText: '取消',
+      onConfirm: () => resolve(true),
+      onCancel: () => resolve(false),
+    })
+  })
+})
+
+/** P0-25:刷新/关闭页面保护 */
+function handleBeforeUnload(e: BeforeUnloadEvent) {
+  if (isDirty.value) {
+    e.preventDefault()
+    e.returnValue = ''
+  }
+}
+
+/** 医生工作台内快捷发起影像申请(S3.1-影像工作流入口) */
+function onRequestImaging() {
+  if (!activeEncounter.value) { return }
+  router.push({
+    path: '/diagnostics/imaging',
+    query: {
+      encounterId: activeEncounter.value.id,
+      petId: activeEncounter.value.pet_id,
+      customerId: activeEncounter.value.customer_id,
+    },
+  })
 }
 
 function onOpenDetail() {
@@ -245,7 +398,37 @@ const savedText = computed(() => {
   return `已保存 ${lastSavedAt.value.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
 })
 
-onMounted(loadTodayAppointments)
+// P0-06:切店后清空当前患者上下文并按新门店重载候诊队列(切店前 ToolbarStart 已做 dirty 确认)
+useStoreScopedPage({
+  load: loadTodayAppointments,
+  reset: () => {
+    activeEncounter.value = null
+    activePet.value = null
+    recentEncounters.value = []
+    prescriptions.value = []
+    labOrders.value = []
+    encounterForm.chiefComplaint = ''
+    encounterForm.historyPresent = ''
+    encounterForm.examFindings = ''
+    encounterForm.diagnosisText = ''
+    encounterForm.treatmentPlan = ''
+    encounterForm.followUpDate = ''
+    baselineEncounter.value = null
+    conflictVisible.value = false
+    workbenchGuard.setDirty(false)
+    lastSavedAt.value = null
+  },
+})
+
+onMounted(() => {
+  loadTodayAppointments()
+  window.addEventListener('beforeunload', handleBeforeUnload)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  workbenchGuard.setDirty(false)
+})
 </script>
 
 <template>
@@ -395,6 +578,15 @@ onMounted(loadTodayAppointments)
                 <EmptyState v-if="!labOrders.length" compact title="暂无检验" />
               </div>
             </div>
+            <div class="mb-4">
+              <div class="mb-2 flex items-center justify-between">
+                <span class="text-sm font-medium">影像</span>
+              </div>
+              <FaButton size="sm" variant="outline" class="w-full justify-start" @click="onRequestImaging">
+                <FaIcon name="i-lucide:scan-line" />
+                申请影像
+              </FaButton>
+            </div>
           </div>
           <EmptyState v-else compact title="选择就诊后显示处方/检验" />
         </div>
@@ -419,5 +611,31 @@ onMounted(loadTodayAppointments)
         </FaButton>
       </template>
     </WorkflowFixedBar>
+
+    <!-- P0-26:乐观锁冲突弹窗(查看最新/复制未保存/稍后处理) -->
+    <div v-if="conflictVisible" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="onConflictLater">
+      <div class="w-[420px] max-w-full rounded-lg border bg-card p-5 shadow-xl">
+        <div class="flex items-center gap-2">
+          <FaIcon name="i-lucide:triangle-alert" class="text-amber-600" />
+          <span class="text-base font-semibold">病历已被其他人更新</span>
+        </div>
+        <p class="mt-2 text-sm text-muted-foreground">
+          该病历在其他窗口已被修改,直接保存将覆盖对方内容。请选择处理方式:
+        </p>
+        <div class="mt-4 space-y-2">
+          <FaButton class="w-full justify-start" variant="outline" @click="onConflictViewLatest">
+            <FaIcon name="i-lucide:refresh-cw" />
+            查看最新版本
+          </FaButton>
+          <FaButton class="w-full justify-start" variant="outline" @click="onConflictKeepMine">
+            <FaIcon name="i-lucide:clipboard-copy" />
+            复制我的未保存内容
+          </FaButton>
+          <FaButton class="w-full justify-start" @click="onConflictLater">
+            稍后处理
+          </FaButton>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

@@ -304,6 +304,146 @@ export interface LabOrderListResult {
   pageSize: number
 }
 
+// ===== 检验工作台统一业务状态(P0-27) =====
+
+/** 工作台业务状态:后端推导,前端只消费 */
+export type LabWorkflowStage = 'awaiting_sample' | 'testing' | 'awaiting_review' | 'published' | 'rejected' | 'cancelled'
+
+/** 工作台主动作 */
+export type LabPrimaryAction = 'collect' | 'publish' | null
+
+/** lab-workbench 端点返回的带业务状态的行 */
+export interface LabWorkbenchRecord extends LabOrderRecord {
+  workflowStage: LabWorkflowStage
+  primaryAction: LabPrimaryAction
+  canEditResult: boolean
+  canReview: boolean
+  canPublish: boolean
+}
+
+/** 检验工作台查询参数 */
+export interface LabWorkbenchListParams {
+  storeId?: string
+  petId?: string
+  encounterId?: string
+  stage?: LabWorkflowStage
+  page?: number
+  pageSize?: number
+}
+
+/** 检验工作台列表响应 */
+export interface LabWorkbenchListResult {
+  list: LabWorkbenchRecord[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+/** 工作台业务状态中文标签 */
+export const LAB_WORKFLOW_STAGE_LABELS: Record<LabWorkflowStage, string> = {
+  awaiting_sample: '待采样',
+  testing: '检测中',
+  awaiting_review: '待审核',
+  published: '已发布',
+  rejected: '退回',
+  cancelled: '已取消',
+}
+
+// ===== 影像工作流(PRD §12.3) =====
+
+export type ImagingType = 'ultrasound' | 'xray' | 'cr' | 'ct' | 'mri' | 'other'
+export type ImagingOrderStatus = 'requested' | 'scheduled' | 'in_progress' | 'performed' | 'reported' | 'reviewed' | 'published' | 'cancelled'
+export type ImagingOrderStage = 'awaiting_schedule' | 'awaiting_perform' | 'awaiting_report' | 'awaiting_review' | 'published' | 'cancelled'
+export type ImagingReportStatus = 'draft' | 'submitted' | 'reviewed' | 'published'
+
+/** imaging_orders 表记录 */
+export interface ImagingOrderRecord {
+  id: string
+  tenant_id: string
+  store_id: string | null
+  order_no: string
+  encounter_id: string | null
+  customer_id: string
+  pet_id: string
+  requested_by: string | null
+  imaging_type: ImagingType
+  catalog_item_id: string | null
+  scheduled_at: string | null
+  performed_at: string | null
+  performed_by: string | null
+  status: ImagingOrderStatus
+  clinical_question: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** 影像工作台行:后端推导 workflowStage/primaryAction */
+export interface ImagingOrderWorkbenchRecord extends ImagingOrderRecord {
+  workflowStage: ImagingOrderStage
+  primaryAction: 'schedule' | 'perform' | 'report' | 'review' | null
+}
+
+/** imaging_reports 表记录(版本化) */
+export interface ImagingReportRecord {
+  id: string
+  tenant_id: string
+  store_id: string | null
+  imaging_order_id: string
+  version: number
+  findings: string | null
+  impression: string | null
+  recommendation: string | null
+  author_id: string | null
+  reviewer_id: string | null
+  status: ImagingReportStatus
+  published_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** 影像附件(attachments + files) */
+export interface ImagingAttachmentRecord {
+  id: string
+  entity_type: 'imaging_order' | 'imaging_report'
+  entity_id: string
+  purpose: string
+  created_at: string
+  file: {
+    id: string
+    original_name: string
+    mime_type: string
+    size_bytes: number
+    object_key: string
+    status: string
+  }
+}
+
+export const IMAGING_TYPE_LABELS: Record<ImagingType, string> = {
+  ultrasound: 'B 超',
+  xray: 'X 光',
+  cr: 'CR',
+  ct: 'CT',
+  mri: 'MRI',
+  other: '其他',
+}
+
+export const IMAGING_STAGE_LABELS: Record<ImagingOrderStage, string> = {
+  awaiting_schedule: '待预约',
+  awaiting_perform: '待执行',
+  awaiting_report: '待报告',
+  awaiting_review: '待审核',
+  published: '已发布',
+  cancelled: '已取消',
+}
+
+export const IMAGING_REPORT_STATUS_LABELS: Record<ImagingReportStatus, string> = {
+  draft: '草稿',
+  submitted: '待审核',
+  reviewed: '已审核',
+  published: '已发布',
+}
+
 /** 创建检验申请入参 */
 export interface CreateLabOrderInput {
   tenantId: string

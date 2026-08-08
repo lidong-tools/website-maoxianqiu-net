@@ -69,6 +69,17 @@ const routes: RouteRecordRaw[] = [
       auth: 'lab.view',
     },
   },
+  {
+    // 影像工作台(PRD §12.3)
+    path: '/diagnostics/imaging',
+    name: 'diagnosticsImaging',
+    component: () => import('@/views/diagnostics/imaging/index.vue'),
+    meta: {
+      title: '影像工作台',
+      icon: 'i-lucide:scan-line',
+      auth: 'imaging.view',
+    },
+  },
 ]
 
 export default routes

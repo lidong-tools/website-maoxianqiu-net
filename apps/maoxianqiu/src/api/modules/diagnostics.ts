@@ -16,6 +16,13 @@ import type {
   LabOrderListParams,
   LabOrderRecord,
   LabResultReview,
+  LabWorkbenchListParams,
+  LabWorkbenchListResult,
+  ImagingAttachmentRecord,
+  ImagingOrderRecord,
+  ImagingOrderWorkbenchRecord,
+  ImagingReportRecord,
+  ImagingType,
   LabSampleListParams,
   LabSampleRecord,
   LabSpecimen,
@@ -656,6 +663,22 @@ export default {
     return { status: 1, error: '', data: data as LabOrderRecord }
   },
 
+  /**
+   * 检验工作台列表(P0-27,走 Hono Command)
+   * 返回后端推导的 workflowStage / primaryAction / canX 业务 DTO
+   */
+  async getLabWorkbench(params?: LabWorkbenchListParams) {
+    const query: Record<string, string | number> = {}
+    if (params?.storeId) { query.storeId = params.storeId }
+    if (params?.petId) { query.petId = params.petId }
+    if (params?.encounterId) { query.encounterId = params.encounterId }
+    if (params?.stage) { query.stage = params.stage }
+    if (params?.page) { query.page = params.page }
+    if (params?.pageSize) { query.pageSize = params.pageSize }
+    const res = await api.get('diagnostics/lab-workbench', { params: query }) as { data: LabWorkbenchListResult }
+    return { status: 1, error: '', data: res.data }
+  },
+
   // ============================================================
   // 检验结果项 MXQ-10006/10008
   // ============================================================
@@ -953,5 +976,118 @@ export default {
       note: note ?? undefined,
     })
     return { status: 1, error: '', data: (res as any).data as CriticalValueAlert }
+  },
+
+  // ============================================================
+  // 影像工作流(PRD §12.3):全部走 Hono Command(service role)
+  // ============================================================
+
+  /** 影像申请列表(MXQ-10021) */
+  async listImagingOrders(params?: {
+    storeId?: string
+    encounterId?: string
+    petId?: string
+    stage?: string
+    page?: number
+    pageSize?: number
+  }) {
+    const query: Record<string, string | number> = {}
+    if (params?.storeId) { query.storeId = params.storeId }
+    if (params?.encounterId) { query.encounterId = params.encounterId }
+    if (params?.petId) { query.petId = params.petId }
+    if (params?.stage) { query.stage = params.stage }
+    if (params?.page) { query.page = params.page }
+    if (params?.pageSize) { query.pageSize = params.pageSize }
+    const res = await api.get('diagnostics/imaging/orders', { params: query })
+    return { status: 1, error: '', data: (res as any).data as { list: ImagingOrderWorkbenchRecord[], total: number } }
+  },
+
+  /** 影像申请详情(MXQ-10027):order + reports + attachments */
+  async getImagingOrder(id: string) {
+    const res = await api.get(`diagnostics/imaging/orders/${id}`)
+    return { status: 1, error: '', data: (res as any).data as { order: ImagingOrderRecord, reports: ImagingReportRecord[], attachments: ImagingAttachmentRecord[] } }
+  },
+
+  /** 创建影像申请(MXQ-10022) */
+  async createImagingOrder(input: {
+    tenantId: string
+    storeId?: string
+    encounterId?: string
+    customerId: string
+    petId: string
+    imagingType: ImagingType
+    catalogItemId?: string
+    scheduledAt?: string
+    clinicalQuestion?: string
+    notes?: string
+  }) {
+    const res = await api.post('diagnostics/imaging/orders', input)
+    return { status: 1, error: '', data: (res as any).data as ImagingOrderRecord }
+  },
+
+  /** 影像排程(MXQ-10023) */
+  async scheduleImagingOrder(id: string, scheduledAt: string) {
+    const res = await api.post(`diagnostics/imaging/orders/${id}/schedule`, { scheduledAt })
+    return { status: 1, error: '', data: (res as any).data as ImagingOrderRecord }
+  },
+
+  /** 开始执行(MXQ-10024) */
+  async startImagingOrder(id: string) {
+    const res = await api.post(`diagnostics/imaging/orders/${id}/start`, {})
+    return { status: 1, error: '', data: (res as any).data as ImagingOrderRecord }
+  },
+
+  /** 完成执行(MXQ-10025) */
+  async performImagingOrder(id: string) {
+    const res = await api.post(`diagnostics/imaging/orders/${id}/perform`, {})
+    return { status: 1, error: '', data: (res as any).data as ImagingOrderRecord }
+  },
+
+  /** 取消影像申请(MXQ-10026) */
+  async cancelImagingOrder(id: string) {
+    const res = await api.post(`diagnostics/imaging/orders/${id}/cancel`, {})
+    return { status: 1, error: '', data: (res as any).data as ImagingOrderRecord }
+  },
+
+  /** 影像报告列表(MXQ-10028) */
+  async listImagingReports(orderId: string) {
+    const res = await api.get(`diagnostics/imaging/orders/${orderId}/reports`)
+    return { status: 1, error: '', data: (res as any).data as { list: ImagingReportRecord[] } }
+  },
+
+  /** 创建/修订影像报告(MXQ-10029) */
+  async createImagingReport(orderId: string, input: { findings?: string, impression?: string, recommendation?: string }) {
+    const res = await api.post(`diagnostics/imaging/orders/${orderId}/reports`, input)
+    return { status: 1, error: '', data: (res as any).data as ImagingReportRecord }
+  },
+
+  /** 保存影像报告草稿(MXQ-10030) */
+  async updateImagingReport(reportId: string, input: { findings?: string, impression?: string, recommendation?: string }) {
+    const res = await api.patch(`diagnostics/imaging/reports/${reportId}`, input)
+    return { status: 1, error: '', data: (res as any).data as ImagingReportRecord }
+  },
+
+  /** 提交影像报告待审(MXQ-10031a) */
+  async submitImagingReport(reportId: string) {
+    const res = await api.post(`diagnostics/imaging/reports/${reportId}/submit`, {})
+    return { status: 1, error: '', data: (res as any).data as ImagingReportRecord }
+  },
+
+  /** 审核影像报告(MXQ-10031b) */
+  async reviewImagingReport(reportId: string, decision: 'approved' | 'rejected', comment?: string) {
+    const res = await api.post(`diagnostics/imaging/reports/${reportId}/review`, { decision, comment: comment ?? undefined })
+    return { status: 1, error: '', data: (res as any).data as ImagingReportRecord }
+  },
+
+  /** 发布影像报告(MXQ-10031c,走 publish_imaging_report RPC) */
+  async publishImagingReport(reportId: string) {
+    const res = await api.post(`diagnostics/imaging/reports/${reportId}/publish`, {})
+    return { status: 1, error: '', data: (res as any).data as ImagingReportRecord }
+  },
+
+  /** 影像附件列表(MXQ-10032) */
+  async listImagingAttachments(orderId: string) {
+    const res = await api.get(`diagnostics/imaging/orders/${orderId}/attachments`)
+    return { status: 1, error: '', data: (res as any).data as { list: ImagingAttachmentRecord[] } }
   },
 }

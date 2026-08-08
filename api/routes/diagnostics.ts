@@ -726,4 +726,902 @@ diagnosticsRoutes.post('/critical-values/:id/ack', async (c) => {
   return ok(c, data)
 })
 
+// ============================================================
+// P0-27:检验工作台统一业务状态 DTO
+// 后端推导 workflowStage / primaryAction / canEditResult / canReview / canPublish,
+// 前端只消费业务状态,不再自行拼接 order.status + sample.status + review.status
+// ============================================================
+
+type LabWorkflowStage = 'awaiting_sample' | 'testing' | 'awaiting_review' | 'published' | 'rejected' | 'cancelled'
+type LabPrimaryAction = 'collect' | 'publish' | null
+
+interface LabWorkflowDerived {
+  workflowStage: LabWorkflowStage
+  primaryAction: LabPrimaryAction
+  canEditResult: boolean
+  canReview: boolean
+  canPublish: boolean
+}
+
+function deriveLabWorkflow(
+  order: { status: string },
+  samples: Array<{ status: string }>,
+  latestReview: { decision?: string } | undefined,
+): LabWorkflowDerived {
+  if (order.status === 'cancelled') {
+    return { workflowStage: 'cancelled', primaryAction: null, canEditResult: false, canReview: false, canPublish: false }
+  }
+  const hasRejectedSample = samples.some(s => s.status === 'rejected')
+  if (hasRejectedSample) {
+    return { workflowStage: 'rejected', primaryAction: 'publish', canEditResult: true, canReview: true, canPublish: true }
+  }
+  if (order.status === 'requested') {
+    return { workflowStage: 'awaiting_sample', primaryAction: 'collect', canEditResult: false, canReview: false, canPublish: false }
+  }
+  if (order.status === 'collected') {
+    const hasTesting = samples.some(s => s.status === 'received' || s.status === 'testing')
+    return {
+      workflowStage: hasTesting ? 'testing' : 'awaiting_review',
+      primaryAction: 'publish',
+      canEditResult: true,
+      // 检测中不可审核,待审核/退回方可(双签须结果已就绪)
+      canReview: !hasTesting,
+      canPublish: true,
+    }
+  }
+  if (order.status === 'completed') {
+    if (latestReview?.decision === 'rejected') {
+      return { workflowStage: 'rejected', primaryAction: 'publish', canEditResult: true, canReview: true, canPublish: true }
+    }
+    if (latestReview?.decision === 'approved') {
+      return { workflowStage: 'published', primaryAction: null, canEditResult: false, canReview: false, canPublish: false }
+    }
+    return { workflowStage: 'awaiting_review', primaryAction: 'publish', canEditResult: true, canReview: true, canPublish: true }
+  }
+  return { workflowStage: 'awaiting_sample', primaryAction: null, canEditResult: false, canReview: false, canPublish: false }
+}
+
+const labWorkbenchSchema = z.object({
+  tenantId: z.string().uuid().optional(),
+  storeId: z.string().uuid().optional(),
+  encounterId: z.string().uuid().optional(),
+  petId: z.string().uuid().optional(),
+  stage: z.enum(['awaiting_sample', 'testing', 'awaiting_review', 'published', 'rejected', 'cancelled']).optional(),
+  page: z.coerce.number().int().positive().max(1000).default(1),
+  pageSize: z.coerce.number().int().positive().max(200).default(20),
+})
+
+/** stage → lab_orders.status 粗筛(JS 层再做精确推导过滤) */
+const STAGE_TO_STATUS: Record<Exclude<LabWorkflowStage, 'cancelled'>, string[]> = {
+  awaiting_sample: ['requested'],
+  testing: ['collected'],
+  awaiting_review: ['collected', 'completed'],
+  published: ['completed'],
+  rejected: ['collected', 'completed'],
+}
+
+/**
+ * 检验工作台列表(P0-27)
+ * - 权限:lab.view
+ * - 返回带 workflowStage/primaryAction/canX 的业务 DTO
+ */
+diagnosticsRoutes.get('/lab-workbench', async (c) => {
+  const input = labWorkbenchSchema.parse(c.req.query())
+  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无法确定租户作用域')
+  }
+  const scope = await requireScopedPermission(c, { code: 'lab.view', tenantId, storeId: input.storeId })
+
+  const service = createServiceClient()
+  let query = service
+    .from('lab_orders')
+    .select('*', { count: 'exact' })
+    .eq('tenant_id', scope.tenantId)
+
+  if (input.storeId) {
+    query = query.eq('store_id', input.storeId)
+  }
+  if (input.encounterId) {
+    query = query.eq('encounter_id', input.encounterId)
+  }
+  if (input.petId) {
+    query = query.eq('pet_id', input.petId)
+  }
+  if (input.stage && input.stage !== 'cancelled') {
+    const statuses = STAGE_TO_STATUS[input.stage]
+    if (statuses.length === 1) {
+      query = query.eq('status', statuses[0])
+    }
+    else {
+      query = query.in('status', statuses)
+    }
+  }
+  else if (input.stage === 'cancelled') {
+    query = query.eq('status', 'cancelled')
+  }
+
+  const { data: orders, error } = await query.order('requested_at', { ascending: false }).limit(500)
+  if (error) {
+    throw err.internal(`查询检验工作台失败: ${error.message}`)
+  }
+
+  const orderIds = (orders ?? []).map(o => o.id)
+  const samplesMap = new Map<string, Array<{ status: string }>>()
+  const reviewMap = new Map<string, { decision?: string }>()
+  if (orderIds.length) {
+    const { data: samples } = await service
+      .from('lab_samples')
+      .select('lab_order_id, status')
+      .in('lab_order_id', orderIds)
+    samples?.forEach((s: { lab_order_id: string, status: string }) => {
+      const arr = samplesMap.get(s.lab_order_id) ?? []
+      arr.push({ status: s.status })
+      samplesMap.set(s.lab_order_id, arr)
+    })
+
+    const { data: reviews } = await service
+      .from('lab_result_reviews')
+      .select('lab_order_id, decision, reviewed_at')
+      .in('lab_order_id', orderIds)
+      .order('reviewed_at', { ascending: false })
+    const seen = new Set<string>()
+    reviews?.forEach((r: { lab_order_id: string, decision: string }) => {
+      if (!seen.has(r.lab_order_id)) {
+        seen.add(r.lab_order_id)
+        reviewMap.set(r.lab_order_id, { decision: r.decision })
+      }
+    })
+  }
+
+  let rows = (orders ?? []).map((o: any) => {
+    const wf = deriveLabWorkflow(o, samplesMap.get(o.id) ?? [], reviewMap.get(o.id))
+    return {
+      ...o,
+      workflowStage: wf.workflowStage,
+      primaryAction: wf.primaryAction,
+      canEditResult: wf.canEditResult,
+      canReview: wf.canReview,
+      canPublish: wf.canPublish,
+    }
+  })
+
+  if (input.stage) {
+    rows = rows.filter(r => r.workflowStage === input.stage)
+  }
+
+  const total = rows.length
+  const from = (input.page - 1) * input.pageSize
+  rows = rows.slice(from, from + input.pageSize)
+
+  return ok(c, { list: rows, total, page: input.page, pageSize: input.pageSize })
+})
+
+// ============================================================
+// 影像工作流(PRD §12.3):imaging_orders / imaging_reports
+// 状态机:
+//   order: requested→scheduled→in_progress→performed→reported→reviewed→published; 任意非终态→cancelled
+//   report: draft→submitted→reviewed→published; 已发布修订→新版本行(draft)
+// 权限:imaging.view / imaging.order / imaging.perform / imaging.report / imaging.review / imaging.publish
+// 附件:复用 files/attachments/R2,entity_type = imaging_order | imaging_report
+// ============================================================
+
+const IMAGING_TYPES = ['ultrasound', 'xray', 'cr', 'ct', 'mri', 'other'] as const
+type ImagingType = typeof IMAGING_TYPES[number]
+
+/** 影像申请单工作台业务状态 */
+const IMAGING_STAGE_MAP: Record<string, { workflowStage: string, primaryAction: string | null }> = {
+  requested: { workflowStage: 'awaiting_schedule', primaryAction: 'schedule' },
+  scheduled: { workflowStage: 'awaiting_perform', primaryAction: 'perform' },
+  in_progress: { workflowStage: 'awaiting_perform', primaryAction: 'perform' },
+  performed: { workflowStage: 'awaiting_report', primaryAction: 'report' },
+  reported: { workflowStage: 'awaiting_review', primaryAction: 'review' },
+  reviewed: { workflowStage: 'awaiting_review', primaryAction: 'review' },
+  published: { workflowStage: 'published', primaryAction: null },
+  cancelled: { workflowStage: 'cancelled', primaryAction: null },
+}
+
+function genImagingOrderNo() {
+  return `IMG-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
+}
+
+const imagingOrderListSchema = z.object({
+  tenantId: z.string().uuid().optional(),
+  storeId: z.string().uuid().optional(),
+  encounterId: z.string().uuid().optional(),
+  petId: z.string().uuid().optional(),
+  stage: z.enum(['awaiting_schedule', 'awaiting_perform', 'awaiting_report', 'awaiting_review', 'published', 'cancelled']).optional(),
+  page: z.coerce.number().int().positive().max(1000).default(1),
+  pageSize: z.coerce.number().int().positive().max(200).default(20),
+})
+
+/** 影像申请单列表(MXQ-10021)
+ * - 权限:imaging.view
+ */
+diagnosticsRoutes.get('/imaging/orders', async (c) => {
+  const input = imagingOrderListSchema.parse(c.req.query())
+  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无法确定租户作用域')
+  }
+  const scope = await requireScopedPermission(c, { code: 'imaging.view', tenantId, storeId: input.storeId })
+
+  const service = createServiceClient()
+  let query = service
+    .from('imaging_orders')
+    .select('*', { count: 'exact' })
+    .eq('tenant_id', scope.tenantId)
+
+  if (input.storeId) {
+    query = query.eq('store_id', input.storeId)
+  }
+  if (input.encounterId) {
+    query = query.eq('encounter_id', input.encounterId)
+  }
+  if (input.petId) {
+    query = query.eq('pet_id', input.petId)
+  }
+
+  const { data: orders, error } = await query
+    .order('created_at', { ascending: false })
+    .limit(500)
+  if (error) {
+    throw err.internal(`查询影像申请列表失败: ${error.message}`)
+  }
+
+  let rows = (orders ?? []).map((o: any) => {
+    const mapped = IMAGING_STAGE_MAP[o.status] ?? { workflowStage: o.status, primaryAction: null }
+    return { ...o, workflowStage: mapped.workflowStage, primaryAction: mapped.primaryAction }
+  })
+  if (input.stage) {
+    rows = rows.filter(r => r.workflowStage === input.stage)
+  }
+
+  const total = rows.length
+  const from = (input.page - 1) * input.pageSize
+  rows = rows.slice(from, from + input.pageSize)
+
+  return ok(c, { list: rows, total, page: input.page, pageSize: input.pageSize })
+})
+
+const createImagingOrderSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid().optional(),
+  encounterId: z.string().uuid().optional(),
+  customerId: z.string().uuid('客户 id 格式错误'),
+  petId: z.string().uuid('宠物 id 格式错误'),
+  imagingType: z.enum(IMAGING_TYPES),
+  catalogItemId: z.string().uuid().optional(),
+  scheduledAt: z.string().optional(),
+  clinicalQuestion: z.string().max(2000).optional(),
+  notes: z.string().max(2000).optional(),
+})
+
+/** 创建影像申请(MXQ-10022)
+ * - 权限:imaging.order
+ */
+diagnosticsRoutes.post('/imaging/orders', async (c) => {
+  const input = await parseJsonBody(c, createImagingOrderSchema)
+  const scope = await requireScopedPermission(c, { code: 'imaging.order', tenantId: input.tenantId, storeId: input.storeId })
+
+  const service = createServiceClient()
+  const user = c.get('user')
+  const orderNo = genImagingOrderNo()
+  const { data, error } = await service
+    .from('imaging_orders')
+    .insert({
+      tenant_id: scope.tenantId,
+      store_id: scope.storeId ?? null,
+      order_no: orderNo,
+      encounter_id: input.encounterId ?? null,
+      customer_id: input.customerId,
+      pet_id: input.petId,
+      requested_by: user.id,
+      imaging_type: input.imagingType,
+      catalog_item_id: input.catalogItemId ?? null,
+      scheduled_at: input.scheduledAt ?? null,
+      status: 'requested',
+      clinical_question: input.clinicalQuestion ?? null,
+      notes: input.notes ?? null,
+    })
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`创建影像申请失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'imaging.order.create',
+    entityType: 'imaging_order',
+    entityId: data.id,
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+    metadata: { orderNo, imagingType: input.imagingType, petId: input.petId, encounterId: input.encounterId ?? null },
+  })
+
+  return ok(c, data)
+})
+
+const scheduleImagingOrderSchema = z.object({
+  scheduledAt: z.string().min(1, '请选择预约时间'),
+})
+
+/** 影像排程(requested→scheduled)(MXQ-10023)
+ * - 权限:imaging.order
+ */
+diagnosticsRoutes.post('/imaging/orders/:id/schedule', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, scheduleImagingOrderSchema)
+  const service = createServiceClient()
+
+  const { data: order, error: orderErr } = await service
+    .from('imaging_orders')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (orderErr || !order) {
+    throw err.notFound('影像申请不存在')
+  }
+  await requireScopedPermission(c, { code: 'imaging.order', tenantId: order.tenant_id, storeId: order.store_id ?? undefined })
+
+  if (order.status !== 'requested') {
+    throw err.conflict('仅待预约状态的影像申请可排程')
+  }
+
+  const { data, error } = await service
+    .from('imaging_orders')
+    .update({ status: 'scheduled', scheduled_at: input.scheduledAt, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`影像排程失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'imaging.order.schedule',
+    entityType: 'imaging_order',
+    entityId: id,
+    tenantId: order.tenant_id,
+    storeId: order.store_id ?? undefined,
+    metadata: { scheduledAt: input.scheduledAt },
+  })
+
+  return ok(c, data)
+})
+
+/** 影像开始执行(scheduled→in_progress)(MXQ-10024)
+ * - 权限:imaging.perform
+ */
+diagnosticsRoutes.post('/imaging/orders/:id/start', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: order, error: orderErr } = await service
+    .from('imaging_orders')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (orderErr || !order) {
+    throw err.notFound('影像申请不存在')
+  }
+  await requireScopedPermission(c, { code: 'imaging.perform', tenantId: order.tenant_id, storeId: order.store_id ?? undefined })
+
+  if (order.status !== 'scheduled') {
+    throw err.conflict('仅已排程状态的影像可开始执行')
+  }
+
+  const { data, error } = await service
+    .from('imaging_orders')
+    .update({ status: 'in_progress', updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`开始影像执行失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'imaging.perform.start',
+    entityType: 'imaging_order',
+    entityId: id,
+    tenantId: order.tenant_id,
+    storeId: order.store_id ?? undefined,
+    metadata: {},
+  })
+
+  return ok(c, data)
+})
+
+/** 影像完成执行(in_progress→performed)(MXQ-10025)
+ * - 权限:imaging.perform
+ */
+diagnosticsRoutes.post('/imaging/orders/:id/perform', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+  const user = c.get('user')
+
+  const { data: order, error: orderErr } = await service
+    .from('imaging_orders')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (orderErr || !order) {
+    throw err.notFound('影像申请不存在')
+  }
+  await requireScopedPermission(c, { code: 'imaging.perform', tenantId: order.tenant_id, storeId: order.store_id ?? undefined })
+
+  if (order.status !== 'in_progress') {
+    throw err.conflict('仅执行中状态的影像可标记完成')
+  }
+
+  const { data, error } = await service
+    .from('imaging_orders')
+    .update({ status: 'performed', performed_at: new Date().toISOString(), performed_by: user.id, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`完成影像执行失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'imaging.perform.complete',
+    entityType: 'imaging_order',
+    entityId: id,
+    tenantId: order.tenant_id,
+    storeId: order.store_id ?? undefined,
+    metadata: { performedBy: user.id },
+  })
+
+  return ok(c, data)
+})
+
+/** 取消影像申请(MXQ-10026)
+ * - 权限:imaging.order
+ * - 仅 requested/scheduled 可取消
+ */
+diagnosticsRoutes.post('/imaging/orders/:id/cancel', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: order, error: orderErr } = await service
+    .from('imaging_orders')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (orderErr || !order) {
+    throw err.notFound('影像申请不存在')
+  }
+  await requireScopedPermission(c, { code: 'imaging.order', tenantId: order.tenant_id, storeId: order.store_id ?? undefined })
+
+  if (!['requested', 'scheduled'].includes(order.status)) {
+    throw err.conflict('仅待预约/已排程状态的影像可取消')
+  }
+
+  const { data, error } = await service
+    .from('imaging_orders')
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`取消影像申请失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'imaging.order.cancel',
+    entityType: 'imaging_order',
+    entityId: id,
+    tenantId: order.tenant_id,
+    storeId: order.store_id ?? undefined,
+    metadata: {},
+  })
+
+  return ok(c, data)
+})
+
+/** 影像申请详情(MXQ-10027)
+ * - 权限:imaging.view
+ * - 返回 order + reports(按版本升序) + attachments(关联 files)
+ */
+diagnosticsRoutes.get('/imaging/orders/:id', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: order, error: orderErr } = await service
+    .from('imaging_orders')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+  if (orderErr || !order) {
+    throw err.notFound('影像申请不存在')
+  }
+  await requireScopedPermission(c, { code: 'imaging.view', tenantId: order.tenant_id, storeId: order.store_id ?? undefined })
+
+  const { data: reports, error: reportsErr } = await service
+    .from('imaging_reports')
+    .select('*')
+    .eq('imaging_order_id', id)
+    .order('version', { ascending: true })
+  if (reportsErr) {
+    throw err.internal(`查询影像报告失败: ${reportsErr.message}`)
+  }
+
+  const { data: attachments, error: attErr } = await service
+    .from('attachments')
+    .select('*, files(*)')
+    .eq('entity_type', 'imaging_order')
+    .eq('entity_id', id)
+    .order('created_at', { ascending: false })
+  if (attErr) {
+    throw err.internal(`查询影像附件失败: ${attErr.message}`)
+  }
+
+  return ok(c, {
+    order,
+    reports: reports ?? [],
+    attachments: (attachments ?? []).filter((a: any) => a.files).map((a: any) => ({ ...a, file: a.files })),
+  })
+})
+
+/** 影像报告列表(MXQ-10028)
+ * - 权限:imaging.view
+ */
+diagnosticsRoutes.get('/imaging/orders/:id/reports', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: order, error: orderErr } = await service
+    .from('imaging_orders')
+    .select('id, tenant_id, store_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (orderErr || !order) {
+    throw err.notFound('影像申请不存在')
+  }
+  await requireScopedPermission(c, { code: 'imaging.view', tenantId: order.tenant_id, storeId: order.store_id ?? undefined })
+
+  const { data, error } = await service
+    .from('imaging_reports')
+    .select('*')
+    .eq('imaging_order_id', id)
+    .order('version', { ascending: false })
+
+  if (error) {
+    throw err.internal(`查询影像报告失败: ${error.message}`)
+  }
+
+  return ok(c, { list: data ?? [] })
+})
+
+const createImagingReportSchema = z.object({
+  findings: z.string().max(10000).optional(),
+  impression: z.string().max(5000).optional(),
+  recommendation: z.string().max(5000).optional(),
+})
+
+/** 创建/修订影像报告(MXQ-10029)
+ * - 权限:imaging.report
+ * - 无已发布版本 → 创建 v1;存在已发布版本 → 产生新版本行(已发布版本不可静默覆盖)
+ * - 同时将申请单推进到 reported(performed 之后)
+ */
+diagnosticsRoutes.post('/imaging/orders/:id/reports', async (c) => {
+  const orderId = c.req.param('id')
+  const input = await parseJsonBody(c, createImagingReportSchema)
+  const service = createServiceClient()
+
+  const { data: order, error: orderErr } = await service
+    .from('imaging_orders')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', orderId)
+    .maybeSingle()
+  if (orderErr || !order) {
+    throw err.notFound('影像申请不存在')
+  }
+  await requireScopedPermission(c, { code: 'imaging.report', tenantId: order.tenant_id, storeId: order.store_id ?? undefined })
+
+  if (order.status === 'cancelled') {
+    throw err.conflict('已取消的影像申请不可新增报告')
+  }
+
+  // 计算版本号:max(version) + 1
+  const { data: reports, error: verErr } = await service
+    .from('imaging_reports')
+    .select('version, status')
+    .eq('imaging_order_id', orderId)
+  if (verErr) {
+    throw err.internal(`查询影像报告版本失败: ${verErr.message}`)
+  }
+  const hasPublished = (reports ?? []).some(r => r.status === 'published')
+  const maxVersion = (reports ?? []).reduce((max, r) => Math.max(max, r.version), 0)
+  const nextVersion = maxVersion + 1
+
+  const user = c.get('user')
+  const { data, error } = await service
+    .from('imaging_reports')
+    .insert({
+      tenant_id: order.tenant_id,
+      store_id: order.store_id ?? null,
+      imaging_order_id: orderId,
+      version: nextVersion,
+      findings: input.findings ?? null,
+      impression: input.impression ?? null,
+      recommendation: input.recommendation ?? null,
+      author_id: user.id,
+      status: 'draft',
+    })
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`创建影像报告失败: ${error.message}`)
+  }
+
+  // performed/reported/reviewed → reported(报告已生成)
+  if (['performed', 'reported', 'reviewed'].includes(order.status)) {
+    await service
+      .from('imaging_orders')
+      .update({ status: 'reported', updated_at: new Date().toISOString() })
+      .eq('id', orderId)
+  }
+
+  await writeAudit(c, {
+    action: 'imaging.report.create',
+    entityType: 'imaging_report',
+    entityId: data.id,
+    tenantId: order.tenant_id,
+    storeId: order.store_id ?? undefined,
+    metadata: { imagingOrderId: orderId, version: nextVersion, revision: hasPublished },
+  })
+
+  return ok(c, data)
+})
+
+const updateImagingReportSchema = z.object({
+  findings: z.string().max(10000).optional(),
+  impression: z.string().max(5000).optional(),
+  recommendation: z.string().max(5000).optional(),
+})
+
+/** 保存影像报告草稿(MXQ-10030)
+ * - 权限:imaging.report
+ * - 已发布版本不可直接修改,须走 revision(新版本行)
+ */
+diagnosticsRoutes.patch('/imaging/reports/:id', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, updateImagingReportSchema)
+  const service = createServiceClient()
+
+  const { data: report, error: reportErr } = await service
+    .from('imaging_reports')
+    .select('id, tenant_id, store_id, status, imaging_order_id, version')
+    .eq('id', id)
+    .maybeSingle()
+  if (reportErr || !report) {
+    throw err.notFound('影像报告不存在')
+  }
+  await requireScopedPermission(c, { code: 'imaging.report', tenantId: report.tenant_id, storeId: report.store_id ?? undefined })
+
+  if (report.status === 'published') {
+    throw err.conflict('已发布报告不可直接修改,请创建修订版本')
+  }
+
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if (input.findings !== undefined) { patch.findings = input.findings }
+  if (input.impression !== undefined) { patch.impression = input.impression }
+  if (input.recommendation !== undefined) { patch.recommendation = input.recommendation }
+
+  const { data, error } = await service
+    .from('imaging_reports')
+    .update(patch)
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`保存影像报告失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'imaging.report.update',
+    entityType: 'imaging_report',
+    entityId: id,
+    tenantId: report.tenant_id,
+    storeId: report.store_id ?? undefined,
+    metadata: { imagingOrderId: report.imaging_order_id, version: report.version },
+  })
+
+  return ok(c, data)
+})
+
+/** 提交影像报告待审(draft→submitted)(MXQ-10031a)
+ * - 权限:imaging.report
+ */
+diagnosticsRoutes.post('/imaging/reports/:id/submit', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: report, error: reportErr } = await service
+    .from('imaging_reports')
+    .select('id, tenant_id, store_id, status, imaging_order_id, version')
+    .eq('id', id)
+    .maybeSingle()
+  if (reportErr || !report) {
+    throw err.notFound('影像报告不存在')
+  }
+  await requireScopedPermission(c, { code: 'imaging.report', tenantId: report.tenant_id, storeId: report.store_id ?? undefined })
+
+  if (report.status !== 'draft') {
+    throw err.conflict('仅草稿状态的报告可提交审核')
+  }
+
+  const { data, error } = await service
+    .from('imaging_reports')
+    .update({ status: 'submitted', updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`提交影像报告失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'imaging.report.submit',
+    entityType: 'imaging_report',
+    entityId: id,
+    tenantId: report.tenant_id,
+    storeId: report.store_id ?? undefined,
+    metadata: { imagingOrderId: report.imaging_order_id, version: report.version },
+  })
+
+  return ok(c, data)
+})
+
+const reviewImagingReportSchema = z.object({
+  decision: z.enum(['approved', 'rejected']),
+  comment: z.string().max(2000).optional(),
+})
+
+/** 审核影像报告(submitted→reviewed/退回)(MXQ-10031b)
+ * - 权限:imaging.review
+ * - 双签:审核人不可与报告作者为同一人
+ */
+diagnosticsRoutes.post('/imaging/reports/:id/review', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, reviewImagingReportSchema)
+  const service = createServiceClient()
+  const user = c.get('user')
+
+  const { data: report, error: reportErr } = await service
+    .from('imaging_reports')
+    .select('id, tenant_id, store_id, status, author_id, reviewer_id, imaging_order_id, version')
+    .eq('id', id)
+    .maybeSingle()
+  if (reportErr || !report) {
+    throw err.notFound('影像报告不存在')
+  }
+  await requireScopedPermission(c, { code: 'imaging.review', tenantId: report.tenant_id, storeId: report.store_id ?? undefined })
+
+  if (report.status !== 'submitted') {
+    throw err.conflict('仅待审核状态的报告可审核')
+  }
+  if (report.author_id === user.id) {
+    throw err.conflict('审核人不可与报告作者为同一人(双签要求)')
+  }
+
+  const nextStatus = input.decision === 'approved' ? 'reviewed' : 'draft'
+  const { data, error } = await service
+    .from('imaging_reports')
+    .update({
+      status: nextStatus,
+      reviewer_id: input.decision === 'approved' ? user.id : report.reviewer_id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) {
+    throw err.internal(`审核影像报告失败: ${error.message}`)
+  }
+
+  // 审核通过 → 申请单推进到 reviewed;退回 → 回到 reported
+  const orderStatus = input.decision === 'approved' ? 'reviewed' : 'reported'
+  await service
+    .from('imaging_orders')
+    .update({ status: orderStatus, updated_at: new Date().toISOString() })
+    .eq('id', report.imaging_order_id)
+    .in('status', ['reported', 'reviewed'])
+
+  await writeAudit(c, {
+    action: 'imaging.report.review',
+    entityType: 'imaging_report',
+    entityId: id,
+    tenantId: report.tenant_id,
+    storeId: report.store_id ?? undefined,
+    metadata: { imagingOrderId: report.imaging_order_id, version: report.version, decision: input.decision, comment: input.comment ?? null },
+  })
+
+  return ok(c, data)
+})
+
+/** 发布影像报告(reviewed→published)(MXQ-10031c)
+ * - 权限:imaging.publish
+ * - 调 publish_imaging_report RPC:报告+申请单+审计 原子推进
+ */
+diagnosticsRoutes.post('/imaging/reports/:id/publish', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: report, error: reportErr } = await service
+    .from('imaging_reports')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (reportErr || !report) {
+    throw err.notFound('影像报告不存在')
+  }
+  await requireScopedPermission(c, { code: 'imaging.publish', tenantId: report.tenant_id, storeId: report.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('publish_imaging_report', {
+    p_report_id: id,
+    p_operator_id: user.id,
+  })
+
+  if (error) {
+    if (error.message.includes('IMAGING_REPORT_NOT_FOUND')) {
+      throw err.notFound('影像报告不存在')
+    }
+    if (error.message.includes('IMAGING_REPORT_NOT_REVIEWED')) {
+      throw err.conflict('仅已审核状态的报告可发布')
+    }
+    if (error.message.includes('IMAGING_ORDER_CANCELLED')) {
+      throw err.conflict('已取消的影像申请不可发布')
+    }
+    throw err.internal(`发布影像报告失败: ${error.message}`)
+  }
+
+  return ok(c, data)
+})
+
+/** 影像申请附件列表(MXQ-10032)
+ * - 权限:imaging.view
+ * - 复用 attachments 关联 files;entity_type = imaging_order | imaging_report
+ */
+diagnosticsRoutes.get('/imaging/orders/:id/attachments', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: order, error: orderErr } = await service
+    .from('imaging_orders')
+    .select('id, tenant_id, store_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (orderErr || !order) {
+    throw err.notFound('影像申请不存在')
+  }
+  await requireScopedPermission(c, { code: 'imaging.view', tenantId: order.tenant_id, storeId: order.store_id ?? undefined })
+
+  const { data, error } = await service
+    .from('attachments')
+    .select('*, files(*)')
+    .in('entity_type', ['imaging_order', 'imaging_report'])
+    .eq('entity_id', id)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    throw err.internal(`查询影像附件失败: ${error.message}`)
+  }
+
+  return ok(c, { list: (data ?? []).filter((a: any) => a.files).map((a: any) => ({ ...a, file: a.files })) })
+})
+
 export default diagnosticsRoutes

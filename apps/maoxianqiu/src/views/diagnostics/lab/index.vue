@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
 import type { CustomerRecord, PetRecord } from '@/types/customer'
-import type { CriticalValueAlert, LabOrderAnalyte, LabOrderRecord, LabSpecimen } from '@/types/diagnostics'
+import type { CriticalValueAlert, LabOrderAnalyte, LabSpecimen, LabWorkbenchRecord, LabWorkflowStage } from '@/types/diagnostics'
 import { FaInput, FaSelect } from '@fantastic-admin/components'
 import apiDiagnostics from '@/api/modules/diagnostics'
 import BusinessCustomerPicker from '@/components/business/CustomerPicker/index.vue'
@@ -9,33 +9,21 @@ import EntityStatusTag from '@/components/business/EntityStatusTag/index.vue'
 import BusinessPetPicker from '@/components/business/PetPicker/index.vue'
 import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
-import { LAB_ORDER_STATUS_LABELS } from '@/types/diagnostics'
+import { LAB_WORKFLOW_STAGE_LABELS } from '@/types/diagnostics'
 
 defineOptions({
   name: 'DiagnosticsLab',
 })
 
-interface LabOrderRow {
-  id: string
-  order_no: string
-  pet_id: string
-  customer_id: string
-  status: LabOrderRecord['status']
-  requested_at: string
-  collected_at: string | null
-  completed_at: string | null
-  remark: string | null
-}
-
 const tenantStore = useAppTenantStore()
 const loading = ref(false)
 const submitting = ref(false)
-const dataList = ref<LabOrderRow[]>([])
-const statsList = ref<LabOrderRow[]>([])
+const dataList = ref<LabWorkbenchRecord[]>([])
+const statsList = ref<LabWorkbenchRecord[]>([])
 const criticalAlerts = ref<CriticalValueAlert[]>([])
 
 /** 当前选中行(展开详情/录入结果) */
-const selectedOrder = ref<LabOrderRow | null>(null)
+const selectedOrder = ref<LabWorkbenchRecord | null>(null)
 const analytes = ref<LabOrderAnalyte[]>([])
 const specimens = ref<LabSpecimen[]>([])
 const detailLoading = ref(false)
@@ -44,34 +32,55 @@ const petMap = ref<Record<string, PetRecord>>({})
 const customerMap = ref<Record<string, CustomerRecord>>({})
 
 /** 结果录入表单:analyteId -> { result_value, result_numeric, is_abnormal, is_critical, flag, note } */
-const resultForm = ref<Record<string, {
+interface ResultFormValue {
   result_value: string
   result_numeric: string
   is_abnormal: boolean
   is_critical: boolean
   flag: string
   note: string
-}>>({})
+}
+const resultForm = ref<Record<string, ResultFormValue>>({})
+/** 加载时的结果快照,用于 P0-28 dirty 判定 */
+const resultBaseline = ref<Record<string, ResultFormValue>>({})
 
-const activeTab = ref('all')
-
-/** 新建申请弹窗 */
-const createVisible = ref(false)
-const labForm = reactive({
-  customerId: '',
-  petId: '',
-  remark: '',
+/** P0-28:检验录入 Dirty Guard(切单/路由/门店均由它保护) */
+const labGuard = useUnsavedChangesGuard().register('diagnostics-lab')
+const resultsDirty = computed(() => {
+  const keys = Object.keys(resultForm.value)
+  if (!keys.length) {
+    return false
+  }
+  return keys.some((aid) => {
+    const f = resultForm.value[aid]
+    const b = resultBaseline.value[aid]
+    if (!b) {
+      return true
+    }
+    return f.result_value !== b.result_value
+      || f.result_numeric !== b.result_numeric
+      || f.is_abnormal !== b.is_abnormal
+      || f.is_critical !== b.is_critical
+      || f.flag !== b.flag
+      || f.note !== b.note
+  })
 })
+watch(resultsDirty, (d) => labGuard.setDirty(d), { immediate: true })
+
+/** P0-27:工作台按业务状态分页(前端只消费后端 DTO) */
+const activeTab = ref<LabWorkflowStage | 'all'>('all')
 
 const STATUS_TABS = [
   { label: '全部', value: 'all' },
-  { label: '已申请', value: 'requested' },
-  { label: '已采集', value: 'collected' },
-  { label: '已完成', value: 'completed' },
+  { label: '待采样', value: 'awaiting_sample' },
+  { label: '检测中', value: 'testing' },
+  { label: '待审核', value: 'awaiting_review' },
+  { label: '已发布', value: 'published' },
+  { label: '退回', value: 'rejected' },
   { label: '已取消', value: 'cancelled' },
 ]
 
-async function enrich(rows: LabOrderRow[]) {
+async function enrich(rows: LabWorkbenchRecord[]) {
   const petIds = [...new Set(rows.map(r => r.pet_id).filter(Boolean))]
   const customerIds = [...new Set(rows.map(r => r.customer_id).filter(Boolean))]
   if (petIds.length) {
@@ -84,19 +93,19 @@ async function enrich(rows: LabOrderRow[]) {
   }
 }
 
-/** 加载检验申请列表 */
+/** 加载检验工作台列表 */
 async function loadLabOrders() {
   loading.value = true
   try {
-    const res = await apiDiagnostics.listLabOrders({
+    const res = await apiDiagnostics.getLabWorkbench({
       storeId: tenantStore.currentStoreId || undefined,
-      status: (activeTab.value === 'all' ? undefined : activeTab.value) as LabOrderRecord['status'] | undefined,
+      stage: (activeTab.value === 'all' ? undefined : activeTab.value) as LabWorkflowStage | undefined,
     })
-    dataList.value = res.data.list as LabOrderRow[]
+    dataList.value = res.data.list
     await enrich(dataList.value)
   }
   catch (e: unknown) {
-    useFaToast().error(e instanceof Error ? e.message : '加载检验申请列表失败')
+    useFaToast().error(e instanceof Error ? e.message : '加载检验工作台失败')
   }
   finally {
     loading.value = false
@@ -106,10 +115,10 @@ async function loadLabOrders() {
 /** 加载全量用于 tab 计数 */
 async function loadStats() {
   try {
-    const res = await apiDiagnostics.listLabOrders({
+    const res = await apiDiagnostics.getLabWorkbench({
       storeId: tenantStore.currentStoreId || undefined,
     })
-    statsList.value = res.data.list as LabOrderRow[]
+    statsList.value = res.data.list
     await enrich(statsList.value)
   }
   catch {
@@ -121,7 +130,7 @@ function tabCount(status: string) {
   if (status === 'all') {
     return statsList.value.length
   }
-  return statsList.value.filter(r => r.status === status).length
+  return statsList.value.filter(r => r.workflowStage === status).length
 }
 
 /** 加载危急值告警列表 */
@@ -171,9 +180,9 @@ async function onCreate() {
   }
 }
 
-function onCancel(row: LabOrderRow) {
-  if (row.status !== 'requested') {
-    useFaToast().warning('仅「已申请」状态可取消')
+function onCancel(row: LabWorkbenchRecord) {
+  if (row.workflowStage !== 'awaiting_sample') {
+    useFaToast().warning('仅「待采样」状态可取消')
     return
   }
   useFaModal().confirm({
@@ -192,9 +201,9 @@ function onCancel(row: LabOrderRow) {
   })
 }
 
-function onCollect(row: LabOrderRow) {
-  if (row.status !== 'requested') {
-    useFaToast().warning('仅「已申请」状态可采集')
+function onCollect(row: LabWorkbenchRecord) {
+  if (row.workflowStage !== 'awaiting_sample') {
+    useFaToast().warning('仅「待采样」状态可采集')
     return
   }
   useFaModal().confirm({
@@ -216,8 +225,28 @@ function onCollect(row: LabOrderRow) {
   })
 }
 
+/** P0-28:切换检验单前确认未保存结果 */
+function confirmSwitchOrder(): Promise<boolean> {
+  return new Promise((resolve) => {
+    useFaModal().confirm({
+      title: '未保存的检验结果',
+      content: '当前检验单有尚未保存的录入结果,切换后将丢失。',
+      confirmButtonText: '放弃并切换',
+      cancelButtonText: '取消',
+      onConfirm: () => { labGuard.setDirty(false); resolve(true) },
+      onCancel: () => resolve(false),
+    })
+  })
+}
+
 /** 选中检验单:加载结果项 + 标本到右侧工作区 */
-async function onShowDetail(row: LabOrderRow) {
+async function onShowDetail(row: LabWorkbenchRecord) {
+  if (resultsDirty.value) {
+    const ok = await confirmSwitchOrder()
+    if (!ok) {
+      return
+    }
+  }
   selectedOrder.value = row
   detailLoading.value = true
   try {
@@ -228,8 +257,9 @@ async function onShowDetail(row: LabOrderRow) {
     analytes.value = analyteRes.data.list
     specimens.value = specimenRes.data.list
     resultForm.value = {}
+    resultBaseline.value = {}
     for (const a of analytes.value) {
-      resultForm.value[a.id] = {
+      const v: ResultFormValue = {
         result_value: a.result_value ?? '',
         result_numeric: a.result_numeric != null ? String(a.result_numeric) : '',
         is_abnormal: a.is_abnormal,
@@ -237,6 +267,8 @@ async function onShowDetail(row: LabOrderRow) {
         flag: a.flag ?? '',
         note: a.note ?? '',
       }
+      resultForm.value[a.id] = v
+      resultBaseline.value[a.id] = { ...v }
     }
   }
   catch {
@@ -269,6 +301,7 @@ async function onPublishResults() {
       results,
     })
     useFaToast().success('结果已发布(自动触发危急值告警)')
+    labGuard.setDirty(false)
     await Promise.all([loadLabOrders(), loadStats(), loadCriticalAlerts(), onShowDetail(selectedOrder.value)])
   }
   catch {
@@ -312,11 +345,11 @@ async function onAcknowledgeAlert(alert: CriticalValueAlert) {
 }
 
 function onTabChange(val: string) {
-  activeTab.value = val
+  activeTab.value = val as LabWorkflowStage | 'all'
   loadLabOrders()
 }
 
-function displayRow(row: LabOrderRow) {
+function displayRow(row: LabWorkbenchRecord) {
   const pet = petMap.value[row.pet_id]
   const customer = customerMap.value[row.customer_id]
   return {
@@ -342,7 +375,7 @@ const resultColumns: TableColumn<LabOrderAnalyte>[] = [
         'modelValue': resultForm.value[a.id]?.result_value ?? '',
         'onUpdate:modelValue': (v: any) => { resultForm.value[a.id] = { ...resultForm.value[a.id], result_value: v ?? '' } },
         'placeholder': '结果值',
-        'disabled': selectedOrder.value?.status === 'completed',
+        'disabled': !selectedOrder.value?.canEditResult,
         'class': 'w-full',
       })
     },
@@ -357,7 +390,7 @@ const resultColumns: TableColumn<LabOrderAnalyte>[] = [
         'onUpdate:modelValue': (v: any) => { resultForm.value[a.id] = { ...resultForm.value[a.id], result_numeric: v ?? '' } },
         'type': 'number',
         'placeholder': '如 12.5',
-        'disabled': selectedOrder.value?.status === 'completed',
+        'disabled': !selectedOrder.value?.canEditResult,
         'class': 'w-full',
       })
     },
@@ -376,7 +409,7 @@ const resultColumns: TableColumn<LabOrderAnalyte>[] = [
           { label: '偏高', value: 'high' },
           { label: '危急', value: 'critical' },
         ],
-        'disabled': selectedOrder.value?.status === 'completed',
+        'disabled': !selectedOrder.value?.canEditResult,
         'class': 'w-full',
       })
     },
@@ -389,11 +422,11 @@ const resultColumns: TableColumn<LabOrderAnalyte>[] = [
       const f = resultForm.value[a.id]
       return h('div', { class: 'flex items-center gap-3' }, [
         h('label', { class: 'flex items-center gap-1 text-xs' }, [
-          h('input', { type: 'checkbox', checked: f?.is_abnormal, disabled: selectedOrder.value?.status === 'completed', onChange: (e: any) => { resultForm.value[a.id] = { ...resultForm.value[a.id], is_abnormal: e.target.checked } } }),
+          h('input', { type: 'checkbox', checked: f?.is_abnormal, disabled: !selectedOrder.value?.canEditResult, onChange: (e: any) => { resultForm.value[a.id] = { ...resultForm.value[a.id], is_abnormal: e.target.checked } } }),
           '异常',
         ]),
         h('label', { class: 'flex items-center gap-1 text-xs' }, [
-          h('input', { type: 'checkbox', checked: f?.is_critical, disabled: selectedOrder.value?.status === 'completed', onChange: (e: any) => { resultForm.value[a.id] = { ...resultForm.value[a.id], is_critical: e.target.checked } } }),
+          h('input', { type: 'checkbox', checked: f?.is_critical, disabled: !selectedOrder.value?.canEditResult, onChange: (e: any) => { resultForm.value[a.id] = { ...resultForm.value[a.id], is_critical: e.target.checked } } }),
           '危急',
         ]),
       ])
@@ -408,21 +441,82 @@ const resultColumns: TableColumn<LabOrderAnalyte>[] = [
         'modelValue': resultForm.value[a.id]?.note ?? '',
         'onUpdate:modelValue': (v: any) => { resultForm.value[a.id] = { ...resultForm.value[a.id], note: v ?? '' } },
         'placeholder': '备注',
-        'disabled': selectedOrder.value?.status === 'completed',
+        'disabled': !selectedOrder.value?.canEditResult,
         'class': 'w-full',
       })
     },
   },
 ]
 
+/** 工作台主动作按钮(P0-27:一状态一主动作) */
+function stageVariant(stage: string) {
+  if (stage === 'published') { return 'success' }
+  if (stage === 'cancelled') { return 'neutral' }
+  if (stage === 'rejected') { return 'danger' }
+  if (stage === 'testing') { return 'warning' }
+  return 'info'
+}
+
+// P0-28:路由离开保护
+onBeforeRouteLeave(async () => {
+  if (!resultsDirty.value) { return true }
+  return new Promise((resolve) => {
+    useFaModal().confirm({
+      title: '未保存的检验结果',
+      content: '当前检验单有尚未保存的录入结果,确定要离开吗?',
+      confirmButtonText: '放弃并离开',
+      cancelButtonText: '取消',
+      onConfirm: () => resolve(true),
+      onCancel: () => resolve(false),
+    })
+  })
+})
+
+// P0-28:刷新/关闭页面保护
+function handleBeforeUnload(e: BeforeUnloadEvent) {
+  if (resultsDirty.value) {
+    e.preventDefault()
+    e.returnValue = ''
+  }
+}
+
+// P0-06/P0-28:切店后清空选中态并按新门店重载(切店前 ToolbarStart 已做 dirty 确认)
+useStoreScopedPage({
+  load: async () => {
+    await Promise.all([loadLabOrders(), loadStats()])
+  },
+  reset: () => {
+    selectedOrder.value = null
+    analytes.value = []
+    specimens.value = []
+    resultForm.value = {}
+    resultBaseline.value = {}
+    labGuard.setDirty(false)
+  },
+})
+
 onMounted(async () => {
+  window.addEventListener('beforeunload', handleBeforeUnload)
   await Promise.all([loadLabOrders(), loadStats(), loadCriticalAlerts()])
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  labGuard.setDirty(false)
+})
+
+/** 新建申请弹窗 */
+const createVisible = ref(false)
+const labForm = reactive({
+  customerId: '',
+  petId: '',
+  remark: '',
 })
 </script>
 
 <template>
   <div class="flex flex-col h-full">
-    <EntityPageHeader compact title="检验工作台" description="按流程状态工作 · 录入结果 → 审核发布 · 危急值自动告警">
+    <EntityPageHeader compact title="检验工作台" description="按流程状态工作 · 待采样→检测中→待审核→已发布 · 危急值自动告警">
       <template #actions>
         <FaButton size="sm" @click="createVisible = true">
           <FaIcon name="i-lucide:plus" />
@@ -488,7 +582,7 @@ onMounted(async () => {
                     {{ r }}
                   </span>
                 </div>
-                <EntityStatusTag :label="LAB_ORDER_STATUS_LABELS[row.status] ?? row.status" :variant="row.status === 'completed' ? 'success' : row.status === 'cancelled' ? 'neutral' : row.status === 'collected' ? 'warning' : 'info'" :dot="false" class="ml-auto" />
+                <EntityStatusTag :label="LAB_WORKFLOW_STAGE_LABELS[row.workflowStage]" :variant="stageVariant(row.workflowStage)" :dot="false" class="ml-auto" />
               </div>
             </button>
             <EmptyState v-if="!loading && dataList.length === 0" compact title="当前队列无检验单" />
@@ -502,27 +596,27 @@ onMounted(async () => {
               <div>
                 <div class="flex gap-2 items-center">
                   <span class="text-base font-medium">{{ displayRow(selectedOrder).petName }}</span>
-                  <EntityStatusTag :label="LAB_ORDER_STATUS_LABELS[selectedOrder.status] ?? selectedOrder.status" :variant="selectedOrder.status === 'completed' ? 'success' : selectedOrder.status === 'cancelled' ? 'neutral' : selectedOrder.status === 'collected' ? 'warning' : 'info'" />
+                  <EntityStatusTag :label="LAB_WORKFLOW_STAGE_LABELS[selectedOrder.workflowStage]" :variant="stageVariant(selectedOrder.workflowStage)" />
                 </div>
                 <div class="text-xs text-muted-foreground mt-0.5">
                   {{ displayRow(selectedOrder).customerName }} · {{ selectedOrder.order_no }} · 申请于 {{ new Date(selectedOrder.requested_at).toLocaleString('zh-CN') }}
                 </div>
               </div>
               <div class="flex gap-2">
-                <FaButton v-if="selectedOrder.status === 'requested'" variant="outline" size="sm" @click="onCollect(selectedOrder)">
+                <FaButton v-if="selectedOrder.workflowStage === 'awaiting_sample'" variant="outline" size="sm" @click="onCollect(selectedOrder)">
                   标记采集
                 </FaButton>
-                <FaButton v-if="selectedOrder.status === 'requested'" variant="outline" size="sm" @click="onCancel(selectedOrder)">
+                <FaButton v-if="selectedOrder.workflowStage === 'awaiting_sample'" variant="outline" size="sm" @click="onCancel(selectedOrder)">
                   取消
                 </FaButton>
-                <FaButton v-if="selectedOrder.status === 'collected'" size="sm" @click="onPublishResults">
+                <FaButton v-if="selectedOrder.canPublish" size="sm" @click="onPublishResults">
                   <FaIcon name="i-lucide:upload" />
-                  发布结果
+                  {{ selectedOrder.workflowStage === 'rejected' ? '重新发布' : '发布结果' }}
                 </FaButton>
-                <FaButton v-if="selectedOrder.status === 'collected'" size="sm" variant="outline" @click="onReview('approved')">
+                <FaButton v-if="selectedOrder.canReview" size="sm" variant="outline" @click="onReview('approved')">
                   审核通过
                 </FaButton>
-                <FaButton v-if="selectedOrder.status === 'collected'" size="sm" variant="outline" @click="onReview('rejected')">
+                <FaButton v-if="selectedOrder.canReview" size="sm" variant="outline" @click="onReview('rejected')">
                   驳回
                 </FaButton>
               </div>
