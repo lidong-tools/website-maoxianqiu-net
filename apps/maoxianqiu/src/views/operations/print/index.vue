@@ -557,11 +557,7 @@ function onPrintNow() {
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="打印中心" class="mb-0">
-      <template #description>
-        收据/处方/病历/标签批量打印;走 Hono Command + create_print_job RPC,审计可追溯
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="打印中心" description="收据/处方/病历/标签批量打印;走 Hono Command + create_print_job RPC,审计可追溯" />
     <FaPageMain>
       <FaSearchBar :show-toggle="false">
         <template #default>

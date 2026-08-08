@@ -2,6 +2,7 @@
 import type { InventoryBalance, Warehouse } from '@/types/inventory'
 import apiInventory, { generateIdempotencyKey } from '@/api/modules/inventory'
 import BusinessCatalogItemPicker from '@/components/business/CatalogItemPicker/index.vue'
+import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 
 defineOptions({
@@ -14,6 +15,7 @@ const submitting = ref(false)
 const warehouses = ref<Warehouse[]>([])
 const fromBalances = ref<InventoryBalance[]>([])
 const toBalances = ref<InventoryBalance[]>([])
+const catalogNameMap = ref<Record<string, string>>({})
 
 const form = reactive({
   fromWarehouseId: '',
@@ -22,7 +24,22 @@ const form = reactive({
   quantity: 1,
 })
 
-/** 加载仓库列表 */
+async function enrichCatalog(rows: Array<{ catalog_item_id: string }>) {
+  const ids = [...new Set(rows.map(r => r.catalog_item_id).filter(Boolean))]
+  if (!ids.length) {
+    return
+  }
+  const { data } = await supabase.from('catalog_items').select('id, name').in('id', ids)
+  data?.forEach((c: any) => { catalogNameMap.value[c.id] = c.name })
+}
+
+function nameOf(id: string | null | undefined): string {
+  if (!id) {
+    return '-'
+  }
+  return catalogNameMap.value[id] ?? id.slice(0, 8)
+}
+
 async function loadWarehouses() {
   try {
     const res = await apiInventory.listWarehouses(tenantStore.currentStoreId || undefined)
@@ -40,7 +57,6 @@ async function loadWarehouses() {
   }
 }
 
-/** 加载源/目标仓库余额 */
 async function loadBalances() {
   const tasks: Promise<void>[] = []
   if (form.fromWarehouseId) {
@@ -59,16 +75,15 @@ async function loadBalances() {
   }
   loading.value = true
   await Promise.all(tasks)
+  await enrichCatalog([...fromBalances.value, ...toBalances.value])
   loading.value = false
 }
 
-/** 源仓库选中商品的当前在库量 */
 const fromOnHand = computed(() => {
   const bal = fromBalances.value.find(b => b.catalog_item_id === form.catalogItemId)
   return bal?.quantity_on_hand ?? 0
 })
 
-/** 提交调拨(走 Hono Command + transfer_inventory RPC,原子事务幂等) */
 async function onSubmit() {
   if (!form.fromWarehouseId || !form.toWarehouseId) {
     useFaToast().warning('请选择源仓库与目标仓库')
@@ -90,7 +105,6 @@ async function onSubmit() {
     useFaToast().warning(`库存不足,源仓库在库量仅 ${fromOnHand.value}`)
     return
   }
-
   submitting.value = true
   const idempotencyKey = generateIdempotencyKey()
   try {
@@ -122,95 +136,51 @@ onMounted(loadWarehouses)
 </script>
 
 <template>
-  <div>
-    <FaPageHeader :show="false" title="调拨" class="mb-0">
-      <template #description>
-        调拨走 Hono Command + transfer_inventory RPC,原子扣源增目标,写两条流水,幂等防重复
+  <div class="flex flex-col h-full">
+    <EntityPageHeader compact title="调拨管理" description="源仓 → 目标仓 · 原子扣增 · 幂等防重复">
+      <template #actions>
+        <FaSelect
+          v-model="form.fromWarehouseId"
+          placeholder="源仓库"
+          class="w-36"
+          :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
+        />
+        <FaIcon name="i-lucide:arrow-right" class="text-muted-foreground" />
+        <FaSelect
+          v-model="form.toWarehouseId"
+          placeholder="目标仓库"
+          class="w-36"
+          :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
+        />
       </template>
-    </FaPageHeader>
-    <FaPageMain>
-      <!-- 调拨表单 -->
-      <div class="mb-6 p-4 border rounded-lg">
-        <div class="text-lg font-bold mb-3">
-          调拨登记
-        </div>
-        <div class="gap-x-8 gap-y-3 grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
-          <FaLabel label="源仓库" class="col-span-1">
-            <FaSelect
-              v-model="form.fromWarehouseId"
-              placeholder="选择源仓库"
-              class="w-full"
-              :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
-            />
-          </FaLabel>
-          <FaLabel label="目标仓库" class="col-span-1">
-            <FaSelect
-              v-model="form.toWarehouseId"
-              placeholder="选择目标仓库"
-              class="w-full"
-              :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
-            />
-          </FaLabel>
-          <FaLabel label="商品" class="col-span-1">
-            <BusinessCatalogItemPicker v-model="form.catalogItemId" placeholder="搜索选择服务/药品" />
-          </FaLabel>
-          <FaLabel label="数量" class="col-span-1">
-            <FaInputNumber
-              v-model="form.quantity"
-              :min="1"
-              class="w-full"
-            />
-          </FaLabel>
-          <FaLabel label="源仓库在库量" class="col-span-1">
-            <FaInput
-              :model-value="fromOnHand"
-              disabled
-              class="w-full"
-            />
-          </FaLabel>
-        </div>
-        <div class="mt-4 flex gap-2">
-          <FaButton type="primary" :loading="submitting" @click="onSubmit">
-            <FaIcon name="i-ri:exchange-line" />
-            确认调拨
-          </FaButton>
-        </div>
-      </div>
+    </EntityPageHeader>
 
-      <!-- 余额对比 -->
-      <div class="gap-4 grid grid-cols-1 md:grid-cols-2">
-        <div>
-          <div class="mb-2 flex gap-2 items-center">
-            <FaIcon name="i-ri:export-line" class="text-red-500" />
-            <span class="text-lg font-bold">源仓库余额</span>
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <div class="flex-1 gap-4 grid grid-cols-1 lg:grid-cols-2">
+        <div class="border rounded-lg bg-card flex flex-col min-h-0">
+          <div class="px-4 py-2.5 border-b flex gap-2 items-center">
+            <FaIcon name="i-lucide:arrow-up-right" class="text-red-500" />
+            <span class="text-sm font-medium">源仓库余额</span>
+            <span class="text-xs text-muted-foreground ml-auto">{{ fromBalances.length }} 项</span>
           </div>
-          <div class="border rounded-lg overflow-hidden">
+          <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
             <table class="text-sm w-full">
-              <thead class="bg-gray-1">
-                <tr>
-                  <th class="px-3 py-2 text-left">
-                    商品 ID
-                  </th>
-                  <th class="px-3 py-2 text-right">
-                    在库量
-                  </th>
-                </tr>
-              </thead>
               <tbody>
-                <tr
-                  v-for="bal in fromBalances"
-                  :key="bal.id"
-                  class="border-t"
-                >
-                  <td class="px-3 py-2">
-                    {{ bal.catalog_item_id.slice(0, 8) }}
+                <tr v-for="bal in fromBalances" :key="bal.id" class="border-b">
+                  <td class="px-4 py-2">
+                    <div class="text-xs font-medium">
+                      {{ nameOf(bal.catalog_item_id) }}
+                    </div>
+                    <div class="text-xs text-muted-foreground">
+                      {{ bal.catalog_item_id.slice(0, 8) }}
+                    </div>
                   </td>
-                  <td class="px-3 py-2 text-right">
+                  <td class="px-4 py-2 text-right tabular-nums">
                     {{ bal.quantity_on_hand }}
                   </td>
                 </tr>
                 <tr v-if="fromBalances.length === 0">
-                  <td colspan="2" class="text-gray-4 px-3 py-4 text-center">
+                  <td class="text-muted-foreground px-4 py-8 text-center">
                     暂无余额
                   </td>
                 </tr>
@@ -219,38 +189,30 @@ onMounted(loadWarehouses)
           </div>
         </div>
 
-        <div>
-          <div class="mb-2 flex gap-2 items-center">
-            <FaIcon name="i-ri:import-line" class="text-green-500" />
-            <span class="text-lg font-bold">目标仓库余额</span>
+        <div class="border rounded-lg bg-card flex flex-col min-h-0">
+          <div class="px-4 py-2.5 border-b flex gap-2 items-center">
+            <FaIcon name="i-lucide:arrow-down-left" class="text-green-500" />
+            <span class="text-sm font-medium">目标仓库余额</span>
+            <span class="text-xs text-muted-foreground ml-auto">{{ toBalances.length }} 项</span>
           </div>
-          <div class="border rounded-lg overflow-hidden">
+          <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
             <table class="text-sm w-full">
-              <thead class="bg-gray-1">
-                <tr>
-                  <th class="px-3 py-2 text-left">
-                    商品 ID
-                  </th>
-                  <th class="px-3 py-2 text-right">
-                    在库量
-                  </th>
-                </tr>
-              </thead>
               <tbody>
-                <tr
-                  v-for="bal in toBalances"
-                  :key="bal.id"
-                  class="border-t"
-                >
-                  <td class="px-3 py-2">
-                    {{ bal.catalog_item_id.slice(0, 8) }}
+                <tr v-for="bal in toBalances" :key="bal.id" class="border-b">
+                  <td class="px-4 py-2">
+                    <div class="text-xs font-medium">
+                      {{ nameOf(bal.catalog_item_id) }}
+                    </div>
+                    <div class="text-xs text-muted-foreground">
+                      {{ bal.catalog_item_id.slice(0, 8) }}
+                    </div>
                   </td>
-                  <td class="px-3 py-2 text-right">
+                  <td class="px-4 py-2 text-right tabular-nums">
                     {{ bal.quantity_on_hand }}
                   </td>
                 </tr>
                 <tr v-if="toBalances.length === 0">
-                  <td colspan="2" class="text-gray-4 px-3 py-4 text-center">
+                  <td class="text-muted-foreground px-4 py-8 text-center">
                     暂无余额
                   </td>
                 </tr>
@@ -259,6 +221,35 @@ onMounted(loadWarehouses)
           </div>
         </div>
       </div>
-    </FaPageMain>
+
+      <div class="p-4 border rounded-lg bg-card">
+        <div class="gap-4 grid sm:grid-cols-3">
+          <FaLabel label="商品">
+            <BusinessCatalogItemPicker v-model="form.catalogItemId" placeholder="搜索选择服务/药品" />
+          </FaLabel>
+          <FaLabel label="数量">
+            <FaInputNumber v-model="form.quantity" :min="1" class="w-full" />
+          </FaLabel>
+          <FaLabel label="源仓库在库量">
+            <FaInput :model-value="fromOnHand" disabled class="w-full" />
+          </FaLabel>
+        </div>
+      </div>
+    </div>
+
+    <WorkflowFixedBar>
+      <template #left>
+        <span class="text-sm text-muted-foreground">
+          已选商品: <span class="text-foreground font-medium">{{ nameOf(form.catalogItemId) }}</span>
+          <template v-if="form.catalogItemId"> · 源仓在库 {{ fromOnHand }}</template>
+        </span>
+      </template>
+      <template #right>
+        <FaButton size="sm" :loading="submitting" @click="onSubmit">
+          <FaIcon name="i-lucide:arrow-left-right" />
+          确认调拨
+        </FaButton>
+      </template>
+    </WorkflowFixedBar>
   </div>
 </template>

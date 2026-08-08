@@ -2,6 +2,8 @@
 import type { TableColumn } from '@fantastic-admin/components'
 import apiCustomer from '@/api/modules/customer'
 import apiStore from '@/api/modules/store'
+import EntityStatusTag from '@/components/business/EntityStatusTag/index.vue'
+import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { CUSTOMER_STATUS_LABELS, MEMBER_LEVEL_LABELS } from '@/types/customer'
 
@@ -33,10 +35,8 @@ const search = ref({
   storeId: '',
   status: '',
 })
+const petCountMap = ref<Record<string, number>>({})
 
-/**
- * 加载门店选项(用于筛选)
- */
 async function loadStoreOptions() {
   try {
     const res: any = await apiStore.list()
@@ -51,9 +51,26 @@ async function loadStoreOptions() {
   }
 }
 
-/**
- * 获取客户列表
- */
+async function enrichPetCounts(rows: CustomerRow[]) {
+  const ids = rows.map(r => r.id)
+  if (!ids.length) {
+    return
+  }
+  const { data, error } = await supabase
+    .from('pets')
+    .select('customer_id')
+    .in('customer_id', ids)
+    .neq('status', 'archived')
+  if (error) {
+    return
+  }
+  const counts: Record<string, number> = {}
+  data?.forEach((p: any) => {
+    counts[p.customer_id] = (counts[p.customer_id] ?? 0) + 1
+  })
+  petCountMap.value = counts
+}
+
 function getDataList() {
   loading.value = true
   apiCustomer.list({
@@ -61,10 +78,11 @@ function getDataList() {
     storeId: search.value.storeId || undefined,
     status: (search.value.status as any) || undefined,
     ...getParams(),
-  }).then((res: any) => {
+  }).then(async (res: any) => {
     loading.value = false
     dataList.value = res.data.list ?? []
     pagination.value.total = res.data.total
+    await enrichPetCounts(dataList.value)
   }).catch(() => {
     loading.value = false
   })
@@ -72,7 +90,6 @@ function getDataList() {
 
 onMounted(async () => {
   await loadStoreOptions()
-  // 默认使用当前门店上下文
   if (tenantStore.currentStoreId) {
     search.value.storeId = tenantStore.currentStoreId
   }
@@ -93,24 +110,14 @@ function searchReset() {
   currentChange()
 }
 
-/**
- * 跳转客户详情
- */
 function onView(row: CustomerRow) {
   router.push(`/crm/customer/${row.id}`)
 }
 
-/**
- * 跳转客户编辑(复用详情页)
- */
 function onEdit(row: CustomerRow) {
   router.push(`/crm/customer/${row.id}?mode=edit`)
 }
 
-/**
- * 导入客户(MXQ-5010,UI占位)
- * 实际导入流程:上传文件 → 创建导入任务 → 轮询进度
- */
 function onImport() {
   useFaModal().confirm({
     title: '导入客户',
@@ -121,13 +128,28 @@ function onImport() {
   })
 }
 
+function moreFor(row: CustomerRow) {
+  return [
+    { label: '编辑', icon: 'i-lucide:pencil', onClick: () => onEdit(row) },
+  ]
+}
+
 const tableColumns = computed<TableColumn<CustomerRow>[]>(() => [
-  { accessorKey: 'customer_no', header: '客户编号' },
-  { accessorKey: 'name', header: '姓名' },
   {
-    accessorKey: 'phone',
-    header: '手机号',
-    cell: (info: any) => info.getValue() ?? '-',
+    id: 'identity',
+    header: '客户',
+    cell: (info: any) => {
+      const row = info.row.original as CustomerRow
+      return h('div', { class: 'leading-tight' }, [
+        h('div', { class: 'font-medium text-sm' }, row.name),
+        h('div', { class: 'text-xs text-muted-foreground' }, `${row.customer_no}${row.phone ? ` · ${row.phone}` : ''}`),
+      ])
+    },
+  },
+  {
+    id: 'petCount',
+    header: '宠物',
+    cell: (info: any) => `${petCountMap.value[(info.row.original as CustomerRow).id] ?? 0} 只`,
   },
   {
     accessorKey: 'member_level',
@@ -138,21 +160,13 @@ const tableColumns = computed<TableColumn<CustomerRow>[]>(() => [
     accessorKey: 'status',
     header: '状态',
     cell: (info: any) => {
-      const v = info.getValue()
-      const label = CUSTOMER_STATUS_LABELS[v as keyof typeof CUSTOMER_STATUS_LABELS] ?? v
-      const colorMap: Record<string, string> = {
-        active: 'success',
-        archived: 'default',
-        merged: 'warning',
-      }
-      return h('span', {
-        class: `inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-${colorMap[v] ?? 'default'}-100 text-${colorMap[v] ?? 'default'}-700`,
-      }, label)
+      const v = info.getValue() as string
+      return h(EntityStatusTag, { label: CUSTOMER_STATUS_LABELS[v as keyof typeof CUSTOMER_STATUS_LABELS] ?? v, variant: v === 'active' ? 'success' : v === 'merged' ? 'warning' : 'neutral', dot: true })
     },
   },
   {
     accessorKey: 'created_at',
-    header: '创建时间',
+    header: '建档时间',
     cell: (info: any) => {
       const v = info.getValue()
       return v ? new Date(v).toLocaleDateString('zh-CN') : '-'
@@ -161,94 +175,85 @@ const tableColumns = computed<TableColumn<CustomerRow>[]>(() => [
   {
     id: 'operation',
     header: '操作',
-    width: 120,
-    align: 'center',
+    width: 150,
+    align: 'right',
     fixed: 'right',
   },
 ])
 </script>
 
 <template>
-  <div>
-    <FaPageHeader :show="false" title="客户管理" class="mb-0">
-      <template #description>
-        管理宠物医院客户档案,支持搜索、分页、状态筛选
+  <div class="flex flex-col h-full">
+    <EntityPageHeader compact title="客户管理" description="客户档案 · 宠物数量 · 会员等级">
+      <template #actions>
+        <FaButton size="sm" variant="outline" @click="onImport">
+          <FaIcon name="i-lucide:upload" />
+          导入
+        </FaButton>
+        <FaButton size="sm" @click="router.push('/crm/customer/new')">
+          <FaIcon name="i-lucide:plus" />
+          新建客户
+        </FaButton>
       </template>
-    </FaPageHeader>
-    <FaPageMain>
-      <FaSearchBar :show-toggle="false">
-        <template #default>
-          <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-            <FaLabel label="门店" class="col-span-1">
-              <FaSelect v-model="search.storeId" :options="storeOptions" class="w-full" @change="currentChange()" />
-            </FaLabel>
-            <FaLabel label="关键词" class="col-span-1">
-              <FaInput
-                v-model="search.keyword"
-                placeholder="姓名/手机号/编号"
-                clearable
-                class="w-full"
-                @keydown.enter="currentChange()"
-                @clear="currentChange()"
-              />
-            </FaLabel>
-            <FaLabel label="状态" class="col-span-1">
-              <FaSelect
-                v-model="search.status"
-                :options="[
-                  { label: '全部', value: '' },
-                  { label: '活跃', value: 'active' },
-                  { label: '已归档', value: 'archived' },
-                  { label: '已合并', value: 'merged' },
-                ]"
-                class="w-full"
-                @change="currentChange()"
-              />
-            </FaLabel>
-            <div class="flex gap-2 col-end--1 justify-end">
-              <FaButton variant="outline" @click="searchReset()">
+    </EntityPageHeader>
+
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+        <div class="px-4 py-3 border-b">
+          <div class="flex flex-wrap gap-3 items-center">
+            <FaInput
+              v-model="search.keyword"
+              placeholder="姓名 / 手机号 / 编号"
+              class="w-64"
+              clearable
+              @keydown.enter="currentChange()"
+              @clear="currentChange()"
+            />
+            <FaSelect v-model="search.storeId" :options="storeOptions" class="w-40" @change="currentChange()" />
+            <FaSelect
+              v-model="search.status"
+              :options="[
+                { label: '全部状态', value: '' },
+                { label: '活跃', value: 'active' },
+                { label: '已归档', value: 'archived' },
+                { label: '已合并', value: 'merged' },
+              ]"
+              class="w-36"
+              @change="currentChange()"
+            />
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton size="sm" variant="outline" @click="searchReset">
                 重置
               </FaButton>
-              <FaButton type="primary" @click="currentChange()">
-                <FaIcon name="i-ri:search-line" />
+              <FaButton size="sm" @click="currentChange()">
+                <FaIcon name="i-lucide:search" />
                 筛选
               </FaButton>
             </div>
           </div>
-        </template>
-      </FaSearchBar>
-      <div class="mx--4 my-3 border-t border-t-dashed" />
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="tableColumns"
-        :data="dataList"
-      >
-        <template #toolbar>
-          <FaButton @click="router.push('/crm/customer/new')">
-            <FaIcon name="i-ri:add-line" />
-            新增客户
-          </FaButton>
-          <FaButton variant="outline" @click="onImport">
-            <FaIcon name="i-ri:upload-line" />
-            导入客户
-          </FaButton>
-        </template>
-        <template #cell-operation="{ row }">
-          <div class="flex-center gap-2">
-            <FaButton variant="outline" size="icon-sm" @click="onView(row.original)">
-              <FaIcon name="i-ri:eye-line" />
-            </FaButton>
-            <FaButton variant="outline" size="icon-sm" @click="onEdit(row.original)">
-              <FaIcon name="i-ri:edit-line" />
-            </FaButton>
-          </div>
-        </template>
-      </FaTable>
-      <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2" @page-change="currentChange" @size-change="sizeChange" />
-    </FaPageMain>
+        </div>
+
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
+          <FaTable
+            table-root-class="rounded-lg overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="tableColumns"
+            :data="dataList"
+          >
+            <template #cell-operation="{ row }">
+              <TablePrimaryAction
+                primary-label="查看"
+                primary-icon="i-lucide:eye"
+                :more="moreFor(row.original)"
+                @primary="onView(row.original)"
+              />
+            </template>
+          </FaTable>
+        </div>
+        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2 px-4 pb-3" @page-change="currentChange" @size-change="sizeChange" />
+      </div>
+    </div>
   </div>
 </template>

@@ -2,6 +2,7 @@
 import type { TableColumn } from '@fantastic-admin/components'
 import type { InventoryBalance, Warehouse } from '@/types/inventory'
 import apiInventory, { generateIdempotencyKey } from '@/api/modules/inventory'
+import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 
 defineOptions({
@@ -18,11 +19,33 @@ const loading = ref(false)
 const submitting = ref(false)
 const warehouses = ref<Warehouse[]>([])
 const countRows = ref<CountRow[]>([])
-
 const selectedWarehouseId = ref('')
+const catalogNameMap = ref<Record<string, string>>({})
+
+const diffCount = computed(() => countRows.value.filter(row => row.diff !== 0).length)
+const totalCounted = computed(() => countRows.value.length)
+
+async function enrichCatalog() {
+  const ids = [...new Set(countRows.value.map(r => r.catalog_item_id).filter(Boolean))]
+  if (!ids.length) {
+    return
+  }
+  const { data } = await supabase.from('catalog_items').select('id, name').in('id', ids)
+  data?.forEach((c: any) => { catalogNameMap.value[c.id] = c.name })
+}
 
 const countColumns = computed<TableColumn<CountRow>[]>(() => [
-  { accessorKey: 'catalog_item_id', header: '商品 ID', cell: (info: any) => info.getValue()?.slice(0, 8) },
+  {
+    id: 'catalog',
+    header: '商品',
+    cell: (info: any) => {
+      const id = (info.row.original as CountRow).catalog_item_id
+      return h('div', { class: 'leading-tight' }, [
+        h('div', { class: 'text-xs font-medium' }, catalogNameMap.value[id] ?? id.slice(0, 8)),
+        h('div', { class: 'text-xs text-muted-foreground' }, id.slice(0, 8)),
+      ])
+    },
+  },
   { accessorKey: 'quantity_on_hand', header: '系统在库量' },
   {
     id: 'counted',
@@ -57,7 +80,6 @@ const countColumns = computed<TableColumn<CountRow>[]>(() => [
   },
 ])
 
-/** 加载仓库列表 */
 async function loadWarehouses() {
   try {
     const res = await apiInventory.listWarehouses(tenantStore.currentStoreId || undefined)
@@ -72,7 +94,6 @@ async function loadWarehouses() {
   }
 }
 
-/** 加载余额作为盘点基础,初始化盘点数量=系统在库量 */
 async function loadBalances() {
   if (!selectedWarehouseId.value) {
     return
@@ -85,6 +106,7 @@ async function loadBalances() {
       countedQuantity: bal.quantity_on_hand,
       diff: 0,
     }))
+    await enrichCatalog()
   }
   catch (e: any) {
     useFaToast().error(e?.message || '加载余额失败')
@@ -94,19 +116,16 @@ async function loadBalances() {
   }
 }
 
-/** 提交盘点(走 Hono Command + post_stock_count RPC,批量幂等) */
 async function onSubmit() {
   if (!selectedWarehouseId.value) {
     useFaToast().warning('请选择仓库')
     return
   }
-  // 仅提交有差异的项
   const diffItems = countRows.value.filter(row => row.diff !== 0)
   if (diffItems.length === 0) {
     useFaToast().info('无盘点差异,无需提交')
     return
   }
-
   submitting.value = true
   const idempotencyKey = generateIdempotencyKey()
   try {
@@ -129,6 +148,13 @@ async function onSubmit() {
   }
 }
 
+function onResetCount() {
+  countRows.value.forEach((row) => {
+    row.countedQuantity = row.quantity_on_hand
+    row.diff = 0
+  })
+}
+
 watch(selectedWarehouseId, () => {
   loadBalances()
 })
@@ -137,48 +163,56 @@ onMounted(loadWarehouses)
 </script>
 
 <template>
-  <div>
-    <FaPageHeader :show="false" title="盘点" class="mb-0">
-      <template #description>
-        盘点走 Hono Command + post_stock_count RPC,逐项对比余额写 adjust 流水,有差异才提交
+  <div class="flex flex-col h-full">
+    <EntityPageHeader compact title="盘点管理" description="系统在库 vs 实盘 · 有差异才提交">
+      <template #actions>
+        <FaSelect
+          v-model="selectedWarehouseId"
+          placeholder="选择仓库"
+          class="w-44"
+          :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
+        />
       </template>
-    </FaPageHeader>
-    <FaPageMain>
-      <FaSearchBar :show-toggle="false">
-        <template #default>
-          <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-            <FaLabel label="仓库" class="col-span-1">
-              <FaSelect
-                v-model="selectedWarehouseId"
-                placeholder="选择仓库"
-                class="w-full"
-                :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
-              />
-            </FaLabel>
-            <div class="flex gap-2 col-end--1 justify-end">
-              <FaButton variant="outline" @click="loadBalances">
-                <FaIcon name="i-ri:refresh-line" />
-                重新加载
-              </FaButton>
-              <FaButton type="primary" :loading="submitting" @click="onSubmit">
-                <FaIcon name="i-ri:checkbox-circle-line" />
-                提交盘点
-              </FaButton>
-            </div>
-          </div>
-        </template>
-      </FaSearchBar>
-      <div class="mx--4 my-3 border-t border-t-dashed" />
+    </EntityPageHeader>
 
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="countColumns"
-        :data="countRows"
-      />
-    </FaPageMain>
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+        <div class="px-4 py-2.5 border-b flex items-center justify-between">
+          <span class="text-sm font-medium">盘点工作表({{ totalCounted }} 项)</span>
+          <FaButton size="sm" variant="outline" @click="onResetCount">
+            <FaIcon name="i-lucide:rotate-ccw" />
+            重置为系统数
+          </FaButton>
+        </div>
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
+          <FaTable
+            table-root-class="rounded-lg overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="countColumns"
+            :data="countRows"
+          />
+        </div>
+      </div>
+    </div>
+
+    <WorkflowFixedBar>
+      <template #left>
+        <span class="text-sm text-muted-foreground">
+          差异商品 <span class="text-foreground font-semibold">{{ diffCount }}</span> 项
+        </span>
+      </template>
+      <template #right>
+        <FaButton size="sm" variant="outline" @click="loadBalances">
+          <FaIcon name="i-lucide:refresh-cw" />
+          重新加载
+        </FaButton>
+        <FaButton size="sm" :loading="submitting" @click="onSubmit">
+          <FaIcon name="i-lucide:clipboard-check" />
+          提交盘点
+        </FaButton>
+      </template>
+    </WorkflowFixedBar>
   </div>
 </template>

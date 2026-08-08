@@ -4,6 +4,7 @@ import type { NursingPlan, NursingTask, NursingTaskStatus } from '@/types/inpati
 import apiInpatient from '@/api/modules/inpatient'
 import BusinessAdmissionPicker from '@/components/business/AdmissionPicker/index.vue'
 import BusinessEmployeePicker from '@/components/business/EmployeePicker/index.vue'
+import EntityStatusTag from '@/components/business/EntityStatusTag/index.vue'
 import BusinessPetPicker from '@/components/business/PetPicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import {
@@ -73,16 +74,7 @@ const taskColumns = computed<TableColumn<NursingTask>[]>(() => [
     header: '状态',
     cell: (info) => {
       const v = info.getValue() as NursingTaskStatus
-      const label = NURSING_TASK_STATUS_LABELS[v] ?? v
-      const colorMap: Record<string, string> = {
-        pending: 'default',
-        in_progress: 'info',
-        done: 'success',
-        skipped: 'warning',
-      }
-      return h('span', {
-        class: `inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-${colorMap[v] ?? 'default'}-100 text-${colorMap[v] ?? 'default'}-700`,
-      }, label)
+      return h(EntityStatusTag, { label: NURSING_TASK_STATUS_LABELS[v] ?? v, variant: v === 'done' ? 'success' : v === 'in_progress' ? 'info' : v === 'skipped' ? 'warning' : 'neutral', dot: true })
     },
   },
   {
@@ -274,15 +266,19 @@ onMounted(() => {
 </script>
 
 <template>
-  <div>
-    <FaPageHeader :show="false" title="护理管理" class="mb-0">
-      <template #description>
-        维护住院宠物的护理计划与任务,状态机:pending → in_progress → done;pending → skipped
+  <div class="flex flex-col h-full">
+    <EntityPageHeader compact title="护理管理" description="护理计划与任务 · 按住院记录工作">
+      <template #actions>
+        <FaButton size="sm" @click="loadData">
+          <FaIcon name="i-lucide:search" />
+          查询
+        </FaButton>
       </template>
-    </FaPageHeader>
-    <FaPageMain>
+    </EntityPageHeader>
+
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
       <!-- 选择住院记录 -->
-      <div class="mb-4 p-4 border rounded-lg bg-muted/30">
+      <div class="p-4 border rounded-lg bg-card">
         <div class="gap-3 grid grid-cols-1 items-end md:grid-cols-3">
           <FaLabel label="住院记录">
             <BusinessAdmissionPicker v-model="selectedAdmissionId" placeholder="搜索选择住院记录" />
@@ -424,8 +420,8 @@ onMounted(() => {
         </div>
       </div>
       <div v-else class="text-muted-foreground py-12 text-center">
-        请先输入住院 ID 查询护理数据
+        请先选择住院记录查询护理数据
       </div>
-    </FaPageMain>
+    </div>
   </div>
 </template>

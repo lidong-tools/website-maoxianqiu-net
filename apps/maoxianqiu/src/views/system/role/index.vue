@@ -111,11 +111,7 @@ function onDel(row: RoleItem) {
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="角色管理" class="mb-0">
-      <template #description>
-        配置角色与权限;内置角色(店长/店员/收银员等)不可删除
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="角色管理" description="配置角色与权限;内置角色(店长/店员/收银员等)不可删除" />
     <FaPageMain>
       <FaTable
         v-loading="loading"

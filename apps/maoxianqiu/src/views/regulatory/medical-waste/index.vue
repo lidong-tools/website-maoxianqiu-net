@@ -303,11 +303,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="医疗废弃物台账" class="mb-0">
-      <template #description>
-        记录医疗废弃物产生/交接全程(交接后锁定不可修改),满足《医疗废物管理条例》台账要求
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="医疗废弃物台账" description="记录医疗废弃物产生/交接全程(交接后锁定不可修改),满足《医疗废物管理条例》台账要求" />
     <FaPageMain>
       <div
         v-if="platformUiDeferred"

@@ -262,11 +262,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="年度动物诊疗活动报告" class="mb-0">
-      <template #description>
-        依据《动物诊疗机构管理办法》第三十条,生成/预览/导出/提交年度诊疗活动报告(快照式,生成后历史内容固定)
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="年度动物诊疗活动报告" description="依据《动物诊疗机构管理办法》第三十条,生成/预览/导出/提交年度诊疗活动报告(快照式,生成后历史内容固定)" />
     <FaPageMain>
       <div
         v-if="platformUiDeferred"

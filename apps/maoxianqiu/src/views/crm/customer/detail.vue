@@ -185,11 +185,33 @@ onMounted(loadDetail)
 
 <template>
   <div>
-    <FaPageHeader :show="false" :title="isNew ? '新增客户' : '客户详情'" class="mb-0" @back="onBack">
-      <template #description>
-        {{ customer?.customer_no ?? '' }}
+    <EntitySummaryHeader
+      avatar="i-lucide:user-round"
+      :subtitle="customer ? `${customer.customer_no}${customer.phone ? ` · ${customer.phone}` : ''}` : ''"
+      :tags="customer ? [
+        { label: MEMBER_LEVEL_LABELS[customer.member_level] ?? customer.member_level, variant: customer.member_level === 'diamond' ? 'warning' : customer.member_level === 'gold' ? 'info' : 'neutral' },
+        { label: CUSTOMER_STATUS_LABELS[customer.status] ?? customer.status, variant: customer.status === 'active' ? 'success' : 'neutral' },
+      ] : []"
+      :facts="customer ? [
+        { label: '余额', value: `¥${Number(customer.balance ?? 0).toFixed(2)}` },
+        { label: '积分', value: String(customer.member_points ?? 0) },
+        { label: '宠物', value: `${pets.length} 只` },
+      ] : []"
+    >
+      <template #title>
+        <span>{{ isNew ? '新增客户' : (customer?.name ?? '客户详情') }}</span>
       </template>
-    </FaPageHeader>
+      <template #actions>
+        <FaButton v-if="!isNew" size="sm" variant="outline" @click="onBack">
+          <FaIcon name="i-lucide:arrow-left" />
+          返回
+        </FaButton>
+        <FaButton v-if="!isEditMode && customer" size="sm" variant="outline" @click="router.push(`/crm/customer/${customerId}?mode=edit`)">
+          <FaIcon name="i-lucide:pencil" />
+          编辑
+        </FaButton>
+      </template>
+    </EntitySummaryHeader>
     <FaPageMain v-loading="loading">
       <!-- 基本信息 -->
       <FaCard title="基本信息">

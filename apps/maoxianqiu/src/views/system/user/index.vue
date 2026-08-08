@@ -427,11 +427,7 @@ function onRemoveMember(row: DisplayRow) {
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="用户管理" class="mb-0">
-      <template #description>
-        维护员工档案与门店角色分配;店长管理本店成员,运维管理员可跨门店管理
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="用户管理" description="维护员工档案与门店角色分配;店长管理本店成员,运维管理员可跨门店管理" />
     <FaPageMain>
       <FaSearchBar :show-toggle="false">
         <template #default>

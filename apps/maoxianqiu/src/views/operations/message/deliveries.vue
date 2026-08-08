@@ -178,11 +178,7 @@ function triggerSend(row: DeliveryRow) {
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="消息投递记录" class="mb-0">
-      <template #description>
-        消息发送投递记录{{ isDevMock ? '；当前使用 Mock Provider，仅开发环境可用' : '' }}
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="消息投递记录" description="消息发送投递记录{{ isDevMock ? '；当前使用 Mock Provider，仅开发环境可用' : '' }}" />
     <FaPageMain>
       <!-- Mock 模式提示横幅：生产环境红色/橙色，开发环境黄色 -->
       <div v-if="isProdMock" class="mock-banner mock-banner--prod">

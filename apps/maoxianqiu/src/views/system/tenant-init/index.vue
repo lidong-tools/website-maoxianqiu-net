@@ -177,11 +177,7 @@ onBeforeUnmount(stopPoll)
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="租户初始化" class="mb-0">
-      <template #description>
-        新建医院后一键初始化:首店 / 租户所有者 / 默认仓库 / 支付上下文 / 基础字典 / 打印设置
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="租户初始化" description="新建医院后一键初始化:首店 / 租户所有者 / 默认仓库 / 支付上下文 / 基础字典 / 打印设置" />
     <FaPageMain>
       <div class="gap-4 grid grid-cols-1 lg:grid-cols-2">
         <!-- 左:租户选择 + 状态 -->

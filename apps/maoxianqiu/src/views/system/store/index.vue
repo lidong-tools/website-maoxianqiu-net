@@ -143,11 +143,7 @@ function onRestore(row: StoreItem) {
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="店铺管理" class="mb-0">
-      <template #description>
-        管理各宠物医院门店信息;归档门店不可用于业务,可恢复
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="店铺管理" description="管理各宠物医院门店信息;归档门店不可用于业务,可恢复" />
     <FaPageMain>
       <FaSearchBar :show-toggle="false">
         <template #default>

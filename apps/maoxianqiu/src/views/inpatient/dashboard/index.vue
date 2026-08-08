@@ -99,15 +99,19 @@ onMounted(loadCageStatus)
 </script>
 
 <template>
-  <div>
-    <FaPageHeader :show="false" title="房态看板" class="mb-0">
-      <template #description>
-        按房间分组展示笼位状态,实时反映在院情况;颜色区分空闲/占用/维护/清洁
+  <div class="flex flex-col h-full">
+    <EntityPageHeader compact title="房态看板" description="按房间分组 · 实时在院情况">
+      <template #actions>
+        <FaButton size="sm" variant="outline" @click="loadCageStatus">
+          <FaIcon name="i-lucide:refresh-cw" />
+          刷新
+        </FaButton>
       </template>
-    </FaPageHeader>
-    <FaPageMain>
+    </EntityPageHeader>
+
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
       <!-- 整体房态统计卡片 -->
-      <div class="mb-4 gap-3 grid grid-cols-2 md:grid-cols-5">
+      <div class="gap-3 grid grid-cols-2 md:grid-cols-5">
         <div class="p-3 text-center border rounded-lg">
           <div class="text-2xl font-bold">
             {{ summary.total }}
@@ -150,20 +154,8 @@ onMounted(loadCageStatus)
         </div>
       </div>
 
-      <FaSearchBar :show-toggle="false">
-        <template #default>
-          <div class="flex justify-end">
-            <FaButton type="primary" @click="loadCageStatus">
-              <FaIcon name="i-ri:refresh-line" />
-              刷新
-            </FaButton>
-          </div>
-        </template>
-      </FaSearchBar>
-      <div class="mx--4 my-3 border-t border-t-dashed" />
-
       <!-- 按房间分组的笼位卡片 -->
-      <div v-loading="loading" class="space-y-4">
+      <div v-loading="loading" class="flex-1 min-h-0 overflow-auto space-y-4">
         <div
           v-for="room in groupedByRoom"
           :key="room.room_id"
@@ -228,6 +220,6 @@ onMounted(loadCageStatus)
           当前门店暂无笼位数据,请先在「住院管理 → 入院登记」中维护房间与笼位
         </div>
       </div>
-    </FaPageMain>
+    </div>
   </div>
 </template>

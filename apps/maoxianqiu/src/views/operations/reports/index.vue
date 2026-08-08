@@ -440,11 +440,7 @@ const reportOptions = computed(() => [
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="报表中心" class="mb-0">
-      <template #description>
-        收入/退款/库存/客户/医疗报表;快照走 Hono Command + generate_report_snapshot RPC,实时明细走统一报表真源(Hono 服务端聚合),前端只负责渲染
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="报表中心" description="收入/退款/库存/客户/医疗报表;快照走 Hono Command + generate_report_snapshot RPC,实时明细走统一报表真源(Hono 服务端聚合),前端只负责渲染" />
     <FaPageMain>
       <FaTabs v-model="tabActive" :list="[{ label: '报表定义', value: 'definitions' }, { label: '历史快照', value: 'snapshots' }]">
         <template #definitions>

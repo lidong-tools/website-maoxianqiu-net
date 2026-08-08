@@ -304,11 +304,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="动物诊疗许可证" class="mb-0">
-      <template #description>
-        管理门店动物诊疗许可证(证号/发证机关/诊疗范围/有效期/证照附件/历史版本)
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="动物诊疗许可证" description="管理门店动物诊疗许可证(证号/发证机关/诊疗范围/有效期/证照附件/历史版本)" />
     <FaPageMain>
       <div
         v-if="platformUiDeferred"

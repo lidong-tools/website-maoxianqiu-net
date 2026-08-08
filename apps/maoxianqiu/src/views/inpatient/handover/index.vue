@@ -175,11 +175,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="交接班" class="mb-0">
-      <template #description>
-        班次交接记录,同班次多次保存将更新 summary(便于草稿);权限:handover.manage
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="交接班" description="班次交接记录 · 同班次多次保存更新摘要" />
     <FaPageMain>
       <!-- 新建/编辑交接班表单 -->
       <div class="mb-4 p-4 border rounded-lg bg-muted/30">

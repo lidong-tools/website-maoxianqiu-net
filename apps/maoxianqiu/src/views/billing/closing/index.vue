@@ -346,11 +346,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="每日日结" class="mb-0">
-      <template #description>
-        按业务日期(Asia/Shanghai)固化门店每日经营快照:应收/实收/退款/渠道拆分,关闭后历史读取快照
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="每日日结" description="按业务日期(Asia/Shanghai)固化门店每日经营快照:应收/实收/退款/渠道拆分,关闭后历史读取快照" />
     <FaPageMain>
       <div
         v-if="platformUiDeferred"

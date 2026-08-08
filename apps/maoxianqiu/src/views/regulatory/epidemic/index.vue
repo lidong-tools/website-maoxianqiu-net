@@ -301,11 +301,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="疫情事件台账" class="mb-0">
-      <template #description>
-        记录疑似疫病事件(系统只负责记录,不替医生自动诊断);支持隔离/解除状态流转,全程留痕
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="疫情事件台账" description="记录疑似疫病事件(系统只负责记录,不替医生自动诊断);支持隔离/解除状态流转,全程留痕" />
     <FaPageMain>
       <div
         v-if="platformUiDeferred"

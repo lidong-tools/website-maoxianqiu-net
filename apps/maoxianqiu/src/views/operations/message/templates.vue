@@ -247,11 +247,7 @@ function toggleActive(row: TemplateRow) {
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="消息模板管理" class="mb-0">
-      <template #description>
-        管理短信/邮件/微信/企业微信的消息模板；支持变量占位符(如 {'{{ '}customer_name{' }}'})
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="消息模板管理" description="管理短信/邮件/微信/企业微信的消息模板；支持变量占位符(如 {'{{ '}customer_name{' }}'})" />
     <FaPageMain>
       <!-- 生产环境 Mock 模式：红色警告横幅 -->
       <div v-if="isProdMock" class="mock-banner">

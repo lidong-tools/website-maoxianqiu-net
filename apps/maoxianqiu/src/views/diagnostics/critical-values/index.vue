@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
+import type { PetRecord } from '@/types/customer'
 import type { CriticalAlertLevel, CriticalAlertStatus, NotifyChannel } from '@/types/diagnostics'
 import apiDiagnostics from '@/api/modules/diagnostics'
 import apiStore from '@/api/modules/store'
+import EntityStatusTag from '@/components/business/EntityStatusTag/index.vue'
+import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
-import { CRITICAL_ALERT_STATUS_COLORS, CRITICAL_ALERT_STATUS_LABELS } from '@/types/diagnostics'
+import { CRITICAL_ALERT_STATUS_LABELS } from '@/types/diagnostics'
 
 defineOptions({
   name: 'DiagnosticsCriticalValues',
@@ -35,6 +38,8 @@ const search = ref({
   status: '',
 })
 
+const petMap = ref<Record<string, PetRecord>>({})
+
 /** 通知渠道弹窗 */
 const notifyVisible = ref(false)
 const notifyTarget = ref<CriticalAlertRow | null>(null)
@@ -53,9 +58,6 @@ const resolveTarget = ref<CriticalAlertRow | null>(null)
 const resolveNote = ref('')
 const resolving = ref(false)
 
-/**
- * 加载门店选项
- */
 async function loadStoreOptions() {
   try {
     const res: any = await apiStore.list()
@@ -70,6 +72,15 @@ async function loadStoreOptions() {
   }
 }
 
+async function enrichPets(rows: CriticalAlertRow[]) {
+  const ids = [...new Set(rows.map(r => r.pet_id).filter(Boolean))]
+  if (!ids.length) {
+    return
+  }
+  const { data } = await supabase.from('pets').select('*').in('id', ids)
+  data?.forEach((p) => { petMap.value[p.id] = p as PetRecord })
+}
+
 /**
  * 获取危急值告警列表(S3.1-C,走 Hono Command)
  */
@@ -79,10 +90,11 @@ function getDataList() {
     storeId: search.value.storeId || undefined,
     status: (search.value.status as CriticalAlertStatus) || undefined,
     ...getParams(),
-  }).then((res: any) => {
+  }).then(async (res: any) => {
     loading.value = false
     dataList.value = res.data.list ?? []
     pagination.value.total = res.data.total
+    await enrichPets(dataList.value)
   }).catch(() => {
     loading.value = false
   })
@@ -104,24 +116,12 @@ function currentChange(page = 1) {
   onCurrentChange(page).then(() => getDataList())
 }
 
-function searchReset() {
-  search.value.status = ''
-  currentChange()
-}
-
-/**
- * 打开通知弹窗
- */
 function openNotify(row: CriticalAlertRow) {
   notifyTarget.value = row
   notifyChannel.value = 'phone'
   notifyVisible.value = true
 }
 
-/**
- * 通知危急值(S3.1-C,走 notify_critical_value RPC,不改变状态)
- * 确认前必须已通知(闭环强制,后端 CRITICAL_NOT_NOTIFIED 拦截)
- */
 async function onNotify() {
   if (!notifyTarget.value) {
     return
@@ -141,18 +141,12 @@ async function onNotify() {
   }
 }
 
-/**
- * 打开确认弹窗
- */
 function openAck(row: CriticalAlertRow) {
   ackTarget.value = row
   ackNote.value = ''
   ackVisible.value = true
 }
 
-/**
- * 确认危急值(S3.1-C,pending→acknowledged,须已通知)
- */
 async function onAck() {
   if (!ackTarget.value) {
     return
@@ -172,18 +166,12 @@ async function onAck() {
   }
 }
 
-/**
- * 打开解决弹窗
- */
 function openResolve(row: CriticalAlertRow) {
   resolveTarget.value = row
   resolveNote.value = ''
   resolveVisible.value = true
 }
 
-/**
- * 解决危急值(S3.1-C,acknowledged→resolved,禁止跳级)
- */
 async function onResolve() {
   if (!resolveTarget.value) {
     return
@@ -203,25 +191,27 @@ async function onResolve() {
   }
 }
 
+/** 未处理(pending/acknowledged)危急值 */
+const unresolved = computed(() => dataList.value.filter(r => r.status === 'pending' || r.status === 'acknowledged'))
+const pendingCount = computed(() => dataList.value.filter(r => r.status === 'pending').length)
+const acknowledgedCount = computed(() => dataList.value.filter(r => r.status === 'acknowledged').length)
+const todayResolvedCount = computed(() => dataList.value.filter(r => r.status === 'resolved').length)
+
 const tableColumns = computed<TableColumn<CriticalAlertRow>[]>(() => [
   {
     accessorKey: 'alert_level',
     header: '级别',
     cell: (info: any) => {
       const v = info.getValue() as CriticalAlertLevel
-      return h('span', { class: `px-2 py-0.5 rounded text-xs ${v === 'critical' ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600'}` }, v === 'critical' ? '危急' : '重要')
+      return h(EntityStatusTag, { label: v === 'critical' ? '危急' : '重要', variant: v === 'critical' ? 'danger' : 'warning', dot: true })
     },
   },
   { accessorKey: 'critical_value_code', header: '危急值项目', cell: (info: any) => info.getValue() ?? '-' },
+  { accessorKey: 'message', header: '告警内容', cell: (info: any) => info.getValue() ?? '-' },
   {
-    accessorKey: 'message',
-    header: '告警内容',
-    cell: (info: any) => info.getValue() ?? '-',
-  },
-  {
-    accessorKey: 'pet_id',
-    header: '宠物 ID',
-    cell: (info: any) => info.getValue()?.slice(0, 8) ?? '-',
+    id: 'pet',
+    header: '宠物',
+    cell: (info: any) => petMap.value[info.row.original.pet_id]?.name ?? (info.row.original.pet_id?.slice(0, 8) ?? '-'),
   },
   {
     accessorKey: 'notified_at',
@@ -237,9 +227,8 @@ const tableColumns = computed<TableColumn<CriticalAlertRow>[]>(() => [
     accessorKey: 'status',
     header: '状态',
     cell: (info: any) => {
-      const v = info.getValue()
-      const label = CRITICAL_ALERT_STATUS_LABELS[v as keyof typeof CRITICAL_ALERT_STATUS_LABELS] ?? v
-      return h('span', { class: `px-2 py-0.5 rounded text-xs bg-${CRITICAL_ALERT_STATUS_COLORS[v as CriticalAlertStatus] ?? 'default'}-100` }, label)
+      const v = info.getValue() as CriticalAlertStatus
+      return h(EntityStatusTag, { label: CRITICAL_ALERT_STATUS_LABELS[v] ?? v, variant: v === 'pending' ? 'danger' : v === 'acknowledged' ? 'warning' : 'success', dot: true })
     },
   },
   {
@@ -253,114 +242,169 @@ const tableColumns = computed<TableColumn<CriticalAlertRow>[]>(() => [
 </script>
 
 <template>
-  <div>
-    <FaPageHeader :show="false" title="危急值管理" class="mb-0">
-      <template #description>
-        S3.1 危急值闭环:结果发布自动告警→通知(确认前必须已通知)→确认→解决,全程审计
+  <div class="flex flex-col h-full">
+    <EntityPageHeader compact title="危急值管理" description="未处理优先 · 通知→确认→解决全程审计">
+      <template #actions>
+        <FaSelect
+          v-model="search.storeId"
+          :options="storeOptions"
+          class="w-40"
+          @change="currentChange()"
+        />
+        <FaSelect
+          v-model="search.status"
+          :options="[
+            { label: '全部状态', value: '' },
+            { label: '待确认', value: 'pending' },
+            { label: '已确认', value: 'acknowledged' },
+            { label: '已解决', value: 'resolved' },
+          ]"
+          class="w-36"
+          @change="currentChange()"
+        />
       </template>
-    </FaPageHeader>
-    <FaPageMain>
-      <FaSearchBar :show-toggle="false">
-        <template #default>
-          <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-            <FaLabel label="门店" class="col-span-1">
-              <FaSelect v-model="search.storeId" :options="storeOptions" class="w-full" @change="currentChange()" />
-            </FaLabel>
-            <FaLabel label="状态" class="col-span-1">
-              <FaSelect
-                v-model="search.status"
-                :options="[
-                  { label: '全部', value: '' },
-                  { label: '待确认', value: 'pending' },
-                  { label: '已确认', value: 'acknowledged' },
-                  { label: '已解决', value: 'resolved' },
-                ]"
-                class="w-full"
-                @change="currentChange()"
-              />
-            </FaLabel>
-            <div class="flex gap-2 col-end--1 justify-end">
-              <FaButton variant="outline" @click="searchReset()">
-                重置
-              </FaButton>
-              <FaButton type="primary" @click="currentChange()">
-                <FaIcon name="i-ri:search-line" />
-                筛选
-              </FaButton>
+    </EntityPageHeader>
+
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <!-- 红色告警摘要 -->
+      <div class="gap-4 grid grid-cols-3">
+        <div class="p-3 border border-red-200 rounded-lg bg-red-50">
+          <div class="text-2xl text-red-600 font-semibold tabular-nums">
+            {{ pendingCount }}
+          </div>
+          <div class="text-xs text-red-600/70 font-medium">
+            未处理
+          </div>
+        </div>
+        <div class="p-3 border border-amber-200 rounded-lg bg-amber-50">
+          <div class="text-2xl text-amber-600 font-semibold tabular-nums">
+            {{ acknowledgedCount }}
+          </div>
+          <div class="text-xs text-amber-600/70 font-medium">
+            已通知未确认
+          </div>
+        </div>
+        <div class="p-3 border rounded-lg bg-card">
+          <div class="text-2xl font-semibold tabular-nums">
+            {{ todayResolvedCount }}
+          </div>
+          <div class="text-xs text-muted-foreground">
+            已解决
+          </div>
+        </div>
+      </div>
+
+      <!-- 未处理卡片流(UNRESOLVED FIRST) -->
+      <div v-if="unresolved.length" class="gap-3 grid auto-rows-max grid-cols-1 xl:grid-cols-2">
+        <div
+          v-for="row in unresolved"
+          :key="row.id"
+          class="p-3 border border-red-200 rounded-lg bg-red-50/60 flex gap-3 items-center justify-between"
+        >
+          <div class="min-w-0">
+            <div class="flex gap-2 items-center">
+              <FaIcon :name="row.alert_level === 'critical' ? 'i-lucide:alert-octagon' : 'i-lucide:alert-triangle'" class="text-red-600 shrink-0 size-4" />
+              <span class="text-sm font-medium">{{ petMap[row.pet_id]?.name ?? '未知宠物' }}</span>
+              <span class="text-xs text-muted-foreground">{{ row.critical_value_code ?? '危急值' }}</span>
+            </div>
+            <div class="text-sm text-red-700 font-medium mt-1">
+              {{ row.message ?? '危急值告警' }}
+            </div>
+            <div class="text-xs text-red-600/70 mt-0.5">
+              产生于 {{ row.notified_at ? new Date(row.notified_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '未知时间' }}
+              · 状态 {{ CRITICAL_ALERT_STATUS_LABELS[row.status] }}
             </div>
           </div>
-        </template>
-      </FaSearchBar>
-      <div class="mx--4 my-3 border-t border-t-dashed" />
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="tableColumns"
-        :data="dataList"
-      >
-        <template #cell-operation="{ row }">
-          <div class="flex-center gap-1">
-            <FaButton v-if="row.original.status === 'pending' || row.original.status === 'acknowledged'" variant="outline" size="sm" @click="openNotify(row.original)">
+          <div class="flex shrink-0 flex-col gap-1.5">
+            <FaButton v-if="row.status === 'pending' || row.status === 'acknowledged'" size="sm" variant="outline" @click="openNotify(row)">
               通知
             </FaButton>
-            <FaButton v-if="row.original.status === 'pending'" variant="outline" size="sm" @click="openAck(row.original)">
-              确认
+            <FaButton v-if="row.status === 'pending'" size="sm" @click="openAck(row)">
+              立即处理
             </FaButton>
-            <FaButton v-if="row.original.status === 'acknowledged'" variant="outline" size="sm" @click="openResolve(row.original)">
+            <FaButton v-if="row.status === 'acknowledged'" size="sm" @click="openResolve(row)">
               解决
             </FaButton>
           </div>
-        </template>
-      </FaTable>
-      <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2" @page-change="currentChange" @size-change="sizeChange" />
-
-      <!-- 通知渠道弹窗 -->
-      <FaModal v-model:visible="notifyVisible" title="通知危急值" :loading="notifying" @confirm="onNotify">
-        <div class="space-y-3">
-          <FaAlert type="warning" :closable="false">
-            确认前必须已完成通知(闭环强制),请选择通知渠道
-          </FaAlert>
-          <FaLabel label="通知渠道">
-            <FaSelect
-              v-model="notifyChannel"
-              :options="[
-                { label: '电话', value: 'phone' },
-                { label: '微信', value: 'wechat' },
-                { label: '当面', value: 'inperson' },
-                { label: '其他', value: 'other' },
-              ]"
-              class="w-full"
-            />
-          </FaLabel>
         </div>
-      </FaModal>
+      </div>
 
-      <!-- 确认弹窗 -->
-      <FaModal v-model:visible="ackVisible" title="确认危急值" :loading="acking" @confirm="onAck">
-        <div class="space-y-3">
-          <FaAlert type="warning" :closable="false">
-            确认危急值"{{ ackTarget?.critical_value_code ?? ackTarget?.message }}",确认后状态为已确认
-          </FaAlert>
-          <FaLabel label="确认备注">
-            <FaInput v-model="ackNote" placeholder="可选" class="w-full" />
-          </FaLabel>
+      <!-- 全部危急值列表 -->
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 overflow-hidden">
+        <div class="text-sm font-medium px-4 py-2.5 border-b">
+          全部危急值
         </div>
-      </FaModal>
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
+          <FaTable
+            table-root-class="rounded-lg overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="tableColumns"
+            :data="dataList"
+          >
+            <template #cell-operation="{ row }">
+              <div class="flex-center gap-1">
+                <FaButton v-if="row.original.status === 'pending' || row.original.status === 'acknowledged'" variant="outline" size="sm" @click="openNotify(row.original)">
+                  通知
+                </FaButton>
+                <FaButton v-if="row.original.status === 'pending'" variant="outline" size="sm" @click="openAck(row.original)">
+                  确认
+                </FaButton>
+                <FaButton v-if="row.original.status === 'acknowledged'" variant="outline" size="sm" @click="openResolve(row.original)">
+                  解决
+                </FaButton>
+              </div>
+            </template>
+          </FaTable>
+        </div>
+        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2 px-4 pb-3" @page-change="currentChange" @size-change="sizeChange" />
+      </div>
+    </div>
 
-      <!-- 解决弹窗 -->
-      <FaModal v-model:visible="resolveVisible" title="解决危急值" :loading="resolving" @confirm="onResolve">
-        <div class="space-y-3">
-          <FaAlert type="info" :closable="false">
-            危急值"{{ resolveTarget?.critical_value_code ?? resolveTarget?.message }}"将标记为已解决
-          </FaAlert>
-          <FaLabel label="处理备注">
-            <FaInput v-model="resolveNote" placeholder="可选,说明处理措施" class="w-full" />
-          </FaLabel>
-        </div>
-      </FaModal>
-    </FaPageMain>
+    <!-- 通知渠道弹窗 -->
+    <FaModal v-model:visible="notifyVisible" title="通知危急值" :loading="notifying" @confirm="onNotify">
+      <div class="space-y-3">
+        <FaAlert type="warning" :closable="false">
+          确认前必须已完成通知(闭环强制),请选择通知渠道
+        </FaAlert>
+        <FaLabel label="通知渠道">
+          <FaSelect
+            v-model="notifyChannel"
+            :options="[
+              { label: '电话', value: 'phone' },
+              { label: '微信', value: 'wechat' },
+              { label: '当面', value: 'inperson' },
+              { label: '其他', value: 'other' },
+            ]"
+            class="w-full"
+          />
+        </FaLabel>
+      </div>
+    </FaModal>
+
+    <!-- 确认弹窗 -->
+    <FaModal v-model:visible="ackVisible" title="确认危急值" :loading="acking" @confirm="onAck">
+      <div class="space-y-3">
+        <FaAlert type="warning" :closable="false">
+          确认危急值"{{ ackTarget?.critical_value_code ?? ackTarget?.message }}",确认后状态为已确认
+        </FaAlert>
+        <FaLabel label="确认备注">
+          <FaInput v-model="ackNote" placeholder="可选" class="w-full" />
+        </FaLabel>
+      </div>
+    </FaModal>
+
+    <!-- 解决弹窗 -->
+    <FaModal v-model:visible="resolveVisible" title="解决危急值" :loading="resolving" @confirm="onResolve">
+      <div class="space-y-3">
+        <FaAlert type="info" :closable="false">
+          危急值"{{ resolveTarget?.critical_value_code ?? resolveTarget?.message }}"将标记为已解决
+        </FaAlert>
+        <FaLabel label="处理备注">
+          <FaInput v-model="resolveNote" placeholder="可选,说明处理措施" class="w-full" />
+        </FaLabel>
+      </div>
+    </FaModal>
   </div>
 </template>

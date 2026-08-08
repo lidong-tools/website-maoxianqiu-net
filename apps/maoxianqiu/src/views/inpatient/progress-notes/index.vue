@@ -225,11 +225,7 @@ const tableColumns = computed<TableColumn<ProgressNoteRow>[]>(() => [
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="病程记录" class="mb-0">
-      <template #description>
-        S3.1 住院闭环:日常/危重/术前/术后/出院病程记录,draft→signed 签署终态
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="病程记录" description="日常/危重/术前/术后/出院病程 · draft→signed 终态" />
     <FaPageMain>
       <FaSearchBar :show-toggle="false">
         <template #default>

@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
 import type { AppointmentStatus } from '@/types/clinical'
+import type { CustomerRecord, PetRecord } from '@/types/customer'
 import apiClinical from '@/api/modules/clinical'
 import apiStore from '@/api/modules/store'
+import EntityStatusTag from '@/components/business/EntityStatusTag/index.vue'
+import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { APPOINTMENT_SOURCE_LABELS, APPOINTMENT_STATUS_LABELS } from '@/types/clinical'
 
@@ -36,6 +39,21 @@ const search = ref({
   dateFrom: '',
   dateTo: '',
 })
+const petMap = ref<Record<string, PetRecord>>({})
+const customerMap = ref<Record<string, CustomerRecord>>({})
+
+async function enrich(rows: AppointmentRow[]) {
+  const petIds = [...new Set(rows.map(r => r.pet_id).filter(Boolean))]
+  const customerIds = [...new Set(rows.map(r => r.customer_id).filter(Boolean))]
+  if (petIds.length) {
+    const { data } = await supabase.from('pets').select('*').in('id', petIds)
+    data?.forEach((p) => { petMap.value[p.id] = p as PetRecord })
+  }
+  if (customerIds.length) {
+    const { data } = await supabase.from('customers').select('*').in('id', customerIds)
+    data?.forEach((c) => { customerMap.value[c.id] = c as CustomerRecord })
+  }
+}
 
 /**
  * 加载门店选项(用于筛选)
@@ -65,13 +83,49 @@ function getDataList() {
     dateFrom: search.value.dateFrom || undefined,
     dateTo: search.value.dateTo || undefined,
     ...getParams(),
-  }).then((res: any) => {
+  }).then(async (res: any) => {
     loading.value = false
     dataList.value = res.data.list ?? []
     pagination.value.total = res.data.total
+    await enrich(dataList.value)
   }).catch(() => {
     loading.value = false
   })
+}
+
+/** 状态对应的下一步动作 */
+function nextActionFor(row: AppointmentRow) {
+  if (row.status === 'pending') {
+    return { label: '确认', target: 'confirmed' as AppointmentStatus }
+  }
+  if (row.status === 'confirmed') {
+    return { label: '报到', target: 'checked_in' as AppointmentStatus }
+  }
+  if (row.status === 'checked_in') {
+    return { label: '进入候诊', target: 'in_progress' as AppointmentStatus }
+  }
+  if (row.status === 'in_progress') {
+    return { label: '完成', target: 'completed' as AppointmentStatus }
+  }
+  return null
+}
+
+function statusVariant(s: AppointmentStatus): 'success' | 'info' | 'warning' | 'danger' | 'neutral' {
+  if (s === 'completed') { return 'success' }
+  if (s === 'cancelled' || s === 'no_show') { return 'danger' }
+  if (s === 'in_progress') { return 'info' }
+  if (s === 'checked_in') { return 'warning' }
+  return 'neutral'
+}
+
+function moreFor(row: AppointmentRow) {
+  if (['completed', 'cancelled', 'no_show'].includes(row.status)) {
+    return []
+  }
+  return [
+    { label: '取消', icon: 'i-lucide:ban', onClick: () => onTransition(row, 'cancelled', '取消') },
+    { label: '标记爽约', icon: 'i-lucide:user-x', onClick: () => onTransition(row, 'no_show', '标记爽约') },
+  ]
 }
 
 onMounted(async () => {
@@ -128,14 +182,17 @@ const tableColumns = computed<TableColumn<AppointmentRow>[]>(() => [
     },
   },
   {
-    accessorKey: 'customer_id',
-    header: '客户 ID',
-    cell: (info: any) => info.getValue()?.slice(0, 8) ?? '-',
-  },
-  {
-    accessorKey: 'pet_id',
-    header: '宠物 ID',
-    cell: (info: any) => info.getValue()?.slice(0, 8) ?? '-',
+    id: 'patient',
+    header: '宠物/主人',
+    cell: (info: any) => {
+      const row = info.row.original as AppointmentRow
+      const pet = petMap.value[row.pet_id]
+      const customer = customerMap.value[row.customer_id]
+      return h('div', { class: 'leading-tight' }, [
+        h('div', { class: 'text-xs font-medium' }, pet?.name ?? '未知宠物'),
+        h('div', { class: 'text-xs text-muted-foreground' }, customer ? `${customer.name}${customer.phone ? ` · ${customer.phone}` : ''}` : '未知主人'),
+      ])
+    },
   },
   {
     accessorKey: 'reason',
@@ -151,16 +208,15 @@ const tableColumns = computed<TableColumn<AppointmentRow>[]>(() => [
     accessorKey: 'status',
     header: '状态',
     cell: (info: any) => {
-      const v = info.getValue()
-      const label = APPOINTMENT_STATUS_LABELS[v as keyof typeof APPOINTMENT_STATUS_LABELS] ?? v
-      return h('span', { class: 'px-2 py-0.5 rounded text-xs bg-default-100' }, label)
+      const v = info.getValue() as AppointmentStatus
+      return h(EntityStatusTag, { label: APPOINTMENT_STATUS_LABELS[v] ?? v, variant: statusVariant(v), dot: true })
     },
   },
   {
     id: 'operation',
     header: '操作',
-    width: 220,
-    align: 'center',
+    width: 180,
+    align: 'right',
     fixed: 'right',
   },
 ])
@@ -168,11 +224,7 @@ const tableColumns = computed<TableColumn<AppointmentRow>[]>(() => [
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="预约管理" class="mb-0">
-      <template #description>
-        管理宠物医院预约,支持状态机推进(确认→候诊→就诊→完成)
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="预约管理" description="管理宠物医院预约,支持状态机推进(确认→候诊→就诊→完成)" />
     <FaPageMain>
       <FaSearchBar :show-toggle="false">
         <template #default>
@@ -232,36 +284,12 @@ const tableColumns = computed<TableColumn<AppointmentRow>[]>(() => [
           </FaButton>
         </template>
         <template #cell-operation="{ row }">
-          <div class="flex-center flex-wrap gap-1">
-            <FaButton v-if="row.original.status === 'pending'" variant="outline" size="sm" @click="onTransition(row.original, 'confirmed', '确认')">
-              确认
-            </FaButton>
-            <FaButton v-if="row.original.status === 'confirmed'" variant="outline" size="sm" @click="onTransition(row.original, 'checked_in', '报到')">
-              报到
-            </FaButton>
-            <FaButton v-if="row.original.status === 'checked_in'" variant="outline" size="sm" @click="onTransition(row.original, 'in_progress', '开始就诊')">
-              就诊
-            </FaButton>
-            <FaButton v-if="row.original.status === 'in_progress'" variant="outline" size="sm" @click="onTransition(row.original, 'completed', '完成')">
-              完成
-            </FaButton>
-            <FaButton
-              v-if="!['completed', 'cancelled', 'no_show'].includes(row.original.status)"
-              variant="outline"
-              size="sm"
-              @click="onTransition(row.original, 'cancelled', '取消')"
-            >
-              取消
-            </FaButton>
-            <FaButton
-              v-if="!['completed', 'cancelled', 'no_show'].includes(row.original.status)"
-              variant="outline"
-              size="sm"
-              @click="onTransition(row.original, 'no_show', '标记爽约')"
-            >
-              爽约
-            </FaButton>
-          </div>
+          <TablePrimaryAction
+            v-if="nextActionFor(row.original)"
+            :primary-label="nextActionFor(row.original)!.label"
+            :more="moreFor(row.original)"
+            @primary="onTransition(row.original, nextActionFor(row.original)!.target, nextActionFor(row.original)!.label)"
+          />
         </template>
       </FaTable>
       <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2" @page-change="currentChange" @size-change="sizeChange" />

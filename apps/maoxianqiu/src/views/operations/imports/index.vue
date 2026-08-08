@@ -207,11 +207,7 @@ function onSubmitImport() {
 
 <template>
   <div>
-    <FaPageHeader :show="false" title="导入中心" class="mb-0">
-      <template #description>
-        客户/宠物/商品/库存批量导入;任务走 Hono Command + RPC,异步处理
-      </template>
-    </FaPageHeader>
+    <EntityPageHeader compact title="导入中心" description="客户/宠物/商品/库存批量导入;任务走 Hono Command + RPC,异步处理" />
     <FaPageMain>
       <FaSearchBar :show-toggle="false">
         <template #default>
