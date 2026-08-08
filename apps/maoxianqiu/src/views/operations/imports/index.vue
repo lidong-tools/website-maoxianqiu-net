@@ -28,7 +28,8 @@ type TabKey = 'all' | 'running' | 'history' | 'failed'
 const tabs: Array<{ key: TabKey, label: string, status?: string }> = [
   { key: 'all', label: '全部' },
   { key: 'running', label: '进行中', status: ['uploaded', 'mapped', 'validated', 'queued', 'pending', 'processing'].join(',') },
-  { key: 'history', label: '历史', status: ['completed', 'failed', 'cancelled'].join(',') },
+  // awaiting_domain_apply 为命令队列型导入(员工/期初)的成功终态,也归入历史
+  { key: 'history', label: '历史', status: ['completed', 'failed', 'cancelled', 'awaiting_domain_apply'].join(',') },
   { key: 'failed', label: '失败任务', status: 'failed' },
 ]
 const activeTab = ref<TabKey>('all')

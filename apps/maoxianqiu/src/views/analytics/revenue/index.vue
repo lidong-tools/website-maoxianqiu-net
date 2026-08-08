@@ -65,7 +65,8 @@ const tableColumns = computed<TableColumn<RevenueDimensionRow>[]>(() => [
   },
   {
     accessorKey: 'invoiceCount',
-    header: '发票数',
+    // doctor 维度 count 为接诊数(encounter),其余维度为发票数(审计 v2 §17)
+    header: dimension.value === 'doctor' ? '接诊数' : '发票数',
   },
   {
     accessorKey: 'averageTicket',
@@ -223,6 +224,12 @@ async function onExport() {
 
     <div class="mt-4">
       <FaCard :title="`按${REVENUE_DIMENSION_LABELS[dimension]}汇总`">
+        <div
+          v-if="dimension === 'payment_channel'"
+          class="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+        >
+          收款渠道按实际收款时间(payments.created_at)统计,与 Overall 的发票开账(应计)口径不同,合计可能与总净收入不一致(审计 v2 §16)。
+        </div>
         <FaTable
           row-key="key"
           stripe

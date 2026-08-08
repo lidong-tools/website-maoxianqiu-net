@@ -74,9 +74,14 @@ export default {
 
   /**
    * 发送消息(建投递 + 真实 Provider 发送)
+   * 幂等:未传 idempotencyKey 时自动生成,保证每次发送请求都有稳定键,
+   * 网络层重试/重复提交不会产生重复投递(审计 v2 §24)。
    */
   send(data: MessagingSendRequest) {
-    return api.post<MessagingSendResult>('messaging/send', data)
+    const payload: MessagingSendRequest = data.idempotencyKey
+      ? data
+      : { ...data, idempotencyKey: crypto.randomUUID() }
+    return api.post<MessagingSendResult>('messaging/send', payload)
   },
 
   /**

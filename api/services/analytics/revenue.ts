@@ -18,9 +18,12 @@
  *   - payment_channel 基于真实 payments(按 method),不再用 invoices.payment_method;
  *   - catalog_type 的 invoiceCount 改为"包含该分类的发票数"(去重)。
  *
- * 维度:store(门店) / payment_channel(支付渠道) / catalog_type(目录类型) / doctor(医生)。
- * 说明:catalog_type 与 doctor 的退款无法归属,保持 refund=0(net=gross),
- *       详见 KPI-DEFINITIONS.md 的口径说明。
+ * 维度:store(门店) / payment_channel(收款渠道) / catalog_type(目录类型) / doctor(医生)。
+ * 对账口径(审计 v2 §15/§16):
+ *   - store / doctor 维度:退款按发票归属(门店 / 关联 encounter 的医生)计入,Net 合计可对账;
+ *   - catalog_type 维度:退款按发票明细金额占比分摊到目录类型,Net 合计可对账;
+ *   - payment_channel 为"收款渠道",按实际收款时间(payments.created_at)统计,
+ *     与 Overall 的发票开账(应计)口径不同,属 KPI 会计基础差异,不是对账 Bug(§16)。
  */
 import type { ServiceClient } from './common'
 import { bucketKey, loadStoreNameMap, toNum } from './common'
@@ -50,6 +53,8 @@ interface RefundRow {
   amount: number
   created_at: string
   store_id: string | null
+  /** 退款关联发票(用于 doctor/catalog 维度退款归属,审计 v2 §15) */
+  invoice_id: string | null
 }
 
 /** 分页大小:低于 PostgREST 单次上限,循环拉全避免静默截断 */
@@ -100,7 +105,7 @@ async function fetchRefunds(
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await service
       .from('refunds')
-      .select('amount, created_at, invoices!inner(store_id)')
+      .select('amount, created_at, invoice_id, invoices!inner(store_id)')
       .eq('tenant_id', f.tenantId)
       .in('invoices.store_id', f.storeIds)
       .gte('created_at', f.period.startISO)
@@ -109,9 +114,9 @@ async function fetchRefunds(
     if (error) {
       throw new Error(`退款数据查询失败: ${error.message}`)
     }
-    const rows = (data as Array<{ amount: number; created_at: string; invoices?: { store_id: string | null }[] }> | null) ?? []
+    const rows = (data as Array<{ amount: number; created_at: string; invoice_id: string | null; invoices?: { store_id: string | null }[] }> | null) ?? []
     for (const r of rows) {
-      out.push({ amount: toNum(r.amount), created_at: r.created_at, store_id: r.invoices?.[0]?.store_id ?? null })
+      out.push({ amount: toNum(r.amount), created_at: r.created_at, store_id: r.invoices?.[0]?.store_id ?? null, invoice_id: r.invoice_id ?? null })
     }
     if (rows.length < PAGE_SIZE) {
       break
@@ -340,12 +345,16 @@ async function buildPaymentChannelDimension(
 
 /**
  * 按目录类型维度聚合(经 invoice_items.category,去重发票计数)
+ * 退款归属:按发票明细金额占比分摊到各目录类型,使维度 Net 合计可与 Overall Net 对账
+ * (审计 v2 §15;原实现 refund=0 导致维度合计对不上)。
  * @param service  service-role 客户端
  * @param invoices 有效发票行(用于派生 invoice_id 集合)
+ * @param refunds  当期退款行(含发票归属)
  */
 async function buildCatalogDimension(
   service: ServiceClient,
   invoices: InvoiceRow[],
+  refunds: RefundRow[],
 ): Promise<RevenueDimensionRow[]> {
   if (invoices.length === 0) {
     return []
@@ -353,6 +362,8 @@ async function buildCatalogDimension(
   const invoiceIds = invoices.map(i => i.id)
   const grossByCat = new Map<string, number>()
   const invoiceByCat = new Map<string, Set<string>>()
+  // 发票 → 明细金额合计(供退款分摊比例)
+  const invoiceTotalByItem = new Map<string, Map<string, number>>()
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await service
       .from('invoice_items')
@@ -368,27 +379,53 @@ async function buildCatalogDimension(
       const set = invoiceByCat.get(it.category) ?? new Set<string>()
       set.add(it.invoice_id)
       invoiceByCat.set(it.category, set)
+      const byInvoice = invoiceTotalByItem.get(it.invoice_id) ?? new Map<string, number>()
+      byInvoice.set(it.category, (byInvoice.get(it.category) ?? 0) + toNum(it.amount))
+      invoiceTotalByItem.set(it.invoice_id, byInvoice)
     }
     if (items.length < PAGE_SIZE) {
       break
     }
   }
-  return finalizeDimensionRows([...grossByCat.entries()].map(([k, gross]) => ({
-    key: k,
-    label: CATEGORY_LABELS[k] ?? k,
-    gross,
-    refund: 0,
-    count: invoiceByCat.get(k)?.size ?? 0,
-  })))
+  // 退款分摊:按退款发票的明细金额占比计入各目录类型;无明细的退款归"未归因"
+  const refundByCat = new Map<string, number>()
+  let unassignedRefund = 0
+  for (const r of refunds) {
+    const byInvoice = r.invoice_id ? invoiceTotalByItem.get(r.invoice_id) : undefined
+    if (!byInvoice || byInvoice.size === 0) {
+      unassignedRefund += r.amount
+      continue
+    }
+    const total = [...byInvoice.values()].reduce((s, v) => s + v, 0)
+    if (total <= 0) {
+      unassignedRefund += r.amount
+      continue
+    }
+    for (const [cat, amount] of byInvoice) {
+      refundByCat.set(cat, (refundByCat.get(cat) ?? 0) + r.amount * (amount / total))
+    }
+  }
+  const rows = new Map<string, DimensionAcc>([...grossByCat.entries()].map(([k, gross]) => [
+    k,
+    { key: k, label: CATEGORY_LABELS[k] ?? k, gross, refund: refundByCat.get(k) ?? 0, count: invoiceByCat.get(k)?.size ?? 0 },
+  ]))
+  if (unassignedRefund > 0) {
+    const acc = rows.get('unassigned') ?? { key: 'unassigned', label: '未归因', gross: 0, refund: 0, count: 0 }
+    acc.refund += unassignedRefund
+    rows.set('unassigned', acc)
+  }
+  return finalizeDimensionRows([...rows.values()])
 }
 
 /**
  * 按医生维度聚合(经 encounters.doctor_id 归因)
- * 退款无法归属到医生,保持 refund=0(口径见 KPI-DEFINITIONS.md)
+ * 退款归属:按发票关联 encounter 归到医生,无 encounter 的退款归"未归因",
+ * 使维度 Net 合计可与 Overall Net 对账(审计 v2 §15)。
  */
 async function buildDoctorDimension(
   service: ServiceClient,
   invoices: InvoiceRow[],
+  refunds: RefundRow[],
   f: RevenueFilters,
 ): Promise<RevenueDimensionRow[]> {
   const byEncounter = new Map<string, number>()
@@ -399,12 +436,15 @@ async function buildDoctorDimension(
   }
   const group = new Map<string, DimensionAcc>()
   const encounterIds = invoices.map(i => i.encounter_id).filter((x): x is string => !!x)
+  // 函数级声明:refund 归属需复用 encounter→doctor 映射(审计 v2 §15)
+  let encs: Array<{ id: string; doctor_id: string | null }> = []
   if (encounterIds.length > 0) {
-    const { data: encs } = await service
+    const { data } = await service
       .from('encounters')
       .select('id, doctor_id')
       .in('id', encounterIds)
-    const doctorIds = [...new Set((encs ?? []).map((e: { doctor_id: string | null }) => e.doctor_id).filter(Boolean))] as string[]
+    encs = (data as Array<{ id: string; doctor_id: string | null }> | null) ?? []
+    const doctorIds = [...new Set(encs.map((e: { doctor_id: string | null }) => e.doctor_id).filter(Boolean))] as string[]
     const doctorMap = new Map<string, string>()
     if (doctorIds.length > 0) {
       const { data: employees } = await service
@@ -416,7 +456,7 @@ async function buildDoctorDimension(
         doctorMap.set(emp.user_id, emp.name ?? emp.user_id.slice(0, 8))
       }
     }
-    for (const e of (encs ?? []) as Array<{ id: string; doctor_id: string | null }>) {
+    for (const e of encs) {
       const gross = byEncounter.get(e.id) ?? 0
       const key = e.doctor_id ?? 'unassigned'
       const acc = group.get(key) ?? {
@@ -439,6 +479,31 @@ async function buildDoctorDimension(
       group.set('unassigned', acc)
     }
   }
+  // 退款归属:经发票 encounter 归到医生
+  const refundByDoctor = new Map<string, number>()
+  let unassignedRefund = 0
+  const invoiceToEncounter = new Map(invoices.map(i => [i.id, i.encounter_id]))
+  for (const r of refunds) {
+    const encounterId = r.invoice_id ? invoiceToEncounter.get(r.invoice_id) : undefined
+    if (!encounterId) {
+      unassignedRefund += r.amount
+      continue
+    }
+    // 找该 encounter 的 doctor(经已加载的 encounters 行)
+    const doc = encs.find(e => e.id === encounterId)
+    const key = doc?.doctor_id ?? 'unassigned'
+    refundByDoctor.set(key, (refundByDoctor.get(key) ?? 0) + r.amount)
+  }
+  for (const [key, refund] of refundByDoctor) {
+    const acc = group.get(key) ?? { key, label: key === 'unassigned' ? '未归因' : key.slice(0, 8), gross: 0, refund: 0, count: 0 }
+    acc.refund += refund
+    group.set(key, acc)
+  }
+  if (unassignedRefund > 0) {
+    const acc = group.get('unassigned') ?? { key: 'unassigned', label: '未归因', gross: 0, refund: 0, count: 0 }
+    acc.refund += unassignedRefund
+    group.set('unassigned', acc)
+  }
   return finalizeDimensionRows([...group.values()])
 }
 
@@ -457,9 +522,9 @@ async function buildDimensionRows(
     return buildPaymentChannelDimension(service, f)
   }
   if (dimension === 'catalog_type') {
-    return buildCatalogDimension(service, invoices)
+    return buildCatalogDimension(service, invoices, refunds)
   }
-  return buildDoctorDimension(service, invoices, f)
+  return buildDoctorDimension(service, invoices, refunds, f)
 }
 
 /**

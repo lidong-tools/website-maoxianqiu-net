@@ -154,7 +154,8 @@ export interface InventoryReport {
 /** ===== 展示字典 ===== */
 export const REVENUE_DIMENSION_LABELS: Record<RevenueDimension, string> = {
   store: '门店',
-  payment_channel: '支付渠道',
+  // 收款渠道:按实际收款时间(payments.created_at)统计,与 Overall 发票开账(应计)口径不同(审计 v2 §16)
+  payment_channel: '收款渠道',
   catalog_type: '目录类型',
   doctor: '医生',
 }

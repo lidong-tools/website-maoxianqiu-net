@@ -86,7 +86,8 @@ const dataList = ref<Array<EmployeeItem | LegacyMembershipItem>>([])
 const useNewModel = ref(false)
 
 const isAdmin = ref(false)
-const currentTenantId = ref('')
+// 复审审计(S3.1-Fix-Reaudit-v3 §6):computed 而非 ref+onMounted,切租户即时响应,不保留旧 Tenant 快照
+const currentTenantId = computed(() => tenantStore.currentTenantId)
 const storeOptions = ref<Array<{ label: string, value: string }>>([])
 const currentStoreId = ref('')
 const search = ref({
@@ -180,7 +181,6 @@ const tableColumns = computed<TableColumn<DisplayRow>[]>(() => [
 onMounted(async () => {
   // 审计 S3.1 P0-03:currentTenantId 统一取自全局 Tenant Store(与顶部工具栏上下文一致),
   // 不再以 memberships[0] 作为当前租户决策来源。
-  currentTenantId.value = tenantStore.currentTenantId
 
   // 账号级角色判断(管理员可管理全部门店),仅影响表单门店下拉,不作租户决策
   const res: any = await apiApp.profile()
@@ -208,6 +208,12 @@ onMounted(async () => {
       .map((item: any) => ({ label: item.stores?.name ?? '', value: item.store_id }))
   }
 
+  currentStoreId.value = storeOptions.value[0]?.value ?? ''
+  getDataList()
+})
+
+// 复审审计 §6:切租户时重置门店筛选并重载,避免残留旧租户数据
+watch(currentTenantId, () => {
   currentStoreId.value = storeOptions.value[0]?.value ?? ''
   getDataList()
 })

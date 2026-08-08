@@ -84,6 +84,8 @@ export interface MessagingSendRequest {
   channel?: MessagingChannel
   recipient: string
   variables?: Record<string, unknown>
+  /** 幂等键:一次发送动作期间复用同一键,防止网络重试/重复点击产生重复投递(审计 v2 §24) */
+  idempotencyKey?: string
 }
 
 /** 发送/重试返回 */

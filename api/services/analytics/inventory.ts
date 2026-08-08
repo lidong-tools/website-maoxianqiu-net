@@ -16,7 +16,7 @@
  * 不做(规格 §8):库存周转率(当前无法可靠计算,不显示假数字)。
  */
 import type { ServiceClient } from './common'
-import { toNum } from './common'
+import { fetchAll, toNum } from './common'
 import type { ExpiringRow, InventoryReport, LowStockRow, RevenueFilters } from './types'
 
 /** 缺货口径:可用数量阈值(含),available ≤ 0 即断货/不可售(审计 #25) */
@@ -61,17 +61,16 @@ export async function countLowStock(
   if (warehouseIds.length === 0) {
     return 0
   }
-  const { data, error } = await service
+  // 分页拉全后过滤,避免 PostgREST 行数上限静默截断导致少算(审计 v2 §14)
+  const rows = await fetchAll<{ quantity_on_hand: number; quantity_reserved: number }>('库存余额数据', (from, to) => service
     .from('inventory_balances')
     .select('quantity_on_hand, quantity_reserved')
     .eq('tenant_id', f.tenantId)
     .in('warehouse_id', warehouseIds)
-  if (error) {
-    throw new Error(`缺货 SKU 查询失败: ${error.message}`)
-  }
-  return (data as Array<{ quantity_on_hand: number; quantity_reserved: number }> | null)?.filter(
+    .range(from, to))
+  return rows.filter(
     b => toNum(b.quantity_on_hand) - toNum(b.quantity_reserved) <= STOCKOUT_MAX_AVAILABLE,
-  ).length ?? 0
+  ).length
 }
 
 /** 近效期批次计数(驾驶舱复用) */
@@ -84,7 +83,8 @@ export async function countExpiring(
   if (warehouseIds.length === 0) {
     return 0
   }
-  const { data, error } = await service
+  // 分页拉全后过滤,避免 PostgREST 行数上限静默截断导致少算(审计 v2 §14)
+  const rows = await fetchAll<{ expiry_date: string | null }>('库存批次数据', (from, to) => service
     .from('inventory_batches')
     .select('expiry_date')
     .eq('tenant_id', f.tenantId)
@@ -92,17 +92,15 @@ export async function countExpiring(
     .eq('status', 'active')
     .gt('quantity_remaining', 0)
     .not('expiry_date', 'is', null)
-  if (error) {
-    throw new Error(`近效期查询失败: ${error.message}`)
-  }
+    .range(from, to))
   const ref = new Date(`${referenceDate}T00:00:00`)
-  return (data as Array<{ expiry_date: string | null }> | null)?.filter((b) => {
+  return rows.filter((b) => {
     if (!b.expiry_date) {
       return false
     }
     const days = Math.round((new Date(`${b.expiry_date}T00:00:00`).getTime() - ref.getTime()) / 86_400_000)
     return days <= EXPIRING_DAYS
-  }).length ?? 0
+  }).length
 }
 
 /** 经仓库收敛门店范围 */
@@ -132,26 +130,25 @@ export async function buildInventoryReport(
   let balances: BalanceRow[] = []
   let batches: BatchRow[] = []
   if (warehouseIds.length > 0) {
-    const [balRes, batchRes] = await Promise.all([
-      service.from('inventory_balances')
+    // 分页拉全,规避 PostgREST 行数上限静默截断导致少算(审计 v2 §14)
+    const [balRows, batchRows] = await Promise.all([
+      fetchAll<BalanceRow>('库存余额数据', (from, to) => service
+        .from('inventory_balances')
         .select('warehouse_id, catalog_item_id, quantity_on_hand, quantity_reserved')
         .eq('tenant_id', f.tenantId)
-        .in('warehouse_id', warehouseIds),
-      service.from('inventory_batches')
+        .in('warehouse_id', warehouseIds)
+        .range(from, to)),
+      fetchAll<BatchRow>('库存批次数据', (from, to) => service
+        .from('inventory_batches')
         .select('id, warehouse_id, catalog_item_id, batch_no, quantity_remaining, unit_cost, expiry_date, status')
         .eq('tenant_id', f.tenantId)
         .in('warehouse_id', warehouseIds)
         .eq('status', 'active')
-        .gt('quantity_remaining', 0),
+        .gt('quantity_remaining', 0)
+        .range(from, to)),
     ])
-    if (balRes.error) {
-      throw new Error(`库存余额查询失败: ${balRes.error.message}`)
-    }
-    if (batchRes.error) {
-      throw new Error(`库存批次查询失败: ${batchRes.error.message}`)
-    }
-    balances = (balRes.data as BalanceRow[] | null) ?? []
-    batches = (batchRes.data as BatchRow[] | null) ?? []
+    balances = balRows
+    batches = batchRows
   }
 
   // 目录信息(编码/名称/单位/成本价)
@@ -247,8 +244,8 @@ export async function buildInventoryReport(
     if (!countRes.error) {
       movementCount = countRes.count ?? 0
     }
-    // 报损:负向 adjust 且 reference_type 匹配
-    const { data: wasteRows, error: wasteError } = await service
+    // 报损:负向 adjust 且 reference_type 匹配(分页拉全,替代原 limit(2000),审计 v2 §14)
+    const wasteRows = await fetchAll<{ catalog_item_id: string; quantity: number; reference_type: string | null }>('库存异动数据', (from, to) => service
       .from('inventory_movements')
       .select('catalog_item_id, quantity, reference_type')
       .eq('tenant_id', f.tenantId)
@@ -257,30 +254,28 @@ export async function buildInventoryReport(
       .lt('quantity', 0)
       .gte('created_at', f.period.startISO)
       .lte('created_at', f.period.endISO)
-      .limit(2000)
-    if (!wasteError) {
-      for (const w of (wasteRows as Array<{ catalog_item_id: string; quantity: number; reference_type: string | null }> | null) ?? []) {
-        if (!WASTAGE_RE.test(w.reference_type ?? '')) {
-          continue
-        }
-        const cat = catalogMap.get(w.catalog_item_id)
-        wastageAmount += Math.abs(toNum(w.quantity)) * (cat?.cost_price ?? 0)
+      .range(from, to))
+    for (const w of wasteRows) {
+      if (!WASTAGE_RE.test(w.reference_type ?? '')) {
+        continue
       }
+      const cat = catalogMap.get(w.catalog_item_id)
+      wastageAmount += Math.abs(toNum(w.quantity)) * (cat?.cost_price ?? 0)
     }
   }
 
-  // 采购金额
+  // 采购金额(分页拉全,审计 v2 §14)
   let purchaseAmount = 0
-  const poRes = await service.from('purchase_orders')
+  const poRows = await fetchAll<{ total_cost: number }>('采购订单数据', (from, to) => service
+    .from('purchase_orders')
     .select('total_cost')
     .eq('tenant_id', f.tenantId)
     .in('store_id', f.storeIds)
     .not('status', 'in', '("draft","cancelled")')
     .gte('created_at', f.period.startISO)
     .lte('created_at', f.period.endISO)
-  if (!poRes.error) {
-    purchaseAmount = (poRes.data as Array<{ total_cost: number }> | null)?.reduce((s, r) => s + toNum(r.total_cost), 0) ?? 0
-  }
+    .range(from, to))
+  purchaseAmount = poRows.reduce((s, r) => s + toNum(r.total_cost), 0)
 
   const skuCount = skuSet.size
   const lowStockCount = lowStockRows.length

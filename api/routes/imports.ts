@@ -499,7 +499,7 @@ importsRoutes.post('/:id/start', async (c) => {
     if (job.status === 'processing') {
       throw err.conflict('导入任务正在处理中,请勿重复提交')
     }
-    if (job.status === 'completed' || job.status === 'failed') {
+    if (job.status === 'completed' || job.status === 'failed' || job.status === 'awaiting_domain_apply') {
       return ok(c, {
         job,
         idempotent: true,
@@ -514,7 +514,8 @@ importsRoutes.post('/:id/start', async (c) => {
     }
   }
 
-  // 原子 claim:仅一个执行者可从可执行态抢到 processing(PostgreSQL 行级锁保证并发安全)
+  // 原子 claim:仅"已校验(validated)"任务可被唯一执行者抢到 processing(审计 v2 §9:
+  // 严格状态机 uploaded→mapped→validated→processing,不允许跳过正式 Validate 步骤直接 Start)
   const { data: claimed, error: claimErr } = await service
     .from('import_jobs')
     .update({
@@ -523,7 +524,7 @@ importsRoutes.post('/:id/start', async (c) => {
       execution_key: requestKey,
     })
     .eq('id', id)
-    .in('status', ['validated', 'mapped', 'uploaded'])
+    .eq('status', 'validated')
     .select('*')
     .maybeSingle()
   if (claimErr) {
@@ -531,7 +532,7 @@ importsRoutes.post('/:id/start', async (c) => {
   }
   if (!claimed) {
     const cur = await loadJob(service, id)
-    if (cur.status === 'completed' || cur.status === 'failed' || cur.status === 'cancelled') {
+    if (cur.status === 'completed' || cur.status === 'failed' || cur.status === 'cancelled' || cur.status === 'awaiting_domain_apply') {
       throw err.conflict('导入任务已处于终态,不可重复执行')
     }
     throw err.conflict('导入任务正在处理中,请勿重复提交')
@@ -596,7 +597,12 @@ importsRoutes.post('/:id/start', async (c) => {
   }
 
   const finishedAt = new Date().toISOString()
-  const terminalStatus = fatalError ? 'failed' : 'completed'
+  // 业务命令型导入(employee/opening-stock)只生成待邀请/期初命令,真实业务落地由
+  // S32-E Integrator 消费命令队列完成,终态用 awaiting_domain_apply 而非 completed
+  // (审计 v2 §10/§11:completed 仅表示业务数据已直接落地)。
+  const terminalStatus = fatalError
+    ? 'failed'
+    : (job.type === 'employee' || job.type === 'opening-stock' ? 'awaiting_domain_apply' : 'completed')
   const { data: updated, error: updErr } = await service.from('import_jobs').update({
     success_count: successCount,
     failed_count: failedCount,

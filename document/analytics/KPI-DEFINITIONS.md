@@ -51,12 +51,14 @@
 
 ### 维度(§5)
 
-- **store**:按 `invoices.store_id` 分组。
-- **payment_channel**:按 `invoices.payment_method`(cash/wechat/alipay/card/other)分组。
+- **store**:按 `invoices.store_id` 分组;退款按发票门店归属,维度 Net 合计可与 Overall Net 对账。
+- **payment_channel**:收款渠道,按实际收款时间 `payments.created_at`(cash/wechat/alipay/card/stored_value/other)分组;
+  属现金/收款基础,与 Overall 的发票开账(应计)口径不同,合计不与 Overall Net 直接对账(审计 v2 §16)。
 - **catalog_type**:按 `invoice_items.category`(service/drug/vaccine/exam/product)分组;
-  说明:退款不拆分到目录类型,该维度 net = gross。
+  退款按发票明细金额占比分摊到各目录类型,无明细的退款归"未归因",维度 Net 合计可对账(审计 v2 §15)。
 - **doctor**:经 `invoices.encounter_id → encounters.doctor_id` 归因;无 encounter 关联的发票归入"未归因"。
-  说明:退款不拆分到医生,该维度 net = gross。
+  退款按发票关联 encounter 的医生归属,无关联归"未归因",维度 Net 合计可对账(审计 v2 §15)。
+  医生维度 count 为接诊数(encounter),非发票数(审计 v2 §17)。
 
 ---
 

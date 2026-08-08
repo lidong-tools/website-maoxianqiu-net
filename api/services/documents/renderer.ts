@@ -283,18 +283,21 @@ export function validateTemplateHtml(templateHtml: string): string | null {
     return '模板仅支持 {{path}} 与 {{#each}},不支持 #if/#unless/#for'
   }
   // style 标签内容单独校验(白名单 CSS 属性 + 禁止 url()/@import 等),校验后视为普通内容跳过
+  // 注意:校验失败必须通过外部变量上报并提前 return,禁止用 replace callback 返回值
+  // 作为"失败标记"(那只是把错误串塞回模板,后续仍可能通过校验导致恶意样式被保存,审计 v2 §4~§6)。
   const STYLE_BLOCK_RE = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi
+  let styleProblem: string | null = null
   const styleContent: string[] = []
   templateHtml = templateHtml.replace(STYLE_BLOCK_RE, (_full, inner: string) => {
     const problem = validateStyleBlock(inner)
     if (problem) {
-      return problem
+      styleProblem = problem
     }
     styleContent.push(inner)
     return ''
   })
-  if (styleContent.length > 0 && STYLE_BLOCK_RE.lastIndex === 0) {
-    // no-op:replace 已完成
+  if (styleProblem) {
+    return styleProblem
   }
   if (styleContent.some(s => s.includes('\u0000'))) {
     return '模板包含非法字符'

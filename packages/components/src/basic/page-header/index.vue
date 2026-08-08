@@ -6,7 +6,7 @@ defineOptions({
   name: 'BuiltInPageHeader',
 })
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   title?: string
   description?: string
   /**
@@ -18,7 +18,10 @@ const props = defineProps<{
   class?: HTMLAttributes['class']
   mainClass?: HTMLAttributes['class']
   defaultClass?: HTMLAttributes['class']
-}>()
+}>(), {
+  // 布尔 prop 未传时 Vue 默认值为 false,必须显式给 true 才能按注释语义默认展示标题栏
+  show: true,
+})
 
 const slots = defineSlots<{
   title?: () => VNode

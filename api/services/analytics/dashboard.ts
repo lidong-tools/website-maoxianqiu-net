@@ -15,6 +15,7 @@
 import type { ServiceClient } from './common'
 import {
   dayKeyInTz,
+  fetchAll,
   localDateToUTC,
   resolvePeriod,
   toNum,
@@ -41,80 +42,73 @@ export async function buildDashboardReport(
     period: { ...period, startISO: todayStart.toISOString(), endISO: todayEnd.toISOString() },
   }
 
-  const [monthSummary, todaySummary, invRes, custRes, encRes, ipRes, bdRes, tierRes, membRes] = await Promise.all([
+  const [monthSummary, todaySummary, invoices, customers, encRes, inpatientCharges, boardingCharges, tierRes, membRes] = await Promise.all([
     computeRevenueSummary(service, f),
     computeRevenueSummary(service, todayFilters),
-    // 本月发票(会员贡献 + 趋势)
-    service.from('invoices')
+    // 本月发票(会员贡献 + 趋势)分页拉全(审计 v2 §14)
+    fetchAll<{ customer_id: string | null; total: number; created_at: string }>('发票数据', (from, to) => service
+      .from('invoices')
       .select('customer_id, total, created_at')
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .in('status', ['confirmed', 'paid', 'partially_paid', 'refunded'])
       .gte('created_at', period.startISO)
-      .lte('created_at', period.endISO),
-    // 客户(会员贡献 + 本月新增)
-    service.from('customers')
+      .lte('created_at', period.endISO)
+      .range(from, to)),
+    // 客户(会员贡献 + 本月新增)分页拉全(审计 v2 §14)
+    fetchAll<{ id: string; created_at: string }>('客户数据', (from, to) => service
+      .from('customers')
       .select('id, created_at')
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
-      .lte('created_at', period.endISO),
-    // 今日门诊
+      .lte('created_at', period.endISO)
+      .range(from, to)),
+    // 今日门诊(仅 count,无聚合错误风险,head 计数)
     service.from('encounters')
-      .select('id')
+      .select('id', { count: 'exact', head: true })
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .gte('started_at', todayStart.toISOString())
       .lte('started_at', todayEnd.toISOString()),
-    // 本月住院计费
-    service.from('inpatient_charges')
+    // 本月住院计费(分页拉全,审计 v2 §14)
+    fetchAll<{ amount: number }>('住院计费数据', (from, to) => service
+      .from('inpatient_charges')
       .select('amount')
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .gte('charge_date', period.startDate)
-      .lte('charge_date', period.endDate),
-    // 本月寄养附加服务计费
-    service.from('boarding_service_charges')
+      .lte('charge_date', period.endDate)
+      .range(from, to)),
+    // 本月寄养附加服务计费(分页拉全,审计 v2 §14)
+    fetchAll<{ amount: number }>('寄养计费数据', (from, to) => service
+      .from('boarding_service_charges')
       .select('amount')
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .gte('charge_date', period.startDate)
-      .lte('charge_date', period.endDate),
-    // 会员层级定义(审计 #21 会员口径)
+      .lte('charge_date', period.endDate)
+      .range(from, to)),
+    // 会员层级定义(审计 #21 会员口径;层级数有限,无截断风险)
     service.from('membership_tiers')
       .select('id, is_active')
       .eq('tenant_id', f.tenantId),
-    // 当前有效会员关系(审计 #21 会员口径)
-    service.from('customer_memberships')
+    // 当前有效会员关系(审计 #21 会员口径;分页拉全,审计 v2 §14)
+    fetchAll<{ customer_id: string; tier_id: string | null; expires_at: string | null }>('会员关系数据', (from, to) => service
+      .from('customer_memberships')
       .select('customer_id, tier_id, expires_at')
-      .eq('tenant_id', f.tenantId),
+      .eq('tenant_id', f.tenantId)
+      .range(from, to)),
   ])
-  if (invRes.error) {
-    throw new Error(`发票查询失败: ${invRes.error.message}`)
-  }
-  if (custRes.error) {
-    throw new Error(`客户查询失败: ${custRes.error.message}`)
-  }
   if (encRes.error) {
     throw new Error(`就诊查询失败: ${encRes.error.message}`)
-  }
-  if (ipRes.error) {
-    throw new Error(`住院计费查询失败: ${ipRes.error.message}`)
-  }
-  if (bdRes.error) {
-    throw new Error(`寄养计费查询失败: ${bdRes.error.message}`)
   }
   if (tierRes.error) {
     throw new Error(`会员层级查询失败: ${tierRes.error.message}`)
   }
-  if (membRes.error) {
-    throw new Error(`会员关系查询失败: ${membRes.error.message}`)
-  }
 
-  const invoices = (invRes.data as Array<{ customer_id: string | null; total: number; created_at: string }> | null) ?? []
-  const customers = (custRes.data as Array<{ id: string; created_at: string }> | null) ?? []
-  const todayEncounters = (encRes.data as unknown[] | null)?.length ?? 0
-  const inpatientRevenue = (ipRes.data as Array<{ amount: number }> | null)?.reduce((s, r) => s + toNum(r.amount), 0) ?? 0
-  const boardingRevenue = (bdRes.data as Array<{ amount: number }> | null)?.reduce((s, r) => s + toNum(r.amount), 0) ?? 0
+  const todayEncounters = encRes.count ?? 0
+  const inpatientRevenue = inpatientCharges.reduce((s, r) => s + toNum(r.amount), 0)
+  const boardingRevenue = boardingCharges.reduce((s, r) => s + toNum(r.amount), 0)
 
   // 本月新增客户
   const newCustomersMonth = customers.filter(c => c.created_at >= period.startISO).length
@@ -128,7 +122,7 @@ export async function buildDashboardReport(
   const customerIdSet = new Set(customers.map(c => c.id))
   const nowISO = new Date().toISOString()
   const memberCustomerIds = new Set<string>()
-  for (const m of (membRes.data as Array<{ customer_id: string; tier_id: string | null; expires_at: string | null }> | null) ?? []) {
+  for (const m of membRes) {
     if (!m.tier_id || !customerIdSet.has(m.customer_id)) {
       continue
     }
@@ -145,17 +139,15 @@ export async function buildDashboardReport(
     .filter(inv => inv.customer_id && memberCustomerIds.has(inv.customer_id))
     .reduce((s, inv) => s + toNum(inv.total), 0)
 
-  // 本月每日趋势(迷你图)
-  const refundRows = await (async () => {
-    const { data } = await service
-      .from('refunds')
-      .select('amount, created_at, invoices!inner(store_id)')
-      .eq('tenant_id', f.tenantId)
-      .in('invoices.store_id', f.storeIds)
-      .gte('created_at', period.startISO)
-      .lte('created_at', period.endISO)
-    return (data as Array<{ amount: number; created_at: string }> | null) ?? []
-  })()
+  // 本月每日趋势(迷你图):退款分页拉全(审计 v2 §14);refunds 无 store_id,经发票 join 收敛门店
+  const refundRows = await fetchAll<{ amount: number; created_at: string }>('退款数据', (from, to) => service
+    .from('refunds')
+    .select('amount, created_at, invoices!inner(store_id)')
+    .eq('tenant_id', f.tenantId)
+    .in('invoices.store_id', f.storeIds)
+    .gte('created_at', period.startISO)
+    .lte('created_at', period.endISO)
+    .range(from, to))
 
   const revenueTrend = buildTrendFromRows(invoices, refundRows, 'day', tz)
 

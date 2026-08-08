@@ -45,6 +45,37 @@ join roles r on r.code = 'system_admin' and r.is_system = true
 where u.email = 'support@maoxianqiu.app' and s.code = 'SYS'
 on conflict (user_id, store_id) do update set role_id = excluded.role_id, status = 'active';
 
+-- 租户员工权限(新模型 me-context/RLS 的唯一事实来源,db reset 后必须重建,否则 E2E 账号退化为纯平台模式)
+-- 1. tenant_memberships:账号归属租户
+insert into tenant_memberships (tenant_id, user_id, status)
+select t.id, u.id, 'active'
+from auth.users u, tenants t
+where u.email = 'support@maoxianqiu.app' and t.id = (select id from tenants limit 1)
+on conflict (tenant_id, user_id) do update set status = 'active';
+
+-- 2. employees:员工档案(employee_no 租户内唯一)
+insert into employees (tenant_id, user_id, employee_no, name, status)
+select t.id, u.id, 'E2E-ADMIN', 'E2E管理员', 'active'
+from auth.users u, tenants t
+where u.email = 'support@maoxianqiu.app' and t.id = (select id from tenants limit 1)
+on conflict (tenant_id, user_id) do nothing;
+
+-- 3. employee_role_assignments:租户级角色(tenant_owner,store_id 为空 → tenant-wide)
+insert into employee_role_assignments (tenant_id, employee_id, role_id, store_id)
+select e.tenant_id, e.id, r.id, null
+from employees e
+join roles r on r.code = 'tenant_owner' and r.is_system = true
+where e.employee_no = 'E2E-ADMIN'
+on conflict (tenant_id, employee_id, role_id, store_id) do nothing;
+
+-- 4. employee_store_assignments:主门店(指向系统门店 SYS)
+insert into employee_store_assignments (tenant_id, employee_id, store_id, is_primary)
+select e.tenant_id, e.id, s.id, true
+from employees e
+cross join stores s
+where e.employee_no = 'E2E-ADMIN' and s.code = 'SYS'
+on conflict (tenant_id, employee_id, store_id) do update set is_primary = true;
+
 -- 仓库/药品/笼位(closed-loop B/C 前置)
 insert into public.warehouses (tenant_id, store_id, name, code, is_default, is_active)
 select t.id, s.id, '默认仓库', 'WH-DEF', true, true

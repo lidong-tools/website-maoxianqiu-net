@@ -154,6 +154,7 @@ export const IMPORT_JOB_STATUS_LABELS: Record<ImportJobStatus, string> = {
   completed: '已完成',
   failed: '失败',
   cancelled: '已取消',
+  awaiting_domain_apply: '待领域应用',
 }
 
 /** 默认去重策略：全部保守 skip */

@@ -116,6 +116,8 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
       reason,
     })) as { data: { id: string } }
     const appointmentId = apptRes.data.id
+    // 预约状态机:pending → confirmed → checked_in,须分两步转换(APPOINTMENT_STATUS_TRANSITIONS)
+    await api.post(`/clinical/appointments/${appointmentId}/transition`, { targetStatus: 'confirmed' })
     await api.post(`/clinical/appointments/${appointmentId}/transition`, { targetStatus: 'checked_in' })
     // 数据库断言:预约状态变化
     const appts = (await supabaseSelect<{ status: string }[]>(

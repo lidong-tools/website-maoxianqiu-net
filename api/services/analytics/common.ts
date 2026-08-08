@@ -23,6 +23,42 @@ import type { AnalyticsGroupBy, AnalyticsPeriod } from './types'
 export const DEFAULT_TZ = 'Asia/Shanghai'
 export const MAX_PERIOD_DAYS = 366
 
+/** 分页大小:低于 PostgREST 单次返回上限,循环拉全避免静默截断(审计 v2 §14) */
+export const FETCH_PAGE_SIZE = 500
+
+/**
+ * 分页拉全查询结果(规避 PostgREST 行数上限导致的静默截断)
+ *
+ * 背景:PostgREST 对单次请求有行数上限,若直接 select 全量行,超出部分会被
+ * 静默截断,JS 侧聚合得到"少算但正常"的数字,对 BI 比接口报错更危险
+ * (审计 v2 §14:Analytics Data Completeness P0)。
+ * 本助手按 [from, to] 分页循环拉取,直到单页不足一页为止,保证聚合完整。
+ *
+ * @param tableName 表名/业务名(用于错误提示)
+ * @param pageFn    单页查询构造器,接收 from(含)/to(含),返回 service client 查询结果
+ * @returns 全量行数组
+ */
+export async function fetchAll<T>(
+  tableName: string,
+  // 用 PromiseLike 而非 Promise:PostgrestFilterBuilder 是 thenable,
+  // 不是完整 Promise,声成 Promise 会触发 TS2739(缺 catch/finally)
+  pageFn: (from: number, to: number) => PromiseLike<{ data: T[] | null, error: { message: string } | null }>,
+): Promise<T[]> {
+  const out: T[] = []
+  for (let from = 0; ; from += FETCH_PAGE_SIZE) {
+    const { data, error } = await pageFn(from, from + FETCH_PAGE_SIZE - 1)
+    if (error) {
+      throw new Error(`${tableName}查询失败: ${error.message}`)
+    }
+    const rows = (data as T[] | null) ?? []
+    out.push(...rows)
+    if (rows.length < FETCH_PAGE_SIZE) {
+      break
+    }
+  }
+  return out
+}
+
 /** 数值归一化(兼容 numeric 字符串) */
 export function toNum(v: unknown): number {
   return typeof v === 'number' ? v : Number(v ?? 0) || 0

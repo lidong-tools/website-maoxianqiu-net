@@ -25,9 +25,10 @@ interface DisplayRow {
 const tenantStore = useAppTenantStore()
 const loading = ref(false)
 const dataList = ref<AnnualRegulatoryReportRecord[]>([])
-const currentTenantId = ref('')
+// 复审审计(S3.1-Fix-Reaudit-v3 §6):computed 而非 ref+onMounted,切租户即时响应,不保留旧 Tenant 快照
+const currentTenantId = computed(() => tenantStore.currentTenantId)
 const searchStoreId = ref('')
-const platformUiDeferred = ref(false)
+const platformUiDeferred = computed(() => !tenantStore.currentTenantId)
 
 /** 列表列配置 */
 const tableColumns = computed<TableColumn<DisplayRow>[]>(() => [
@@ -251,10 +252,14 @@ function onExport(row: DisplayRow) {
   URL.revokeObjectURL(a.href)
 }
 
+// 复审审计 §6:切租户时重置门店筛选并重载,避免残留旧租户数据
+watch(currentTenantId, () => {
+  searchStoreId.value = ''
+  getDataList()
+})
+
 onMounted(() => {
   // 审计 S3.1 P0-03:统一使用全局 Tenant Store 上下文,不再自行从 memberships 推导当前租户
-  currentTenantId.value = tenantStore.currentTenantId
-  platformUiDeferred.value = !currentTenantId.value
   getDataList()
 })
 </script>

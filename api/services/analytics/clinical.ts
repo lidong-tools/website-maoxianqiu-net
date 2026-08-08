@@ -14,7 +14,7 @@
  * 不做医疗质量评分/医生排名(避免错误激励)。
  */
 import type { ServiceClient } from './common'
-import { dayKeyInTz } from './common'
+import { dayKeyInTz, fetchAll } from './common'
 import type { ClinicalDailyRow, ClinicalReport, RevenueFilters } from './types'
 
 const SHOW_UP_STATUSES = ['checked_in', 'in_progress', 'completed']
@@ -34,59 +34,53 @@ export async function buildClinicalReport(
   service: ServiceClient,
   f: RevenueFilters,
 ): Promise<ClinicalReport> {
-  const [apptRes, encRes, labRes, imgRes, admRes] = await Promise.all([
-    service.from('appointments')
+  // 全部查询分页拉全,规避 PostgREST 行数上限导致静默少算(审计 v2 §14)
+  const [appointments, encounters, labRows, imgRows, admRows] = await Promise.all([
+    fetchAll<AppointmentRow>('预约数据', (from, to) => service
+      .from('appointments')
       .select('scheduled_start, status')
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .gte('scheduled_start', f.period.startISO)
-      .lte('scheduled_start', f.period.endISO),
-    service.from('encounters')
+      .lte('scheduled_start', f.period.endISO)
+      .range(from, to)),
+    fetchAll<EncounterRow>('就诊数据', (from, to) => service
+      .from('encounters')
       .select('started_at, signed_at')
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .gte('started_at', f.period.startISO)
-      .lte('started_at', f.period.endISO),
-    service.from('lab_orders')
-      .select('requested_at')
+      .lte('started_at', f.period.endISO)
+      .range(from, to)),
+    fetchAll<unknown>('检验单数据', (from, to) => service
+      .from('lab_orders')
+      .select('id')
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .gte('requested_at', f.period.startISO)
-      .lte('requested_at', f.period.endISO),
-    service.from('imaging_orders')
-      .select('created_at')
+      .lte('requested_at', f.period.endISO)
+      .range(from, to)),
+    fetchAll<unknown>('影像单数据', (from, to) => service
+      .from('imaging_orders')
+      .select('id')
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .gte('created_at', f.period.startISO)
-      .lte('created_at', f.period.endISO),
-    service.from('admissions')
-      .select('admitted_at')
+      .lte('created_at', f.period.endISO)
+      .range(from, to)),
+    fetchAll<unknown>('住院数据', (from, to) => service
+      .from('admissions')
+      .select('id')
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .gte('admitted_at', f.period.startISO)
-      .lte('admitted_at', f.period.endISO),
+      .lte('admitted_at', f.period.endISO)
+      .range(from, to)),
   ])
-  if (apptRes.error) {
-    throw new Error(`预约数据查询失败: ${apptRes.error.message}`)
-  }
-  if (encRes.error) {
-    throw new Error(`就诊数据查询失败: ${encRes.error.message}`)
-  }
-  if (labRes.error) {
-    throw new Error(`检验单查询失败: ${labRes.error.message}`)
-  }
-  if (imgRes.error) {
-    throw new Error(`影像单查询失败: ${imgRes.error.message}`)
-  }
-  if (admRes.error) {
-    throw new Error(`住院数据查询失败: ${admRes.error.message}`)
-  }
 
-  const appointments = (apptRes.data as AppointmentRow[] | null) ?? []
-  const encounters = (encRes.data as EncounterRow[] | null) ?? []
-  const labCount = (labRes.data as unknown[] | null)?.length ?? 0
-  const imagingCount = (imgRes.data as unknown[] | null)?.length ?? 0
-  const admissionCount = (admRes.data as unknown[] | null)?.length ?? 0
+  const labCount = labRows.length
+  const imagingCount = imgRows.length
+  const admissionCount = admRows.length
 
   const totalAppointments = appointments.length
   const cancelled = appointments.filter(a => a.status === CANCELLED_STATUS).length

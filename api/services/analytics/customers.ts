@@ -15,7 +15,7 @@
  * 不再读取旧字段 customers.member_level。
  */
 import type { ServiceClient } from './common'
-import { toNum } from './common'
+import { fetchAll, toNum } from './common'
 import type { CustomerConsumptionTier, CustomerReport, CustomerTierRow, RevenueFilters } from './types'
 
 /** 消费分层桶(净消费,元) */
@@ -34,55 +34,48 @@ export async function buildCustomerReport(
   service: ServiceClient,
   f: RevenueFilters,
 ): Promise<CustomerReport> {
-  const [custRes, encRes, invRes, tierRes, membRes] = await Promise.all([
-    service.from('customers')
+  // 全部查询分页拉全,规避 PostgREST 行数上限导致静默少算(审计 v2 §14)
+  const [customers, encounters, invoices, tierRes, memberships] = await Promise.all([
+    fetchAll<{ id: string; created_at: string }>('客户数据', (from, to) => service
+      .from('customers')
       .select('id, created_at')
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
-      .lte('created_at', f.period.endISO),
-    service.from('encounters')
+      .lte('created_at', f.period.endISO)
+      .range(from, to)),
+    fetchAll<{ customer_id: string }>('就诊记录', (from, to) => service
+      .from('encounters')
       .select('customer_id')
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .gte('created_at', f.period.startISO)
-      .lte('created_at', f.period.endISO),
-    service.from('invoices')
+      .lte('created_at', f.period.endISO)
+      .range(from, to)),
+    fetchAll<{ customer_id: string | null; total: number }>('消费记录', (from, to) => service
+      .from('invoices')
       .select('customer_id, total')
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .in('status', ['confirmed', 'paid', 'partially_paid', 'refunded'])
       .gte('created_at', f.period.startISO)
-      .lte('created_at', f.period.endISO),
-    // 会员层级定义(真实层级,审计 #21)
+      .lte('created_at', f.period.endISO)
+      .range(from, to)),
+    // 会员层级定义(真实层级,审计 #21;层级数有限,无截断风险)
     service.from('membership_tiers')
       .select('id, code, name, is_active')
       .eq('tenant_id', f.tenantId),
-    // 当前有效会员关系(customer_memberships 为事实来源)
-    service.from('customer_memberships')
+    // 当前有效会员关系(customer_memberships 为事实来源,审计 #21;分页拉全)
+    fetchAll<{ customer_id: string; tier_id: string | null; expires_at: string | null }>('会员关系数据', (from, to) => service
+      .from('customer_memberships')
       .select('customer_id, tier_id, expires_at')
-      .eq('tenant_id', f.tenantId),
+      .eq('tenant_id', f.tenantId)
+      .range(from, to)),
   ])
-  if (custRes.error) {
-    throw new Error(`客户资料查询失败: ${custRes.error.message}`)
-  }
-  if (encRes.error) {
-    throw new Error(`就诊记录查询失败: ${encRes.error.message}`)
-  }
-  if (invRes.error) {
-    throw new Error(`消费记录查询失败: ${invRes.error.message}`)
-  }
   if (tierRes.error) {
     throw new Error(`会员层级查询失败: ${tierRes.error.message}`)
   }
-  if (membRes.error) {
-    throw new Error(`会员关系查询失败: ${membRes.error.message}`)
-  }
 
-  const customers = (custRes.data as Array<{ id: string; created_at: string }> | null) ?? []
-  const encounters = (encRes.data as Array<{ customer_id: string }> | null) ?? []
-  const invoices = (invRes.data as Array<{ customer_id: string | null; total: number }> | null) ?? []
   const tiers = (tierRes.data as Array<{ id: string; code: string; name: string; is_active: boolean }> | null) ?? []
-  const memberships = (membRes.data as Array<{ customer_id: string; tier_id: string | null; expires_at: string | null }> | null) ?? []
 
   // 新客户(周期内建档)
   const newCustomers = customers.filter(c => c.created_at >= f.period.startISO).length

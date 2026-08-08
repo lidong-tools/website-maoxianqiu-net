@@ -81,9 +81,10 @@ test.describe('核心业务流程', () => {
     await page.waitForURL(/\/#\/crm\/customer\/[^/]+$/, { timeout: 30_000 })
     await expect(page.getByText(customerName).first()).toBeVisible()
 
-    // 返回客户列表,按姓名关键词搜索(placeholder 为「姓名 / 手机号 / 编号」)
+    // 返回客户列表,按姓名关键词搜索(placeholder 为「姓名 / 手机号 / 编号」,
+    // FaInput 包装 div 与内部 input 都带 placeholder,须定位到真实 input)
     await page.goto('/#/crm/customer', { waitUntil: 'domcontentloaded' })
-    const keywordInput = page.getByPlaceholder('姓名 / 手机号 / 编号')
+    const keywordInput = page.getByPlaceholder('姓名 / 手机号 / 编号').locator('input')
     await keywordInput.fill(customerName)
     // 输入框回车触发列表查询
     await keywordInput.press('Enter')

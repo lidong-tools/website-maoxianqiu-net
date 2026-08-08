@@ -138,8 +138,10 @@ test.describe('闭环 B — 库存闭环(串行)', () => {
     /* ========== 4. UI 冒烟:入库页余额表与流水表渲染 ========== */
     console.log('[闭环B] 步骤4 入库页冒烟')
     await page.goto('/#/inventory/receipt', { waitUntil: 'domcontentloaded' })
-    await expect(page.getByText('库存余额').first()).toBeVisible({ timeout: 30_000 })
-    await expect(page.getByText('最近流水').first()).toBeVisible()
+    // 余额/流水以页内 Tabs 呈现,默认停在「入库登记」,须先切换到对应 Tab 才会渲染 FaTable
+    await page.getByRole('button', { name: '库存余额' }).click()
+    await expect(page.locator('table').first()).toBeVisible({ timeout: 30_000 })
+    await page.getByRole('button', { name: '最近流水' }).click()
     await expect(page.locator('table').first()).toBeVisible()
 
     console.log(`[闭环B] 完成:item=${item.id} warehouseA=${warehouseA.id} warehouseB=${warehouseB.id}`)

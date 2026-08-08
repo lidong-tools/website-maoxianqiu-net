@@ -277,6 +277,9 @@ function variableLabelWithKey(key: string): string {
   return `${variableLabel(key)}（${placeholderText(key)}）`
 }
 
+/** 一次"发送动作"期间的稳定幂等键(审计 v2 §24:完成/明确失败前持续复用) */
+let pendingSendKey: string | null = null
+
 async function submitSend() {
   if (!tenantStore.currentTenantId) return
   if (!sendForm.value.templateId) {
@@ -293,6 +296,11 @@ async function submitSend() {
       variables[key] = sendForm.value.variables[key]
     }
   }
+  // 幂等键:发送动作开始时生成,期间复用(网络重试/重复点击不产生重复投递)
+  if (!pendingSendKey) {
+    pendingSendKey = crypto.randomUUID()
+  }
+  const idempotencyKey = pendingSendKey
   sendSubmitting.value = true
   try {
     const res: any = await apiMessaging.send({
@@ -303,6 +311,7 @@ async function submitSend() {
       channel: sendForm.value.channel,
       recipient: sendForm.value.recipient.trim(),
       variables,
+      idempotencyKey,
     })
     const d = res.data as { delivery: MessagingDelivery, result: { status: MessagingStatus } }
     sendResult.value = {
@@ -318,6 +327,8 @@ async function submitSend() {
     // 拦截器已提示
   }
   finally {
+    // 完成或明确失败后释放键,下次点击视为新的发送意图
+    pendingSendKey = null
     sendSubmitting.value = false
   }
 }

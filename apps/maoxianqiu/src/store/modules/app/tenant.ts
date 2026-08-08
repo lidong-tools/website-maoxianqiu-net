@@ -175,9 +175,19 @@ export const useAppTenantStore = defineStore('appTenant', () => {
       setStore(persistedStoreId)
     }
     else if (ctx.mode === 'platform') {
-      // P0-05:平台管理员进入平台上下文,不强行伪装成普通医院员工
-      setTenant('')
-      setStore('')
+      // P0-05:平台管理员进入平台上下文,不强行伪装成普通医院员工。
+      // 但平台权限仅决定数据边界,UI 仍需要一个工作上下文:
+      // 默认选中第一个有门店的租户作为 currentTenantId/currentStoreId,
+      // 避免业务表单(如新建客户)提交时缺租户导致 400(本账号多租户/跨租户仍受平台权限约束)。
+      const firstTenant = context.value?.tenants.find(t => t.stores.length > 0)
+      if (firstTenant) {
+        setTenant(firstTenant.id)
+        setStore(firstTenant.stores[0].id)
+      }
+      else {
+        setTenant('')
+        setStore('')
+      }
     }
     else {
       // 无 primary 时选第一个有效门店;优先 primary 门店

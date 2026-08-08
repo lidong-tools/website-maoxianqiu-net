@@ -1,6 +1,12 @@
 -- ============================================================
--- 20260810000115_s3_1_source_gate_fixes.sql
+-- 20260810000117_s3_1_source_gate_fixes.sql
 -- S3.1 审计 Source Gate 修复(S3.1-Final-Full-Code-Audit-Report v1)
+-- 注:原 115 与 S3.2 messaging_idempotency_lockdown(115)版本冲突,
+--     已重命名为 117(S3.2-Fix-Reaudit-v2 §2)。
+--
+-- 版本说明:复审审计(S3.1-Fix-Reaudit-v3 §7)发现原 20260810000115 与
+-- messaging_idempotency_lockdown 同版本冲突,本文件重命名为 117 解决
+-- Migration Version 唯一性;116 analytics 不依赖本文件,顺序安全。
 --
 -- 本 migration 是纯 Forward Migration,只 CREATE OR REPLACE / 重建 Policy,
 -- 不修改任何已发布的历史 migration(修复 Migration Immutable 纪律)。
@@ -15,6 +21,8 @@
 --      progress_notes_update / progress_notes_delete RLS 要求 status='draft';
 --      另加 BEFORE UPDATE/DELETE Trigger,签署后禁止任何直连修改/删除,
 --      受控 Amendment / Service Role 流程通过 set_config 显式放行。
+--   3. 复审审计 §9:discharge_patient 幂等查询补 tenant scope
+--      (idempotency_key + admission 归属租户),避免不同租户同 Key 串读。
 -- 自包含幂等,重复应用安全。
 -- ============================================================
 
@@ -44,11 +52,12 @@ declare
   v_existing jsonb;
   v_total_charge numeric(12,2) := 0;
 begin
-  -- 幂等检查
+  -- 幂等检查(复审 §9:显式 tenant scope,避免不同租户同 Key 串读)
   if p_idempotency_key is not null and p_idempotency_key <> '' then
     select result_json into v_existing
     from public.idempotency_records
     where idempotency_key = p_idempotency_key
+      and tenant_id = (select tenant_id from public.admissions where id = p_admission_id)
     limit 1;
     if v_existing is not null then
       return v_existing;
