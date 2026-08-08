@@ -24,6 +24,34 @@ interface GroupOption {
   options: Option[]
 }
 
+// reka-ui SelectItem 不允许空字符串 value(会抛 "must have a value prop that is not an empty string")。
+// 各业务页面用 value:'' 表示"全部/不限",渲染时映射为哨兵值,回写 v-model 时再还原为 ''。
+const EMPTY_VALUE_SENTINEL = '\u0000__empty__\u0000'
+
+/**
+ * 渲染层值转换:空字符串 → 哨兵值(避免 SelectItem setup 抛错)。
+ * @param v 原始值(可为数组,mulitple 模式)
+ * @returns 转换后的值
+ */
+function toRenderValue(v: AcceptableValue | AcceptableValue[] | undefined): AcceptableValue | AcceptableValue[] | undefined {
+  if (Array.isArray(v)) {
+    return v.map(x => (x === '' ? EMPTY_VALUE_SENTINEL : x))
+  }
+  return v === '' ? EMPTY_VALUE_SENTINEL : v
+}
+
+/**
+ * 模型层值还原:哨兵值 → 空字符串(保持对外 v-model 语义不变)。
+ * @param v 渲染层值(可为数组)
+ * @returns 还原后的值
+ */
+function toModelValue(v: AcceptableValue | AcceptableValue[] | undefined): AcceptableValue | AcceptableValue[] | undefined {
+  if (Array.isArray(v)) {
+    return v.map(x => (x === EMPTY_VALUE_SENTINEL ? '' : x))
+  }
+  return v === EMPTY_VALUE_SENTINEL ? '' : v
+}
+
 defineOptions({
   name: 'BuiltInSelect',
 })
@@ -42,6 +70,16 @@ const emits = defineEmits<{
 }>()
 
 const value = defineModel<AcceptableValue>()
+
+// 渲染层与模型层的桥接:SelectItem 的 value 使用哨兵值(非空),回写 v-model 时还原为原始值
+const modelProxy = computed<AcceptableValue | AcceptableValue[] | undefined>({
+  get() {
+    return toRenderValue(value.value)
+  },
+  set(v) {
+    value.value = toModelValue(v)
+  },
+})
 
 const dir = useTextDirection({
   observe: true,
@@ -95,7 +133,7 @@ const selectedOption = computed({
 </script>
 
 <template>
-  <Select v-model="value" :multiple :disabled :dir="dir === 'ltr' ? 'ltr' : 'rtl'">
+  <Select v-model="modelProxy" :multiple :disabled :dir="dir === 'ltr' ? 'ltr' : 'rtl'">
     <SelectTrigger :class="cn('w-[200px]', props.class)">
       <SelectValue :placeholder="props.placeholder" :selected-option="selectedOption?.label" />
     </SelectTrigger>
@@ -106,7 +144,7 @@ const selectedOption = computed({
           <SelectItem
             v-for="(item, index) in (option as GroupOption).options"
             :key="index"
-            :value="item.value"
+            :value="toRenderValue(item.value)"
             :disabled="item.disabled"
           >
             {{ item.label }}
@@ -114,7 +152,7 @@ const selectedOption = computed({
         </SelectGroup>
         <SelectItem
           v-else
-          :value="(option as Option).value"
+          :value="toRenderValue((option as Option).value)"
           :disabled="(option as Option).disabled"
         >
           {{ option.label }}

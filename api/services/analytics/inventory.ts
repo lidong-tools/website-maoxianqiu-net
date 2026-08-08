@@ -65,9 +65,10 @@ export async function countLowStock(
   const rows = await fetchAll<{ quantity_on_hand: number; quantity_reserved: number }>('库存余额数据', (from, to) => service
     .from('inventory_balances')
     .select('quantity_on_hand, quantity_reserved')
-    .eq('tenant_id', f.tenantId)
-    .in('warehouse_id', warehouseIds)
-    .range(from, to))
+      .eq('tenant_id', f.tenantId)
+      .in('warehouse_id', warehouseIds)
+      .order('id', { ascending: true })
+      .range(from, to))
   return rows.filter(
     b => toNum(b.quantity_on_hand) - toNum(b.quantity_reserved) <= STOCKOUT_MAX_AVAILABLE,
   ).length
@@ -87,12 +88,13 @@ export async function countExpiring(
   const rows = await fetchAll<{ expiry_date: string | null }>('库存批次数据', (from, to) => service
     .from('inventory_batches')
     .select('expiry_date')
-    .eq('tenant_id', f.tenantId)
-    .in('warehouse_id', warehouseIds)
-    .eq('status', 'active')
-    .gt('quantity_remaining', 0)
-    .not('expiry_date', 'is', null)
-    .range(from, to))
+      .eq('tenant_id', f.tenantId)
+      .in('warehouse_id', warehouseIds)
+      .eq('status', 'active')
+      .gt('quantity_remaining', 0)
+      .not('expiry_date', 'is', null)
+      .order('id', { ascending: true })
+      .range(from, to))
   const ref = new Date(`${referenceDate}T00:00:00`)
   return rows.filter((b) => {
     if (!b.expiry_date) {
@@ -135,17 +137,19 @@ export async function buildInventoryReport(
       fetchAll<BalanceRow>('库存余额数据', (from, to) => service
         .from('inventory_balances')
         .select('warehouse_id, catalog_item_id, quantity_on_hand, quantity_reserved')
-        .eq('tenant_id', f.tenantId)
-        .in('warehouse_id', warehouseIds)
-        .range(from, to)),
+      .eq('tenant_id', f.tenantId)
+      .in('warehouse_id', warehouseIds)
+      .order('id', { ascending: true })
+      .range(from, to)),
       fetchAll<BatchRow>('库存批次数据', (from, to) => service
         .from('inventory_batches')
         .select('id, warehouse_id, catalog_item_id, batch_no, quantity_remaining, unit_cost, expiry_date, status')
-        .eq('tenant_id', f.tenantId)
-        .in('warehouse_id', warehouseIds)
-        .eq('status', 'active')
-        .gt('quantity_remaining', 0)
-        .range(from, to)),
+      .eq('tenant_id', f.tenantId)
+      .in('warehouse_id', warehouseIds)
+      .eq('status', 'active')
+      .gt('quantity_remaining', 0)
+      .order('id', { ascending: true })
+      .range(from, to)),
     ])
     balances = balRows
     batches = batchRows
@@ -158,16 +162,19 @@ export async function buildInventoryReport(
   ])]
   const catalogMap = new Map<string, CatalogInfo>()
   if (catalogIds.length > 0) {
-    const { data, error } = await service
-      .from('catalog_items')
-      .select('id, code, name, unit, cost_price')
-      .eq('tenant_id', f.tenantId)
-      .in('id', catalogIds)
-    if (error) {
-      throw new Error(`目录项查询失败: ${error.message}`)
-    }
-    for (const c of (data as CatalogInfo[] | null) ?? []) {
-      catalogMap.set(c.id, c)
+    // 大 IN 分批(审计 v3 §11):catalogIds 量级可能很大
+    for (const chunkIds of chunk(catalogIds, 500)) {
+      const { data, error } = await service
+        .from('catalog_items')
+        .select('id, code, name, unit, cost_price')
+        .eq('tenant_id', f.tenantId)
+        .in('id', chunkIds)
+      if (error) {
+        throw new Error(`目录项查询失败: ${error.message}`)
+      }
+      for (const c of (data as CatalogInfo[] | null) ?? []) {
+        catalogMap.set(c.id, c)
+      }
     }
   }
 
@@ -254,6 +261,7 @@ export async function buildInventoryReport(
       .lt('quantity', 0)
       .gte('created_at', f.period.startISO)
       .lte('created_at', f.period.endISO)
+      .order('id', { ascending: true })
       .range(from, to))
     for (const w of wasteRows) {
       if (!WASTAGE_RE.test(w.reference_type ?? '')) {
@@ -269,12 +277,13 @@ export async function buildInventoryReport(
   const poRows = await fetchAll<{ total_cost: number }>('采购订单数据', (from, to) => service
     .from('purchase_orders')
     .select('total_cost')
-    .eq('tenant_id', f.tenantId)
-    .in('store_id', f.storeIds)
-    .not('status', 'in', '("draft","cancelled")')
-    .gte('created_at', f.period.startISO)
-    .lte('created_at', f.period.endISO)
-    .range(from, to))
+      .eq('tenant_id', f.tenantId)
+      .in('store_id', f.storeIds)
+      .not('status', 'in', '("draft","cancelled")')
+      .gte('created_at', f.period.startISO)
+      .lte('created_at', f.period.endISO)
+      .order('id', { ascending: true })
+      .range(from, to))
   purchaseAmount = poRows.reduce((s, r) => s + toNum(r.total_cost), 0)
 
   const skuCount = skuSet.size

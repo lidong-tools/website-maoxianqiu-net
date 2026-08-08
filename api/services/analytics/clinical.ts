@@ -43,6 +43,7 @@ export async function buildClinicalReport(
       .in('store_id', f.storeIds)
       .gte('scheduled_start', f.period.startISO)
       .lte('scheduled_start', f.period.endISO)
+      .order('id', { ascending: true })
       .range(from, to)),
     fetchAll<EncounterRow>('就诊数据', (from, to) => service
       .from('encounters')
@@ -51,6 +52,7 @@ export async function buildClinicalReport(
       .in('store_id', f.storeIds)
       .gte('started_at', f.period.startISO)
       .lte('started_at', f.period.endISO)
+      .order('id', { ascending: true })
       .range(from, to)),
     fetchAll<unknown>('检验单数据', (from, to) => service
       .from('lab_orders')
@@ -59,6 +61,7 @@ export async function buildClinicalReport(
       .in('store_id', f.storeIds)
       .gte('requested_at', f.period.startISO)
       .lte('requested_at', f.period.endISO)
+      .order('id', { ascending: true })
       .range(from, to)),
     fetchAll<unknown>('影像单数据', (from, to) => service
       .from('imaging_orders')
@@ -67,6 +70,7 @@ export async function buildClinicalReport(
       .in('store_id', f.storeIds)
       .gte('created_at', f.period.startISO)
       .lte('created_at', f.period.endISO)
+      .order('id', { ascending: true })
       .range(from, to)),
     fetchAll<unknown>('住院数据', (from, to) => service
       .from('admissions')
@@ -75,6 +79,7 @@ export async function buildClinicalReport(
       .in('store_id', f.storeIds)
       .gte('admitted_at', f.period.startISO)
       .lte('admitted_at', f.period.endISO)
+      .order('id', { ascending: true })
       .range(from, to)),
   ])
 

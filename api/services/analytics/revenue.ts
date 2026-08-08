@@ -26,7 +26,7 @@
  *     与 Overall 的发票开账(应计)口径不同,属 KPI 会计基础差异,不是对账 Bug(§16)。
  */
 import type { ServiceClient } from './common'
-import { bucketKey, loadStoreNameMap, toNum } from './common'
+import { bucketKey, chunk, loadStoreNameMap, toNum } from './common'
 import type {
   AnalyticsGroupBy,
   RevenueDimension,
@@ -79,6 +79,7 @@ async function fetchValidInvoices(
       .in('status', VALID_INVOICE_STATUSES)
       .gte('created_at', f.period.startISO)
       .lte('created_at', f.period.endISO)
+      .order('id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
     if (error) {
       throw new Error(`收入数据查询失败: ${error.message}`)
@@ -110,6 +111,7 @@ async function fetchRefunds(
       .in('invoices.store_id', f.storeIds)
       .gte('created_at', f.period.startISO)
       .lte('created_at', f.period.endISO)
+      .order('id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
     if (error) {
       throw new Error(`退款数据查询失败: ${error.message}`)
@@ -291,6 +293,7 @@ async function buildPaymentChannelDimension(
       .in('invoices.status', VALID_INVOICE_STATUSES)
       .gte('created_at', f.period.startISO)
       .lte('created_at', f.period.endISO)
+      .order('id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
     if (error) {
       throw new Error(`支付渠道维度查询失败: ${error.message}`)
@@ -318,6 +321,7 @@ async function buildPaymentChannelDimension(
       .in('invoices.store_id', f.storeIds)
       .gte('created_at', f.period.startISO)
       .lte('created_at', f.period.endISO)
+      .order('id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
     if (error) {
       throw new Error(`退款渠道归属查询失败: ${error.message}`)
@@ -364,27 +368,31 @@ async function buildCatalogDimension(
   const invoiceByCat = new Map<string, Set<string>>()
   // 发票 → 明细金额合计(供退款分摊比例)
   const invoiceTotalByItem = new Map<string, Map<string, number>>()
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await service
-      .from('invoice_items')
-      .select('invoice_id, category, amount')
-      .in('invoice_id', invoiceIds)
-      .range(from, from + PAGE_SIZE - 1)
-    if (error) {
-      throw new Error(`目录类型维度查询失败: ${error.message}`)
-    }
-    const items = (data as Array<{ invoice_id: string; category: string; amount: number }> | null) ?? []
-    for (const it of items) {
-      grossByCat.set(it.category, (grossByCat.get(it.category) ?? 0) + toNum(it.amount))
-      const set = invoiceByCat.get(it.category) ?? new Set<string>()
-      set.add(it.invoice_id)
-      invoiceByCat.set(it.category, set)
-      const byInvoice = invoiceTotalByItem.get(it.invoice_id) ?? new Map<string, number>()
-      byInvoice.set(it.category, (byInvoice.get(it.category) ?? 0) + toNum(it.amount))
-      invoiceTotalByItem.set(it.invoice_id, byInvoice)
-    }
-    if (items.length < PAGE_SIZE) {
-      break
+  // 大 IN 分批(审计 v3 §11):invoiceIds 量级可能很大,按块查询避免单次查询过长
+  for (const chunkIds of chunk(invoiceIds, 500)) {
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data, error } = await service
+        .from('invoice_items')
+        .select('invoice_id, category, amount')
+        .in('invoice_id', chunkIds)
+        .order('id', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1)
+      if (error) {
+        throw new Error(`目录类型维度查询失败: ${error.message}`)
+      }
+      const items = (data as Array<{ invoice_id: string; category: string; amount: number }> | null) ?? []
+      for (const it of items) {
+        grossByCat.set(it.category, (grossByCat.get(it.category) ?? 0) + toNum(it.amount))
+        const set = invoiceByCat.get(it.category) ?? new Set<string>()
+        set.add(it.invoice_id)
+        invoiceByCat.set(it.category, set)
+        const byInvoice = invoiceTotalByItem.get(it.invoice_id) ?? new Map<string, number>()
+        byInvoice.set(it.category, (byInvoice.get(it.category) ?? 0) + toNum(it.amount))
+        invoiceTotalByItem.set(it.invoice_id, byInvoice)
+      }
+      if (items.length < PAGE_SIZE) {
+        break
+      }
     }
   }
   // 退款分摊:按退款发票的明细金额占比计入各目录类型;无明细的退款归"未归因"
@@ -439,20 +447,29 @@ async function buildDoctorDimension(
   // 函数级声明:refund 归属需复用 encounter→doctor 映射(审计 v2 §15)
   let encs: Array<{ id: string; doctor_id: string | null }> = []
   if (encounterIds.length > 0) {
-    const { data } = await service
-      .from('encounters')
-      .select('id, doctor_id')
-      .in('id', encounterIds)
-    encs = (data as Array<{ id: string; doctor_id: string | null }> | null) ?? []
+    // 大 IN 分批(审计 v3 §11):encounterIds 量级可能很大
+    const encOut: Array<{ id: string; doctor_id: string | null }> = []
+    for (const chunkIds of chunk(encounterIds, 500)) {
+      const { data } = await service
+        .from('encounters')
+        .select('id, doctor_id')
+        .in('id', chunkIds)
+      encOut.push(...((data as Array<{ id: string; doctor_id: string | null }> | null) ?? []))
+    }
+    encs = encOut
     const doctorIds = [...new Set(encs.map((e: { doctor_id: string | null }) => e.doctor_id).filter(Boolean))] as string[]
     const doctorMap = new Map<string, string>()
     if (doctorIds.length > 0) {
-      const { data: employees } = await service
-        .from('employees')
-        .select('user_id, name')
-        .eq('tenant_id', f.tenantId)
-        .in('user_id', doctorIds)
-      for (const emp of (employees ?? []) as Array<{ user_id: string; name: string | null }>) {
+      const empOut: Array<{ user_id: string; name: string | null }> = []
+      for (const chunkIds of chunk(doctorIds, 500)) {
+        const { data: employees } = await service
+          .from('employees')
+          .select('user_id, name')
+          .eq('tenant_id', f.tenantId)
+          .in('user_id', chunkIds)
+        empOut.push(...((employees ?? []) as Array<{ user_id: string; name: string | null }>))
+      }
+      for (const emp of empOut) {
         doctorMap.set(emp.user_id, emp.name ?? emp.user_id.slice(0, 8))
       }
     }

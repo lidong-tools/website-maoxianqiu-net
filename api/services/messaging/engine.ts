@@ -26,6 +26,42 @@ import {
 
 const MAX_ATTEMPTS = 3
 
+/**
+ * sending 陈旧时间窗(审计 v3 §19):claim 后 Provider 副作用执行中,
+ * 若进程在副作用前后崩溃,delivery 会长期停在 sending。超过该时长视为
+ * 原执行者失联,允许人工重试回收(在无法确定 Provider 是否已收到请求时,
+ * 仍以 Provider 幂等/消息键为准,本时间窗只是避免永久卡死的最小兜底)。
+ */
+const STALE_SENDING_MS = 10 * 60 * 1000
+
+/** 判断 sending 是否为"陈旧"(claim 已超过时间窗,可被回收重试) */
+function isStaleSending(delivery: DeliveryRow): boolean {
+  return delivery.status === 'sending'
+    && Date.now() - new Date(delivery.updated_at).getTime() > STALE_SENDING_MS
+}
+
+/**
+ * 幂等 replay 结果映射(审计 v3 §17):按投递真实状态返回,
+ * 绝不把"非 failed"等价于 sent。
+ *   queued/retry → queued;sending → queued(尚未确认成功);
+ *   sent → sent;delivered → delivered;failed → failed。
+ */
+function replayResult(delivery: DeliveryRow): ProviderSendResult {
+  switch (delivery.status) {
+    case 'delivered':
+      return { status: 'delivered', providerMessageId: delivery.provider_message_id ?? undefined, raw: { idempotent: true } }
+    case 'sent':
+      return { status: 'sent', providerMessageId: delivery.provider_message_id ?? undefined, raw: { idempotent: true } }
+    case 'failed':
+      return { status: 'failed', raw: { code: 'IDEMPOTENT_REPLAY', message: delivery.error ?? '复用既有失败投递' } }
+    case 'sending':
+    case 'queued':
+    case 'retry':
+    default:
+      return { status: 'queued', raw: { idempotent: true } }
+  }
+}
+
 type MessageChannel = 'sms' | 'email' | 'wechat' | 'work_wechat'
 type DeliveryStatus = 'queued' | 'sending' | 'sent' | 'delivered' | 'failed' | 'retry'
 
@@ -71,6 +107,7 @@ interface DeliveryRow {
   sent_at: string | null
   idempotency_key: string | null
   created_at: string
+  updated_at: string
 }
 
 export interface DeliveryWithAttempt {
@@ -338,9 +375,8 @@ export async function sendMessage(req: SendRequest): Promise<DeliveryWithAttempt
   // 禁止再次调用 Provider,防止同一 Delivery 被发送两次(审计 v2 §21)。
   if (!created) {
     const attempt = await loadLatestAttempt(service, delivery.id)
-    const result: ProviderSendResult = delivery.status === 'failed'
-      ? { status: 'failed', raw: { code: 'IDEMPOTENT_REPLAY', message: delivery.error ?? '复用既有失败投递' } }
-      : { status: 'sent', providerMessageId: delivery.provider_message_id ?? undefined, raw: { idempotent: true } }
+    // 真实状态映射(审计 v3 §17),不把"非 failed"当作 sent
+    const result = replayResult(delivery)
     return { delivery, attempt, provider: 'idempotent-replay', result }
   }
 
@@ -378,18 +414,22 @@ export async function retryDelivery(deliveryId: string): Promise<DeliveryWithAtt
   if (existing.status === 'sent' || existing.status === 'delivered') {
     throw err.unprocessable('该投递已成功,无需重试')
   }
-  if (existing.status === 'sending') {
+  // 刚 claim 的 sending(时间窗内)拒绝并发重试;陈旧 sending(执行者疑似失联)
+  // 允许回收重试,避免 delivery 永久卡死(审计 v3 §19)
+  if (existing.status === 'sending' && !isStaleSending(existing)) {
     throw err.conflict('该投递正在发送中,请勿重复操作')
   }
 
   // CAS claim:attempts 期望值 + 可重试状态集 + 次数上限均作为 UPDATE 条件,
   // attempts = existing.attempts 保证并发下仅一个请求能匹配(SQL 侧比较当前值)。
+  // 可重试状态:queued/failed/retry + 超过时间窗的陈旧 sending。
+  const staleCutoff = new Date(Date.now() - STALE_SENDING_MS).toISOString()
   const { data: claimed, error: claimErr } = await service
     .from('message_deliveries')
     .update({ status: 'sending', attempts: existing.attempts + 1 })
     .eq('id', deliveryId)
     .eq('attempts', existing.attempts)
-    .in('status', ['queued', 'failed', 'retry'])
+    .or(`status.in.(queued,failed,retry),and(status.eq.sending,updated_at.lt.${staleCutoff})`)
     .lt('attempts', MAX_ATTEMPTS)
     .select('*')
     .maybeSingle()

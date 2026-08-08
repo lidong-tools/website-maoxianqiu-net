@@ -68,6 +68,18 @@ export function toInt(v: unknown): number {
   return Math.round(toNum(v))
 }
 
+/**
+ * 数组分块(审计 v3 §11):大 ID 集合的 .in() 查询按块分批,
+ * 避免单次 PostgREST 查询/URL 过长(大医院发票/商品量级下可能 414/超限)。
+ */
+export function chunk<T>(arr: readonly T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < arr.length; i += size) {
+    out.push(arr.slice(i, i + size))
+  }
+  return out
+}
+
 export type ServiceClient = ReturnType<typeof createServiceClient>
 
 /**

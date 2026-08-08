@@ -313,6 +313,10 @@ async function submitSend() {
       variables,
       idempotencyKey,
     })
+    // 服务端明确成功后才释放幂等键(审计 v3 §18):网络超时/连接中断时保留 Key,
+    // 下次点击继续复用同一 Idempotency-Key,避免"服务端已发送但客户端未收到响应"
+    // 后再次点击生成新 Key 导致重复消息
+    pendingSendKey = null
     const d = res.data as { delivery: MessagingDelivery, result: { status: MessagingStatus } }
     sendResult.value = {
       delivery: d.delivery,
@@ -324,11 +328,9 @@ async function submitSend() {
     loadDeliveries()
   }
   catch {
-    // 拦截器已提示
+    // 拦截器已提示;保留 pendingSendKey,供下次重试复用
   }
   finally {
-    // 完成或明确失败后释放键,下次点击视为新的发送意图
-    pendingSendKey = null
     sendSubmitting.value = false
   }
 }

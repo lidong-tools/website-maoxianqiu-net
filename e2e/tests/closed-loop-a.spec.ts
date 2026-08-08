@@ -131,7 +131,9 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
     console.log('[闭环A] 步骤4 候诊开始就诊')
     await page.goto('/#/clinical/waiting', { waitUntil: 'domcontentloaded' })
     await expect(page.getByText(reason).first()).toBeVisible({ timeout: 30_000 })
-    await page.getByRole('button', { name: '开始就诊' }).first().click()
+    // 定位本次预约对应卡片内的「开始就诊」按钮(候诊队列可能有历史残留预约,不能取 first)
+    const waitingRow = page.locator('div.p-3.border.rounded-lg').filter({ hasText: reason }).first()
+    await waitingRow.getByRole('button', { name: '开始就诊' }).click()
     await page.waitForURL(/\/#\/clinical\/workbench/, { timeout: 30_000 })
     // 数据库断言:预约推进到 in_progress
     const appts2 = (await supabaseSelect<{ status: string }[]>(
@@ -151,6 +153,9 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
     await page.getByPlaceholder('宠物主诉').last().fill(complaint)
     await page.getByPlaceholder('病史描述').last().fill(`E2E现病史-${runId}`)
     await page.getByRole('button', { name: '保存草稿' }).click()
+    // 等待保存完成:若立刻点「完成就诊」,保存 PATCH 与完成 PATCH 并发,
+    // form 已改而 baseline 未更新,isDirty=true,未保存保护弹窗拦截路由跳转
+    await expect(page.getByText('病历已保存').first()).toBeVisible({ timeout: 30_000 })
     // 完成就诊(确认弹窗)
     await page.getByRole('button', { name: '完成就诊' }).click()
     await clickConfirmInDialog(page)

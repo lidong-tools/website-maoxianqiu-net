@@ -61,12 +61,21 @@ where u.email = 'support@maoxianqiu.app' and t.id = (select id from tenants limi
 on conflict (tenant_id, user_id) do nothing;
 
 -- 3. employee_role_assignments:租户级角色(tenant_owner,store_id 为空 → tenant-wide)
+-- 注:本表无 (tenant_id, employee_id, role_id, store_id) 唯一约束,
+--     不能用 ON CONFLICT,改用 WHERE NOT EXISTS(审计 v3 §20;store_id IS NULL
+--     按 IS NULL 匹配租户级角色语义)
 insert into employee_role_assignments (tenant_id, employee_id, role_id, store_id)
 select e.tenant_id, e.id, r.id, null
 from employees e
 join roles r on r.code = 'tenant_owner' and r.is_system = true
 where e.employee_no = 'E2E-ADMIN'
-on conflict (tenant_id, employee_id, role_id, store_id) do nothing;
+  and not exists (
+    select 1 from employee_role_assignments x
+    where x.tenant_id = e.tenant_id
+      and x.employee_id = e.id
+      and x.role_id = r.id
+      and x.store_id is null
+  );
 
 -- 4. employee_store_assignments:主门店(指向系统门店 SYS)
 insert into employee_store_assignments (tenant_id, employee_id, store_id, is_primary)

@@ -42,6 +42,7 @@ export async function buildCustomerReport(
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .lte('created_at', f.period.endISO)
+      .order('id', { ascending: true })
       .range(from, to)),
     fetchAll<{ customer_id: string }>('就诊记录', (from, to) => service
       .from('encounters')
@@ -50,6 +51,7 @@ export async function buildCustomerReport(
       .in('store_id', f.storeIds)
       .gte('created_at', f.period.startISO)
       .lte('created_at', f.period.endISO)
+      .order('id', { ascending: true })
       .range(from, to)),
     fetchAll<{ customer_id: string | null; total: number }>('消费记录', (from, to) => service
       .from('invoices')
@@ -59,6 +61,7 @@ export async function buildCustomerReport(
       .in('status', ['confirmed', 'paid', 'partially_paid', 'refunded'])
       .gte('created_at', f.period.startISO)
       .lte('created_at', f.period.endISO)
+      .order('id', { ascending: true })
       .range(from, to)),
     // 会员层级定义(真实层级,审计 #21;层级数有限,无截断风险)
     service.from('membership_tiers')
@@ -69,6 +72,7 @@ export async function buildCustomerReport(
       .from('customer_memberships')
       .select('customer_id, tier_id, expires_at')
       .eq('tenant_id', f.tenantId)
+      .order('id', { ascending: true })
       .range(from, to)),
   ])
   if (tierRes.error) {

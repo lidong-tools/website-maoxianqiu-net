@@ -103,3 +103,43 @@
 
 - S3.1 **Source Code Gate → PASS**(三个通过条件全部满足,见审计 §33)。
 - Runtime Gate(Blank/Existing DB 升级、RPC ACL、RLS Matrix、多角色、并发、幂等、Medical SQL Loop、E2E)依赖 staging 实测,保持 `runtime_verification_pending`,不得标记 verified / pilot_ready / production_ready。
+
+## 8. S3.1/S3.2 继续审计(v4/v3)收口
+
+> 依据:`document/stage-03/subagent-3-2/S3.1-Continued-Code-Audit-v4.md`、`S3.2-Continued-Code-Audit-v3.md`(基于 ZIP 增量包重建复核)。
+
+### 8.1 Migration 115 冲突(两报告共同 Blocker)→ 已解决
+
+- 审计重建仓库仍见旧 `115_s3_1_source_gate_fixes.sql`(ZIP 增量包未提供删除动作),判定 Migration Gate FAIL。
+- 实际 Git 仓库已在上一收口 commit 完成重命名:**`115` 仅保留 `messaging_idempotency_lockdown`;S3.1 Source Gate Fix 为 `117_s3_1_source_gate_fixes`**,116 analytics、118 messaging_cas、119 import、120 依次接续。
+- 本次全量核验:`NO_DUPLICATE_VERSIONS`(97 个 migration 版本唯一)→ ✅ Migration Gate PASS。
+
+### 8.2 S3.1 v4 遗留修复
+
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| §7 discharge_patient 并发同幂等键 replay | ✅ 新增 migration 120 | 拿到 admission 行锁后按 `v_admission.tenant_id` + key 二次查询,已存在直接 replay,避免并发第二请求落入 ADMISSION_NOT_ADMITTED;快路径保留,无并发时零额外成本 |
+
+### 8.3 S3.2 v3 遗留修复
+
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| §10 Analytics stable pagination | ✅ 26 处 | dashboard/customers/clinical/inventory/revenue 全部分页查询补 `.order('id', { ascending: true })`,消除偏移分页重复/遗漏行 |
+| §11 Analytics 大 IN 分批 | ✅ | `common.ts` 新增 `chunk()`;revenue invoice_items/encounters/employees、inventory catalog_items 按 500/块分批查询,避免单次查询过长 |
+| §17 Messaging replay 真实状态映射 | ✅ | engine.ts 新增 `replayResult()`:queued/retry→queued、sending→queued、sent→sent、delivered→delivered、failed→failed,不再把"非 failed"等价于 sent |
+| §18 前端网络超时保留幂等键 | ✅ | messaging/index.vue 仅在服务端明确成功后才释放 pendingSendKey,超时/异常保留 Key 供下次复用,避免超时后重复消息 |
+| §19 sending 陈旧恢复 | ✅ | engine.ts 增加 10 分钟 stale 时间窗,retryDelivery CAS 可回收陈旧 sending(`updated_at` 超窗),避免 delivery 永久卡死 |
+| §7 Import Consumer 未接通 | ✅ 既有语义 | employee/opening-stock 类型描述明确"由 IAM 邀请 / 生成期初入账命令",终态 `awaiting_domain_apply` 标签"待领域应用";Pilot 未启用,不虚假显示 completed |
+| §20 E2E Setup SQL | ✅ | e2e-setup.sh:`employee_role_assignments` 无四列唯一约束,ON CONFLICT 改 INSERT ... WHERE NOT EXISTS(`store_id IS NULL` 按租户级角色语义匹配) |
+
+### 8.4 附带收口(上一轮遗留未提交的合法修复)
+
+- `packages/components/src/basic/select/index.vue`:reka-ui SelectItem 空字符串 value 抛错修复(哨兵值桥接,保持 v-model 语义不变)。
+- `e2e/tests/closed-loop-a.spec.ts`:候诊队列按预约内容定位「开始就诊」按钮,不再取 first。
+
+### 8.5 门禁与最终判定
+
+- 改动文件 GetDiagnostics 无错误;migration 版本唯一性核验 PASS;未执行前端构建/E2E(用户已明确无需)。
+- S3.1 Source Code Gate:**PASS**(v4 §9 判定条件满足:旧 115 已从真实仓库删除)。
+- S3.2 Source Code Gate:**收口通过**(v3 §22 Blocker 1/2 已处理;Pilot 前建议项 Import Consumer / Provider 幂等按产品节奏跟进)。
+- 下一步(外部依赖,保持 `runtime_verification_pending`):staging 执行全部 Migration → `medical_loop_s3_1.sql` → RPC ACL / RLS 实库断言 → E2E。

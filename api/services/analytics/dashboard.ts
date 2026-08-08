@@ -54,6 +54,7 @@ export async function buildDashboardReport(
       .in('status', ['confirmed', 'paid', 'partially_paid', 'refunded'])
       .gte('created_at', period.startISO)
       .lte('created_at', period.endISO)
+      .order('id', { ascending: true })
       .range(from, to)),
     // 客户(会员贡献 + 本月新增)分页拉全(审计 v2 §14)
     fetchAll<{ id: string; created_at: string }>('客户数据', (from, to) => service
@@ -62,6 +63,7 @@ export async function buildDashboardReport(
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .lte('created_at', period.endISO)
+      .order('id', { ascending: true })
       .range(from, to)),
     // 今日门诊(仅 count,无聚合错误风险,head 计数)
     service.from('encounters')
@@ -78,6 +80,7 @@ export async function buildDashboardReport(
       .in('store_id', f.storeIds)
       .gte('charge_date', period.startDate)
       .lte('charge_date', period.endDate)
+      .order('id', { ascending: true })
       .range(from, to)),
     // 本月寄养附加服务计费(分页拉全,审计 v2 §14)
     fetchAll<{ amount: number }>('寄养计费数据', (from, to) => service
@@ -87,6 +90,7 @@ export async function buildDashboardReport(
       .in('store_id', f.storeIds)
       .gte('charge_date', period.startDate)
       .lte('charge_date', period.endDate)
+      .order('id', { ascending: true })
       .range(from, to)),
     // 会员层级定义(审计 #21 会员口径;层级数有限,无截断风险)
     service.from('membership_tiers')
@@ -97,6 +101,7 @@ export async function buildDashboardReport(
       .from('customer_memberships')
       .select('customer_id, tier_id, expires_at')
       .eq('tenant_id', f.tenantId)
+      .order('id', { ascending: true })
       .range(from, to)),
   ])
   if (encRes.error) {
@@ -147,6 +152,7 @@ export async function buildDashboardReport(
     .in('invoices.store_id', f.storeIds)
     .gte('created_at', period.startISO)
     .lte('created_at', period.endISO)
+    .order('id', { ascending: true })
     .range(from, to))
 
   const revenueTrend = buildTrendFromRows(invoices, refundRows, 'day', tz)
