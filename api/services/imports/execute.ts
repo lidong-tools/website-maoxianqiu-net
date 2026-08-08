@@ -12,12 +12,12 @@
  * 商品(编码)、员工(邮箱)、期初(商品+仓库+批次)。
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { DuplicateStrategy, FieldDef, ImportTypeMeta } from './fields'
-import type { ImportRow } from './parse'
-import { toArray, toBoolean, toDate, toNumber } from './parse'
-import type { LookupContext } from './lookup'
-import type { Scope } from './validate'
-import { enumKey, resolveOwnerId, resolveWarehouseId } from './validate'
+import type { DuplicateStrategy, FieldDef, ImportTypeMeta } from './fields.js'
+import type { ImportRow } from './parse.js'
+import { toArray, toBoolean, toDate, toNumber } from './parse.js'
+import type { LookupContext } from './lookup.js'
+import type { Scope } from './validate.js'
+import { enumKey, resolveOwnerId, resolveWarehouseId } from './validate.js'
 
 export interface ExecuteResult {
   status: 'success' | 'skipped' | 'failed'

@@ -1,14 +1,14 @@
-import type { AppEnv } from '../lib/types'
+import type { AppEnv } from '../lib/types.js'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { writeAudit } from '../lib/audit'
-import { err } from '../lib/errors'
-import { assertStoreTenant, requireScopedPermission } from '../lib/permission'
-import { loadContext, resolveRequestedTenant } from '../lib/request-context'
-import { ok } from '../lib/result'
-import { createServiceClient } from '../lib/supabase'
-import { parseJsonBody } from '../lib/validation'
-import { authMiddleware, canManageStore, loadCaller } from '../middlewares/auth'
+import { writeAudit } from '../lib/audit.js'
+import { err } from '../lib/errors.js'
+import { assertStoreTenant, requireScopedPermission } from '../lib/permission.js'
+import { loadContext, resolveRequestedTenant } from '../lib/request-context.js'
+import { ok } from '../lib/result.js'
+import { createServiceClient } from '../lib/supabase.js'
+import { parseJsonBody } from '../lib/validation.js'
+import { authMiddleware, canManageStore, loadCaller } from '../middlewares/auth.js'
 
 const userRoutes = new Hono<AppEnv>()
 

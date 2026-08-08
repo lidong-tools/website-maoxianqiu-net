@@ -1,6 +1,6 @@
-import { err } from '../../lib/errors'
-import { getAdapter } from './adapters'
-import { renderTemplate } from './renderer'
+import { err } from '../../lib/errors.js'
+import { getAdapter } from './adapters/index.js'
+import { renderTemplate } from './renderer.js'
 import {
   DOCUMENT_SECTION_KEY,
   type DocumentData,
@@ -9,7 +9,7 @@ import {
   type PaperSize,
   type Service,
   type TemplateLevel,
-} from './types'
+} from './types.js'
 
 /**
  * S32-C 业务文档与打印中心 V2 —— 服务编排

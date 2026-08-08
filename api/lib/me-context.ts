@@ -1,8 +1,8 @@
 import type { Context } from 'hono'
-import type { AppEnv } from './types'
-import { err } from './errors'
-import { loadPlatformAdminPermissions } from './permission'
-import { createServiceClient } from './supabase'
+import type { AppEnv } from './types.js'
+import { err } from './errors.js'
+import { loadPlatformAdminPermissions } from './permission.js'
+import { createServiceClient } from './supabase.js'
 
 /**
  * 当前用户工作上下文 DTO(P0-01..P0-05)

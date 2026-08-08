@@ -1,16 +1,16 @@
-import type { AppEnv } from '../lib/types'
+import type { AppEnv } from '../lib/types.js'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { writeAudit } from '../lib/audit'
-import { err } from '../lib/errors'
-import { requireScopedPermission } from '../lib/permission'
-import { getContext, loadContext } from '../lib/request-context'
-import { ok } from '../lib/result'
-import { createServiceClient } from '../lib/supabase'
-import { parseJsonBody } from '../lib/validation'
-import { authMiddleware, loadCaller } from '../middlewares/auth'
+import { writeAudit } from '../lib/audit.js'
+import { err } from '../lib/errors.js'
+import { requireScopedPermission } from '../lib/permission.js'
+import { getContext, loadContext } from '../lib/request-context.js'
+import { ok } from '../lib/result.js'
+import { createServiceClient } from '../lib/supabase.js'
+import { parseJsonBody } from '../lib/validation.js'
+import { authMiddleware, loadCaller } from '../middlewares/auth.js'
 // C5(审计 37):回访「今天/逾期」按租户时区切日,复用 S32 报表的纯 Intl 时区工具,不引入 dayjs 依赖
-import { dayKeyInTz, localDateToUTC, resolveTenantTimezone } from '../services/analytics/common'
+import { dayKeyInTz, localDateToUTC, resolveTenantTimezone } from '../services/analytics/common.js'
 
 /**
  * 客户 CRM 路由(MXQ-5002 / MXQ-5009 / MXQ-5010)

@@ -1,4 +1,4 @@
-import type { createServiceClient } from '../../lib/supabase'
+import type { createServiceClient } from '../../lib/supabase.js'
 
 /**
  * S32-C 业务文档与打印中心 V2 —— 服务层共享类型

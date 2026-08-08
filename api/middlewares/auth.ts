@@ -1,7 +1,7 @@
 import type { Context, MiddlewareHandler } from 'hono'
-import type { AppEnv, MembershipInfo } from '../lib/types'
-import { err } from '../lib/errors'
-import { createServiceClient, createUserClient } from '../lib/supabase'
+import type { AppEnv, MembershipInfo } from '../lib/types.js'
+import { err } from '../lib/errors.js'
+import { createServiceClient, createUserClient } from '../lib/supabase.js'
 
 interface LegacyStoreMemberRow {
   store_id: string

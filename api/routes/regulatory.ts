@@ -1,13 +1,13 @@
-import type { AppEnv } from '../lib/types'
+import type { AppEnv } from '../lib/types.js'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { err } from '../lib/errors'
-import { requireScopedPermission } from '../lib/permission'
-import { loadContext } from '../lib/request-context'
-import { ok } from '../lib/result'
-import { createServiceClient } from '../lib/supabase'
-import { parseJsonBody } from '../lib/validation'
-import { authMiddleware, loadCaller } from '../middlewares/auth'
+import { err } from '../lib/errors.js'
+import { requireScopedPermission } from '../lib/permission.js'
+import { loadContext } from '../lib/request-context.js'
+import { ok } from '../lib/result.js'
+import { createServiceClient } from '../lib/supabase.js'
+import { parseJsonBody } from '../lib/validation.js'
+import { authMiddleware, loadCaller } from '../middlewares/auth.js'
 
 /**
  * Regulatory 监管运营域 Command 路由(S3.1-PARALLEL-01)

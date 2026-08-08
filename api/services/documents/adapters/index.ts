@@ -1,12 +1,12 @@
-import type { DocumentAdapter, DocumentType } from '../types'
-import { boardingAdapter } from './boarding'
-import { dischargeAdapter } from './discharge'
-import { imagingAdapter } from './imaging'
-import { invoiceAdapter } from './invoice'
-import { labReportAdapter } from './lab-report'
-import { medicalRecordAdapter } from './medical-record'
-import { prescriptionAdapter } from './prescription'
-import { vaccinationAdapter } from './vaccination'
+import type { DocumentAdapter, DocumentType } from '../types.js'
+import { boardingAdapter } from './boarding.js'
+import { dischargeAdapter } from './discharge.js'
+import { imagingAdapter } from './imaging.js'
+import { invoiceAdapter } from './invoice.js'
+import { labReportAdapter } from './lab-report.js'
+import { medicalRecordAdapter } from './medical-record.js'
+import { prescriptionAdapter } from './prescription.js'
+import { vaccinationAdapter } from './vaccination.js'
 
 /**
  * S32-C 业务 Adapter 注册表

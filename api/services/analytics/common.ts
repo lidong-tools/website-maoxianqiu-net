@@ -12,12 +12,12 @@
  *   - 未指定 storeId(全院) → 要求 analytics.view.tenant,数据范围为被授权门店集。
  */
 import type { Context } from 'hono'
-import type { AppEnv } from '../../lib/types'
-import { err } from '../../lib/errors'
-import { requireScopedPermission, type AccessScope } from '../../lib/permission'
-import { resolveRequestedTenant } from '../../lib/request-context'
-import { createServiceClient } from '../../lib/supabase'
-import type { AnalyticsGroupBy, AnalyticsPeriod } from './types'
+import type { AppEnv } from '../../lib/types.js'
+import { err } from '../../lib/errors.js'
+import { requireScopedPermission, type AccessScope } from '../../lib/permission.js'
+import { resolveRequestedTenant } from '../../lib/request-context.js'
+import { createServiceClient } from '../../lib/supabase.js'
+import type { AnalyticsGroupBy, AnalyticsPeriod } from './types.js'
 
 /** 时区回退(门店沿用租户时区,缺省 Asia/Shanghai) */
 export const DEFAULT_TZ = 'Asia/Shanghai'

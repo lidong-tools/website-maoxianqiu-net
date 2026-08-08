@@ -1,8 +1,8 @@
 import type { Context } from 'hono'
-import type { AppEnv, RequestContext } from './types'
-import { err } from './errors'
-import { getContext } from './request-context'
-import { createServiceClient } from './supabase'
+import type { AppEnv, RequestContext } from './types.js'
+import { err } from './errors.js'
+import { getContext } from './request-context.js'
+import { createServiceClient } from './supabase.js'
 
 interface RolePermissionRow {
   permissions?: { code: string } | { code: string }[] | null

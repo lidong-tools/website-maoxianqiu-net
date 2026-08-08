@@ -1,12 +1,12 @@
-import type { AppEnv } from '../lib/types'
+import type { AppEnv } from '../lib/types.js'
 import { Hono } from 'hono'
-import { writeAudit } from '../lib/audit'
-import { err } from '../lib/errors'
-import { requireScopedPermission } from '../lib/permission'
-import { loadContext, resolveRequestedTenant } from '../lib/request-context'
-import { ok } from '../lib/result'
-import { createServiceClient } from '../lib/supabase'
-import { authMiddleware, loadCaller } from '../middlewares/auth'
+import { writeAudit } from '../lib/audit.js'
+import { err } from '../lib/errors.js'
+import { requireScopedPermission } from '../lib/permission.js'
+import { loadContext, resolveRequestedTenant } from '../lib/request-context.js'
+import { ok } from '../lib/result.js'
+import { createServiceClient } from '../lib/supabase.js'
+import { authMiddleware, loadCaller } from '../middlewares/auth.js'
 
 /**
  * 审计查询路由(CORE-04 审计与安全)

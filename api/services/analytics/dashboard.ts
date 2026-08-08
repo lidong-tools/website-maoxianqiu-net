@@ -12,17 +12,17 @@
  *   会员贡献 = 有效会员关系(customer_memberships,未过期)客户本月消费合计(审计 #21)
  *   缺货 SKU / 近效期 = 见 inventory.ts(审计 #25:可用数量 ≤ 0 为缺货而非低库存)
  */
-import type { ServiceClient } from './common'
+import type { ServiceClient } from './common.js'
 import {
   dayKeyInTz,
   fetchAll,
   localDateToUTC,
   resolvePeriod,
   toNum,
-} from './common'
-import { computeRevenueSummary, buildTrendFromRows } from './revenue'
-import { countExpiring, countLowStock } from './inventory'
-import type { DashboardReport, RevenueFilters } from './types'
+} from './common.js'
+import { computeRevenueSummary, buildTrendFromRows } from './revenue.js'
+import { countExpiring, countLowStock } from './inventory.js'
+import type { DashboardReport, RevenueFilters } from './types.js'
 
 export async function buildDashboardReport(
   service: ServiceClient,

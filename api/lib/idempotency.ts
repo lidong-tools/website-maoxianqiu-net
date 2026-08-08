@@ -1,7 +1,7 @@
 import type { Context } from 'hono'
-import type { AppEnv } from './types'
-import { getContext } from './request-context'
-import { createServiceClient } from './supabase'
+import type { AppEnv } from './types.js'
+import { getContext } from './request-context.js'
+import { createServiceClient } from './supabase.js'
 
 const HEADER = 'idempotency-key'
 

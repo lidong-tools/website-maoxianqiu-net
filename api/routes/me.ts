@@ -1,8 +1,8 @@
-import type { AppEnv } from '../lib/types'
+import type { AppEnv } from '../lib/types.js'
 import { Hono } from 'hono'
-import { resolveMeContext } from '../lib/me-context'
-import { ok } from '../lib/result'
-import { authMiddleware } from '../middlewares/auth'
+import { resolveMeContext } from '../lib/me-context.js'
+import { ok } from '../lib/result.js'
+import { authMiddleware } from '../middlewares/auth.js'
 
 const meRoutes = new Hono<AppEnv>()
 

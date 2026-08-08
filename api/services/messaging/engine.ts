@@ -1,14 +1,14 @@
 import process from 'node:process'
-import { err } from '../../lib/errors'
-import { createServiceClient } from '../../lib/supabase'
-import { getProvider } from '../../providers/registry'
-import { ProviderError, type ProviderSendResult } from '../../providers/types'
-import { isRealProviderConfigured } from './config'
+import { err } from '../../lib/errors.js'
+import { createServiceClient } from '../../lib/supabase.js'
+import { getProvider } from '../../providers/registry.js'
+import { ProviderError, type ProviderSendResult } from '../../providers/types.js'
+import { isRealProviderConfigured } from './config.js'
 import {
   normalizeVariables,
   renderTemplateText,
   validateTemplatePlaceholders,
-} from './template-engine'
+} from './template-engine.js'
 
 /**
  * 消息发送引擎(S32-D)

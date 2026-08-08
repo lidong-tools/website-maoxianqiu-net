@@ -15,9 +15,9 @@
  *
  * 不做(规格 §8):库存周转率(当前无法可靠计算,不显示假数字)。
  */
-import type { ServiceClient } from './common'
-import { chunk, fetchAll, toNum, UUID_CHUNK_SIZE } from './common'
-import type { ExpiringRow, InventoryReport, LowStockRow, RevenueFilters } from './types'
+import type { ServiceClient } from './common.js'
+import { chunk, fetchAll, toNum, UUID_CHUNK_SIZE } from './common.js'
+import type { ExpiringRow, InventoryReport, LowStockRow, RevenueFilters } from './types.js'
 
 /** 缺货口径:可用数量阈值(含),available ≤ 0 即断货/不可售(审计 #25) */
 const STOCKOUT_MAX_AVAILABLE = 0

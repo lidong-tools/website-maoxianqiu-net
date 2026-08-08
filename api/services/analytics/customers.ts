@@ -14,9 +14,9 @@
  * expires_at 为空或未过期)join membership_tiers 作为事实来源,
  * 不再读取旧字段 customers.member_level。
  */
-import type { ServiceClient } from './common'
-import { fetchAll, toNum } from './common'
-import type { CustomerConsumptionTier, CustomerReport, CustomerTierRow, RevenueFilters } from './types'
+import type { ServiceClient } from './common.js'
+import { fetchAll, toNum } from './common.js'
+import type { CustomerConsumptionTier, CustomerReport, CustomerTierRow, RevenueFilters } from './types.js'
 
 /** 消费分层桶(净消费,元) */
 const CONSUMPTION_BUCKETS: Array<{ key: string; label: string; min: number; max: number }> = [

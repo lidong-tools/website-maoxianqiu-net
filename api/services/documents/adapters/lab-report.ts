@@ -1,7 +1,7 @@
-import { err } from '../../../lib/errors'
-import { fetchDocumentBase } from '../base'
-import { fmtDateTime } from '../format'
-import type { DocumentAdapter, Service } from '../types'
+import { err } from '../../../lib/errors.js'
+import { fetchDocumentBase } from '../base.js'
+import { fmtDateTime } from '../format.js'
+import type { DocumentAdapter, Service } from '../types.js'
 
 /**
  * 检验报告 Adapter(S32-C)

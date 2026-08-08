@@ -1,20 +1,20 @@
-import type { AppEnv } from '../lib/types'
+import type { AppEnv } from '../lib/types.js'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { writeAudit } from '../lib/audit'
-import { err } from '../lib/errors'
-import { requireScopedPermission } from '../lib/permission'
+import { writeAudit } from '../lib/audit.js'
+import { err } from '../lib/errors.js'
+import { requireScopedPermission } from '../lib/permission.js'
 import {
   createPresignedDownloadUrl,
   createPresignedUploadUrl,
   generatePrivateObjectKey,
   headObject,
-} from '../lib/r2'
-import { loadContext, resolveRequestedTenant } from '../lib/request-context'
-import { ok } from '../lib/result'
-import { createServiceClient } from '../lib/supabase'
-import { parseJsonBody } from '../lib/validation'
-import { authMiddleware, loadCaller } from '../middlewares/auth'
+} from '../lib/r2.js'
+import { loadContext, resolveRequestedTenant } from '../lib/request-context.js'
+import { ok } from '../lib/result.js'
+import { createServiceClient } from '../lib/supabase.js'
+import { parseJsonBody } from '../lib/validation.js'
+import { authMiddleware, loadCaller } from '../middlewares/auth.js'
 
 /**
  * 文件 Command 路由(MXQ-4003~4006)
@@ -473,7 +473,7 @@ fileCommandRoutes.post('/:id/delete', async (c) => {
 
   // 删 R2 对象(best-effort,记录失败但不阻断)
   try {
-    const { deleteFile } = await import('../lib/r2')
+    const { deleteFile } = await import('../lib/r2.js')
     await deleteFile(file.object_key)
   }
   catch (e) {

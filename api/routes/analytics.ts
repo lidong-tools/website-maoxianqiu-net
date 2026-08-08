@@ -20,26 +20,26 @@
  * 性能:SQL 聚合 + 索引,不引入 OLAP 引擎(§12)。
  */
 import type { Context } from 'hono'
-import type { AppEnv } from '../lib/types'
+import type { AppEnv } from '../lib/types.js'
 import { Hono } from 'hono'
-import { err } from '../lib/errors'
-import { writeAudit } from '../lib/audit'
-import { loadContext } from '../lib/request-context'
-import { ok } from '../lib/result'
-import { createServiceClient } from '../lib/supabase'
-import { authMiddleware, loadCaller } from '../middlewares/auth'
+import { err } from '../lib/errors.js'
+import { writeAudit } from '../lib/audit.js'
+import { loadContext } from '../lib/request-context.js'
+import { ok } from '../lib/result.js'
+import { createServiceClient } from '../lib/supabase.js'
+import { authMiddleware, loadCaller } from '../middlewares/auth.js'
 import {
   resolveAnalyticsScope,
   resolvePeriod,
-} from '../services/analytics/common'
-import type { RevenueFilters } from '../services/analytics/types'
-import { buildDashboardReport } from '../services/analytics/dashboard'
-import { buildRevenueReport } from '../services/analytics/revenue'
-import { buildCustomerReport } from '../services/analytics/customers'
-import { buildClinicalReport } from '../services/analytics/clinical'
-import { buildInventoryReport } from '../services/analytics/inventory'
-import { safeFilename, toCsv, type CsvColumn } from '../services/analytics/csv'
-import { requireScopedPermission } from '../lib/permission'
+} from '../services/analytics/common.js'
+import type { RevenueFilters } from '../services/analytics/types.js'
+import { buildDashboardReport } from '../services/analytics/dashboard.js'
+import { buildRevenueReport } from '../services/analytics/revenue.js'
+import { buildCustomerReport } from '../services/analytics/customers.js'
+import { buildClinicalReport } from '../services/analytics/clinical.js'
+import { buildInventoryReport } from '../services/analytics/inventory.js'
+import { safeFilename, toCsv, type CsvColumn } from '../services/analytics/csv.js'
+import { requireScopedPermission } from '../lib/permission.js'
 
 const analyticsRoutes = new Hono<AppEnv>()
 

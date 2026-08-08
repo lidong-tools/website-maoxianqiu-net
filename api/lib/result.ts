@@ -1,7 +1,7 @@
 import type { Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import type { AppEnv } from './types'
-import { ApiError } from './errors'
+import type { AppEnv } from './types.js'
+import { ApiError } from './errors.js'
 
 export interface ErrorBody {
   code: string

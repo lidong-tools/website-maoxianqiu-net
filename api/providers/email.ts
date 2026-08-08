@@ -1,4 +1,4 @@
-import { ProviderError, type MessagingProvider, type ProviderSendInput, type ProviderSendResult } from './types'
+import { ProviderError, type MessagingProvider, type ProviderSendInput, type ProviderSendResult } from './types.js'
 
 /**
  * 真实邮件 Provider(S32-D)

@@ -1,7 +1,7 @@
-import { loadMessagingConfig } from '../services/messaging/config'
-import { EmailMessagingProvider } from './email'
-import { MockMessagingProvider } from './mock'
-import type { MessagingProvider } from './types'
+import { loadMessagingConfig } from '../services/messaging/config.js'
+import { EmailMessagingProvider } from './email.js'
+import { MockMessagingProvider } from './mock.js'
+import type { MessagingProvider } from './types.js'
 
 /**
  * Provider 注册表(S32-D)

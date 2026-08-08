@@ -1,8 +1,8 @@
 /**
  * S32-A 导入中心 V2 —— 表格 → 结构化行 / 默认字段映射
  */
-import type { FieldDef, ImportJobType, ImportTypeMeta } from './fields'
-import { normalizeKey } from './fields'
+import type { FieldDef, ImportJobType, ImportTypeMeta } from './fields.js'
+import { normalizeKey } from './fields.js'
 
 export interface ImportRow {
   /** 数据在源表格中的行号（1 基，表头为第 1 行） */

@@ -1,4 +1,4 @@
-import type { MessagingProvider, ProviderSendInput, ProviderSendResult } from './types'
+import type { MessagingProvider, ProviderSendInput, ProviderSendResult } from './types.js'
 
 /**
  * Mock Provider(S32-D)

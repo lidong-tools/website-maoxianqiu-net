@@ -1,23 +1,23 @@
-import type { AppEnv } from '../lib/types'
+import type { AppEnv } from '../lib/types.js'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { writeAudit } from '../lib/audit'
-import { err } from '../lib/errors'
-import { getRequestIdempotencyKey } from '../lib/idempotency'
-import { requireScopedPermission } from '../lib/permission'
-import { getContext, loadContext } from '../lib/request-context'
-import { ok } from '../lib/result'
-import { createServiceClient } from '../lib/supabase'
-import { parseJsonBody } from '../lib/validation'
-import { authMiddleware, loadCaller } from '../middlewares/auth'
+import { writeAudit } from '../lib/audit.js'
+import { err } from '../lib/errors.js'
+import { getRequestIdempotencyKey } from '../lib/idempotency.js'
+import { requireScopedPermission } from '../lib/permission.js'
+import { getContext, loadContext } from '../lib/request-context.js'
+import { ok } from '../lib/result.js'
+import { createServiceClient } from '../lib/supabase.js'
+import { parseJsonBody } from '../lib/validation.js'
+import { authMiddleware, loadCaller } from '../middlewares/auth.js'
 import {
   loadDelivery,
   retryDelivery,
   sendMessage,
   type SendRequest,
-} from '../services/messaging/engine'
-import { getProviderSummary } from '../providers/registry'
-import { listWhitelistVariables, validateTemplatePlaceholders } from '../services/messaging/template-engine'
+} from '../services/messaging/engine.js'
+import { getProviderSummary } from '../providers/registry.js'
+import { listWhitelistVariables, validateTemplatePlaceholders } from '../services/messaging/template-engine.js'
 
 /**
  * Messaging 领域路由(S32-D 消息通知真实 Provider)

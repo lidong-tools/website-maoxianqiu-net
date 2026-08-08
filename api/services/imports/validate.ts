@@ -4,10 +4,10 @@
  * 校验是"每类独立"的：必填项、枚举、数值/日期/布尔类型、以及跨表引用
  * （主人 / 商品 / 仓库 / 类目）都按类型各自定义，禁止 Generic 一套逻辑。
  */
-import type { ImportRow } from './parse'
-import { fieldValue, toArray, toBoolean, toDate, toNumber } from './parse'
-import type { FieldDef, ImportTypeMeta } from './fields'
-import type { LookupContext } from './lookup'
+import type { ImportRow } from './parse.js'
+import { fieldValue, toArray, toBoolean, toDate, toNumber } from './parse.js'
+import type { FieldDef, ImportTypeMeta } from './fields.js'
+import type { LookupContext } from './lookup.js'
 
 export interface RowError {
   rowNumber: number

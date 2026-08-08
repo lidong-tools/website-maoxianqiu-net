@@ -1,5 +1,5 @@
-import { err } from './errors'
-import { createServiceClient } from './supabase'
+import { err } from './errors.js'
+import { createServiceClient } from './supabase.js'
 
 /**
  * 跨域自动回访 Command(S3.1 Agent-07 集成)

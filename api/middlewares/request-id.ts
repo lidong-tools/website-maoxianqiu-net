@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from 'hono'
-import type { AppEnv } from '../lib/types'
+import type { AppEnv } from '../lib/types.js'
 import { randomUUID } from 'node:crypto'
 
 const HEADER = 'x-request-id'

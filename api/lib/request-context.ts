@@ -1,6 +1,6 @@
 import type { Context, MiddlewareHandler } from 'hono'
-import type { AppEnv, RequestContext } from './types'
-import { err } from './errors'
+import type { AppEnv, RequestContext } from './types.js'
+import { err } from './errors.js'
 
 const TENANT_HEADER = 'x-tenant-id'
 const STORE_HEADER = 'x-store-id'

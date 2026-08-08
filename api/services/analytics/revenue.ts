@@ -25,8 +25,8 @@
  *   - payment_channel 为"收款渠道",按实际收款时间(payments.created_at)统计,
  *     与 Overall 的发票开账(应计)口径不同,属 KPI 会计基础差异,不是对账 Bug(§16)。
  */
-import type { ServiceClient } from './common'
-import { bucketKey, chunk, loadStoreNameMap, toNum, UUID_CHUNK_SIZE } from './common'
+import type { ServiceClient } from './common.js'
+import { bucketKey, chunk, loadStoreNameMap, toNum, UUID_CHUNK_SIZE } from './common.js'
 import type {
   AnalyticsGroupBy,
   RevenueDimension,
@@ -34,7 +34,7 @@ import type {
   RevenueFilters,
   RevenueReport,
   RevenueTrendRow,
-} from './types'
+} from './types.js'
 
 /** 有效收入发票状态(排除草稿与取消) */
 export const VALID_INVOICE_STATUSES = ['confirmed', 'paid', 'partially_paid', 'refunded']

@@ -1,4 +1,4 @@
-import { err } from '../../lib/errors'
+import { err } from '../../lib/errors.js'
 
 /**
  * 模板变量白名单引擎(S32-D)

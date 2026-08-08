@@ -1,5 +1,5 @@
-import type { DocumentBase, Service } from './types'
-import { toNum } from './format'
+import type { DocumentBase, Service } from './types.js'
+import { toNum } from './format.js'
 
 /**
  * S32-C 业务文档 —— 通用信息抓取(医院/门店/客户/宠物/医生/操作员)

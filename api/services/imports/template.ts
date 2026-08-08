@@ -7,8 +7,8 @@
  *   后续：# 开头的图例行（示例 / 字段说明 / 枚举说明）
  *   # 行在解析时会被跳过，用户只需在表头下填入数据即可。
  */
-import type { ImportTypeMeta } from './fields'
-import { buildXlsx } from './codec'
+import type { ImportTypeMeta } from './fields.js'
+import { buildXlsx } from './codec.js'
 
 const EXAMPLES: Record<string, string[]> = {
   customer: ['C-20260808-001', '张三', '13800000000', '男', 'zhangsan@example.com', '北京市朝阳区', '1990-01-01', '银卡', '老客户'],

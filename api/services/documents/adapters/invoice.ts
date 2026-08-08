@@ -1,7 +1,7 @@
-import { err } from '../../../lib/errors'
-import { fetchDocumentBase } from '../base'
-import { fmtMoney, fmtDateTime, toNum } from '../format'
-import type { DocumentAdapter, Service } from '../types'
+import { err } from '../../../lib/errors.js'
+import { fetchDocumentBase } from '../base.js'
+import { fmtMoney, fmtDateTime, toNum } from '../format.js'
+import type { DocumentAdapter, Service } from '../types.js'
 
 /**
  * 收费单 Adapter(S32-C)
