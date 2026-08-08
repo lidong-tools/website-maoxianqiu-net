@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { app } from '../api/[[...route]]'
+import { app } from '../api/[...route]'
 
 // 加载本地密钥 api/.env.local(未配置时跳过,仅测试无需密钥的端点)
 const envPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../api/.env.local')

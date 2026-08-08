@@ -36,12 +36,14 @@ import tenantRoutes from './routes/tenants'
 import userRoutes from './routes/user'
 
 /**
- * Vercel 函数路由唯一入口:api/[[...route]].ts 匹配 /api/* 全部子路径(含精确 /api)。
+ * Vercel 函数路由唯一入口:api/[...route].ts 匹配 /api/{多段路径}。
  *
- * 注意:不能使用 api/index.ts 作为另一个入口并在此 re-export —— Vercel 将 api 目录下
- * 每个文件视为互相隔离的独立函数,`import './index'` 在 catch-all 函数 bundle 中
- * 解析不到,导致 FUNCTION_INVOCATION_FAILED。因此 Hono app 与全部路由挂载
- * 均直接定义于此单一入口内。
+ * 注意:必须使用单方括号 catch-all `[...route]`,不能使用双括号 `[[...route]]`。
+ * 线上实测:Vercel 的非 Next.js 项目将 `[[...route]]` 编译为单段动态路由
+ * `:route`,导致 /api/me/context 等多段路径 404;`[...route]` 才匹配多段。
+ * 另:api 目录下每个文件都是互相隔离的独立函数入口,入口之间不能互相
+ * import(如 import './index' 会 FUNCTION_INVOCATION_FAILED),故 Hono app
+ * 与全部路由挂载均直接定义于此单一入口内。
  */
 export const runtime = 'nodejs'
 
