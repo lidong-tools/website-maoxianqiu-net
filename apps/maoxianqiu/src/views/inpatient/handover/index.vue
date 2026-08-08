@@ -166,6 +166,11 @@ function onEdit(row: ShiftHandover) {
     : ''
 }
 
+// P0-06:切店后按新门店重载交接班列表
+useStoreScopedPage({
+  load: loadData,
+})
+
 onMounted(async () => {
   if (tenantStore.currentStoreId) {
     await loadData()

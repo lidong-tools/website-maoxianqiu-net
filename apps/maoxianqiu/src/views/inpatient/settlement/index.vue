@@ -109,6 +109,15 @@ async function getDataList() {
   }
 }
 
+// P0-06:切店后重置分页与门店筛选并重载
+useStoreScopedPage({
+  load: getDataList,
+  reset: () => {
+    search.value.storeId = tenantStore.currentStoreId
+    onCurrentChange(1)
+  },
+})
+
 onMounted(async () => {
   await loadStoreOptions()
   if (tenantStore.currentStoreId) {

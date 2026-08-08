@@ -267,6 +267,14 @@ function onOpenAdmit() {
   loadCages()
 }
 
+// P0-06:切店后按新门店重载房间/笼位/住院记录
+useStoreScopedPage({
+  load: async () => {
+    await loadRooms()
+    await loadAdmissions()
+  },
+})
+
 onMounted(async () => {
   await loadRooms()
   await loadAdmissions()

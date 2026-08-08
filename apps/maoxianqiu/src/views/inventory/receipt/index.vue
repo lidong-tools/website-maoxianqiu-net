@@ -303,6 +303,14 @@ watch(() => form.warehouseId, () => {
   loadInventoryData()
 })
 
+// P0-06:切店后清空仓库选择并按新门店重载
+useStoreScopedPage({
+  load: loadWarehouses,
+  reset: () => {
+    form.warehouseId = ''
+  },
+})
+
 onMounted(loadWarehouses)
 </script>
 

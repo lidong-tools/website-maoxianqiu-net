@@ -79,6 +79,11 @@ const quickActions = [
   { label: '检验工作台', icon: 'i-lucide:test-tube', to: '/diagnostics/lab' },
 ]
 
+// P0-06:切店后按新门店重载工作台 KPI
+useStoreScopedPage({
+  load: loadWorkbench,
+})
+
 onMounted(loadWorkbench)
 </script>
 

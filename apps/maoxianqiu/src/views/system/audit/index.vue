@@ -10,6 +10,7 @@ defineOptions({
 })
 
 const tenantStore = useAppTenantStore()
+const { auth } = useAppAuth()
 const { pagination, getParams, onSizeChange, onCurrentChange } = usePagination()
 
 const activeTab = ref('audit')
@@ -343,7 +344,7 @@ onMounted(async () => {
       <FaTabs
         v-model="activeTab" :list="[
           { label: '审计日志', value: 'audit' },
-          { label: '安全事件', value: 'security' },
+          ...(auth('security.view') ? [{ label: '安全事件', value: 'security' }] : []),
         ]" class="mb-4" @change="onTabChange"
       />
 

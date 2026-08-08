@@ -81,6 +81,14 @@ async function loadData() {
   }
 }
 
+// P0-06:切店后跟随当前门店自动重载
+useStoreScopedPage({
+  load: () => {
+    currentStoreId.value = tenantStore.currentStoreId
+    return loadData()
+  },
+})
+
 onMounted(async () => {
   await loadStoreOptions()
   if (tenantStore.currentStoreId) {

@@ -133,6 +133,18 @@ const overdueCount = computed(() => statsList.value.filter(r => r.scheduled_at &
 const activeCount = computed(() => statsList.value.filter(r => ['pending', 'in_progress', 'done'].includes(r.status)).length)
 const completedCount = computed(() => statsList.value.filter(r => r.status === 'completed').length)
 
+// P0-06:切店后重置分页与门店筛选并重载列表/统计
+useStoreScopedPage({
+  load: () => {
+    getDataList()
+    loadStats()
+  },
+  reset: () => {
+    search.value.storeId = tenantStore.currentStoreId
+    onCurrentChange(1)
+  },
+})
+
 onMounted(async () => {
   await loadStoreOptions()
   if (tenantStore.currentStoreId) {

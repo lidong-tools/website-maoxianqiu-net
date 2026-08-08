@@ -96,6 +96,17 @@ function onRefresh() {
   Promise.all([loadNearExpiry(), loadBalances()])
 }
 
+// P0-06:切店后按新门店重载仓库/近效期/余额
+useStoreScopedPage({
+  load: async () => {
+    await loadWarehouses()
+    await Promise.all([loadNearExpiry(), loadBalances()])
+  },
+  reset: () => {
+    selectedWarehouseId.value = ''
+  },
+})
+
 onMounted(async () => {
   await loadWarehouses()
   await Promise.all([loadNearExpiry(), loadBalances()])
