@@ -521,6 +521,8 @@ const updateEncounterSchema = z.object({
   followUpDate: z.string().date().optional(),
   nurseId: z.string().uuid().optional().or(z.literal('')),
   status: z.enum(['in_progress', 'completed']).optional(),
+  /** 乐观锁版本号:提交当前 version,不匹配返回 409(防多窗口覆盖病历) */
+  expectedVersion: z.number().int().positive().optional(),
 })
 
 /**
@@ -535,7 +537,7 @@ clinicalRoutes.patch('/encounters/:id', async (c) => {
   const service = createServiceClient()
   const { data: existing, error: fetchError } = await service
     .from('encounters')
-    .select('id, tenant_id, store_id, status')
+    .select('id, tenant_id, store_id, status, version')
     .eq('id', id)
     .maybeSingle()
 
@@ -588,16 +590,24 @@ clinicalRoutes.patch('/encounters/:id', async (c) => {
     }
   }
 
-  const { data, error } = await service
-    .from('encounters')
-    .update(patch)
-    .eq('id', id)
-    .select('*')
-    .single()
+  // 乐观锁:携带 expectedVersion 时按版本条件更新,不匹配(0 行)返回 409
+  if (input.expectedVersion !== undefined) {
+    patch.version = existing.version + 1
+  }
+
+  let query = service.from('encounters').update(patch).eq('id', id)
+  if (input.expectedVersion !== undefined) {
+    query = query.eq('version', input.expectedVersion)
+  }
+  const { data: rows, error } = await query.select('*')
 
   if (error) {
     throw err.internal(`更新病历失败: ${error.message}`)
   }
+  if (input.expectedVersion !== undefined && (!rows || rows.length === 0)) {
+    throw err.conflict('病历已被其他窗口修改,请刷新后重试')
+  }
+  const data = rows?.[0]
 
   await writeAudit(c, {
     action: 'encounter.update',

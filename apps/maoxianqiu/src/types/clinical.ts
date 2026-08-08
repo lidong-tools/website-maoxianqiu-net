@@ -112,6 +112,8 @@ export interface EncounterRecord {
   archived_by_employee_id: string | null
   retention_until: string | null
   retention_status: string | null
+  /** 乐观锁版本号:每次更新 +1,保存时回传 expectedVersion 防并发覆盖 */
+  version: number
   created_at: string
   updated_at: string
 }
@@ -158,6 +160,8 @@ export interface UpdateEncounterInput {
   nurseId?: string
   /** 状态推进(仅用于完成就诊等显式动作,RLS 拒绝 signed 回改) */
   status?: EncounterStatus
+  /** 乐观锁:提交当前 version,不匹配时服务端返回 409 */
+  expectedVersion?: number
 }
 
 /** 病历修订记录 */

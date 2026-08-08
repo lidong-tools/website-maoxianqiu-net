@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import type { EncounterRecord, EncounterRevisionRecord, PrescriptionItemInput, PrescriptionRecord } from '@/types/clinical'
 import type { MedicalRecordAmendmentRecord } from '@/types/compliance'
+import type { PetRecord } from '@/types/customer'
+import type { StatusVariant } from '@/utils/status'
 import apiClinical from '@/api/modules/clinical'
 import apiCompliance from '@/api/modules/compliance'
 import { supabase } from '@/lib/supabase'
-import { ENCOUNTER_STATUS_COLORS, ENCOUNTER_STATUS_LABELS, PRESCRIPTION_STATUS_LABELS } from '@/types/clinical'
+import { ENCOUNTER_STATUS_LABELS, PRESCRIPTION_STATUS_LABELS } from '@/types/clinical'
 import { AMENDMENT_STATUS_LABELS, ARCHIVE_STATUS_LABELS } from '@/types/compliance'
 
 defineOptions({
@@ -18,8 +20,10 @@ const { auth } = useAppAuth()
 
 const loading = ref(false)
 const encounter = ref<EncounterRecord | null>(null)
+const pet = ref<PetRecord | null>(null)
 const revisions = ref<EncounterRevisionRecord[]>([])
 const prescriptions = ref<PrescriptionRecord[]>([])
+const prescriptionItemsByRx = ref<Record<string, any[]>>({})
 const amendments = ref<MedicalRecordAmendmentRecord[]>([])
 
 /** 病历编辑表单 */
@@ -101,14 +105,7 @@ const archiveStatusLabel = computed(() => {
   if (!enc?.archive_status) {
     return ''
   }
-  return isArchiveOverdue.value ? '已超时' : ARCHIVE_STATUS_LABELS[enc.archive_status]
-})
-/** 归档状态标签样式(超时红色) */
-const archiveStatusClass = computed(() => {
-  if (!encounter.value?.archive_status) {
-    return ''
-  }
-  return isArchiveOverdue.value ? 'bg-red-100 text-red-600' : 'bg-gray-100'
+  return isArchiveOverdue.value ? '归档超时' : ARCHIVE_STATUS_LABELS[enc.archive_status]
 })
 /** 归档时间文案 */
 const archivedAtText = computed(() => {
@@ -120,6 +117,25 @@ const archivedAtText = computed(() => {
 })
 /** 处方是否已定稿(issued/dispensed),定稿后明细编辑只读 */
 const prescriptionLocked = computed(() => prescriptions.value.some(rx => rx.status === 'issued' || rx.status === 'dispensed'))
+
+const auditItems = computed(() =>
+  revisions.value.map(rev => ({
+    actor: rev.revised_by ? (rev.revised_by.slice(0, 8)) : '未知',
+    at: new Date(rev.revised_at).toLocaleString('zh-CN'),
+    action: `修订版本 #${rev.revision_no}`,
+    after: rev.reason || undefined,
+  })),
+)
+
+const summaryTags = computed<{ label: string, variant?: StatusVariant }[]>(() => {
+  const tags: { label: string, variant?: StatusVariant }[] = [
+    { label: ENCOUNTER_STATUS_LABELS[encounter.value?.status ?? 'in_progress'], variant: isSigned.value ? 'success' : 'info' },
+  ]
+  if (encounter.value?.archive_status) {
+    tags.push({ label: archiveStatusLabel.value, variant: isArchiveOverdue.value ? 'danger' : 'neutral' })
+  }
+  return tags
+})
 
 /**
  * 加载病历详情(含修订历史 + 处方 + 归档后修订申请)
@@ -140,8 +156,12 @@ async function loadData() {
     form.treatmentPlan = encounter.value.treatment_plan ?? ''
     form.followUpDate = encounter.value.follow_up_date ?? ''
 
+    const petRes = await supabase.from('pets').select('*').eq('id', encounter.value.pet_id).maybeSingle()
+    pet.value = (petRes.data ?? null) as PetRecord | null
+
     const rxRes: any = await apiClinical.listPrescriptions({ encounterId: encounterId.value })
     prescriptions.value = rxRes.data.list
+    await loadPrescriptionItems(prescriptions.value.map(rx => rx.id))
 
     // 归档后加载修订申请列表(直连,RLS 兜底)
     if (encounter.value.archive_status === 'archived') {
@@ -158,6 +178,23 @@ async function loadData() {
   finally {
     loading.value = false
   }
+}
+
+/** 批量加载处方明细(单次 in 查询,按 prescription_id 分组) */
+async function loadPrescriptionItems(ids: string[]) {
+  if (!ids.length) {
+    prescriptionItemsByRx.value = {}
+    return
+  }
+  const { data, error } = await supabase.from('prescription_items').select('*').in('prescription_id', ids).order('sort_order')
+  if (error) {
+    return
+  }
+  const grouped: Record<string, any[]> = {}
+  data?.forEach((it) => {
+    ;(grouped[it.prescription_id] ??= []).push(it)
+  })
+  prescriptionItemsByRx.value = grouped
 }
 
 /**
@@ -179,6 +216,7 @@ async function onSave() {
       diagnosisText: form.diagnosisText,
       treatmentPlan: form.treatmentPlan,
       followUpDate: form.followUpDate || undefined,
+      expectedVersion: encounter.value.version,
     })
     encounter.value = res.data
     useFaToast().success('病历已保存')
@@ -523,195 +561,204 @@ onMounted(loadData)
 </script>
 
 <template>
-  <div v-loading="loading">
-    <FaPageHeader :show="false" title="病历详情" class="mb-0">
-      <template #description>
-        病历编辑 / 签署 / 归档 / 修订 / 处方管理
+  <div v-loading="loading" class="flex flex-col h-full">
+    <EntitySummaryHeader
+      avatar="i-lucide:clipboard-plus"
+      :subtitle="pet ? `${pet.name} · ${pet.species ?? ''} ${pet.breed ?? ''}` : '未知宠物'"
+      :tags="summaryTags"
+    >
+      <template #title>
+        <span>病历详情</span>
       </template>
-    </FaPageHeader>
-    <FaPageMain>
-      <div v-if="encounter" class="space-y-4">
-        <!-- 状态与操作栏 -->
-        <div class="p-3 rounded bg-gray-50 flex items-center justify-between">
-          <div class="flex gap-3 items-center">
-            <span class="text-sm">状态:</span>
-            <span class="text-xs px-2 py-0.5 rounded" :class="`bg-${ENCOUNTER_STATUS_COLORS[encounter.status]}-100`">
-              {{ ENCOUNTER_STATUS_LABELS[encounter.status] }}
-            </span>
-            <span v-if="encounter.archive_status" class="text-xs px-2 py-0.5 rounded" :class="archiveStatusClass">
-              {{ archiveStatusLabel }}
-            </span>
-            <span v-if="archivedAtText" class="text-xs text-gray-500">
-              {{ archivedAtText }}
-            </span>
-            <span class="text-xs text-gray-500">宠物 {{ encounter.pet_id.slice(0, 8) }}</span>
-            <span v-if="encounter.signed_at" class="text-xs text-gray-500">
+      <template #actions>
+        <FaButton v-if="isEditable" size="sm" @click="openSign">
+          <FaIcon name="i-lucide:pen-line" />
+          签署
+        </FaButton>
+        <FaButton v-if="encounter?.archive_status === 'signed' && auth('medical_record.archive')" size="sm" variant="outline" @click="onArchiveConfirm">
+          <FaIcon name="i-lucide:archive" />
+          归档
+        </FaButton>
+      </template>
+    </EntitySummaryHeader>
+
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <PetSafetyBanner
+        v-if="pet"
+        :risk-tags="pet.risk_tags"
+        :temperament="pet.temperament"
+        :medical-notes="pet.medical_notes"
+      />
+
+      <div class="flex-1 gap-4 grid min-h-0 lg:grid-cols-3">
+        <!-- 主区:病历编辑 + 处方 -->
+        <div class="border rounded-lg bg-card flex flex-col min-w-0 overflow-auto lg:col-span-2">
+          <div class="px-4 py-2.5 border-b flex items-center justify-between">
+            <span class="text-sm font-medium">病历内容</span>
+            <span v-if="encounter?.signed_at" class="text-xs text-muted-foreground">
               签署于 {{ new Date(encounter.signed_at).toLocaleString('zh-CN') }}
             </span>
           </div>
-          <div class="flex gap-2">
-            <FaButton variant="outline" size="sm" :disabled="!isEditable" @click="onSave">
-              <FaIcon name="i-ri:save-line" />
-              保存
-            </FaButton>
-            <FaButton v-if="isEditable" type="primary" size="sm" @click="openSign">
-              <FaIcon name="i-ri:pen-nib-line" />
-              签署
-            </FaButton>
-            <FaButton v-if="isSigned" variant="outline" size="sm" @click="reviseVisible = true">
-              <FaIcon name="i-ri:edit-2-line" />
-              修订
-            </FaButton>
-            <FaButton
-              v-if="encounter.archive_status === 'signed' && auth('medical_record.archive')"
-              variant="outline"
-              size="sm"
-              @click="onArchiveConfirm"
-            >
-              <FaIcon name="i-ri:archive-line" />
-              归档
-            </FaButton>
+          <div class="p-4 space-y-3">
+            <FaLabel label="主诉">
+              <FaInput v-model="form.chiefComplaint" :disabled="isSigned" class="w-full" />
+            </FaLabel>
+            <FaLabel label="现病史">
+              <FaInput v-model="form.historyPresent" :disabled="isSigned" type="textarea" :rows="3" class="w-full" />
+            </FaLabel>
+            <FaLabel label="检查发现">
+              <FaInput v-model="form.examFindings" :disabled="isSigned" type="textarea" :rows="3" class="w-full" />
+            </FaLabel>
+            <FaLabel label="诊断">
+              <FaInput v-model="form.diagnosisText" :disabled="isSigned" class="w-full" />
+            </FaLabel>
+            <FaLabel label="治疗方案">
+              <FaInput v-model="form.treatmentPlan" :disabled="isSigned" type="textarea" :rows="3" class="w-full" />
+            </FaLabel>
+            <FaLabel label="复诊日期">
+              <FaInput v-model="form.followUpDate" :disabled="isSigned" type="date" class="w-full" />
+            </FaLabel>
           </div>
-        </div>
 
-        <!-- 病历编辑表单 -->
-        <div class="gap-3 grid grid-cols-1">
-          <FaLabel label="主诉">
-            <FaInput v-model="form.chiefComplaint" :disabled="isSigned" class="w-full" />
-          </FaLabel>
-          <FaLabel label="现病史">
-            <FaInput v-model="form.historyPresent" :disabled="isSigned" type="textarea" :rows="3" class="w-full" />
-          </FaLabel>
-          <FaLabel label="检查发现">
-            <FaInput v-model="form.examFindings" :disabled="isSigned" type="textarea" :rows="3" class="w-full" />
-          </FaLabel>
-          <FaLabel label="诊断">
-            <FaInput v-model="form.diagnosisText" :disabled="isSigned" class="w-full" />
-          </FaLabel>
-          <FaLabel label="治疗方案">
-            <FaInput v-model="form.treatmentPlan" :disabled="isSigned" type="textarea" :rows="3" class="w-full" />
-          </FaLabel>
-          <FaLabel label="复诊日期">
-            <FaInput v-model="form.followUpDate" :disabled="isSigned" type="date" class="w-full" />
-          </FaLabel>
-        </div>
-
-        <!-- 处方区域 -->
-        <div class="pt-4 border-t">
-          <div class="mb-2 flex items-center justify-between">
-            <span class="text-sm font-medium">处方</span>
-            <FaButton v-if="!isSigned" variant="outline" size="sm" :disabled="prescriptionLocked" :loading="savingPrescription" @click="onSavePrescription">
-              <FaIcon name="i-ri:save-line" />
-              保存处方
-            </FaButton>
-          </div>
-          <!-- 已有处方列表 -->
-          <div v-if="prescriptions.length > 0" class="mb-3 space-y-2">
-            <div v-for="rx in prescriptions" :key="rx.id" class="p-2 border rounded flex items-center justify-between">
-              <div class="flex gap-2 items-center">
-                <span class="text-xs">处方 {{ rx.id.slice(0, 8) }} · {{ PRESCRIPTION_STATUS_LABELS[rx.status] }}</span>
-                <span v-if="rx.issued_at" class="text-xs text-gray-500">
-                  开具于 {{ new Date(rx.issued_at).toLocaleString('zh-CN') }}
-                </span>
-                <span v-if="rx.valid_until" class="text-xs text-gray-500">
-                  有效期至 {{ new Date(rx.valid_until).toLocaleString('zh-CN') }}
-                </span>
-              </div>
-              <div class="flex gap-1">
-                <FaButton v-if="rx.status === 'draft' && auth('prescription.issue')" variant="outline" size="sm" @click="openIssue(rx)">
-                  开具处方
-                </FaButton>
-                <FaButton v-if="rx.status === 'issued' && auth('prescription.dispense')" variant="outline" size="sm" @click="onDispense(rx)">
-                  发药
-                </FaButton>
-                <FaButton v-if="rx.status === 'issued' && auth('prescription.extend_validity')" variant="outline" size="sm" @click="openExtend(rx)">
-                  延长有效期
-                </FaButton>
-              </div>
-            </div>
-          </div>
-          <!-- 处方明细编辑(未签署时可用;开具/发药后只读) -->
-          <div v-if="!isSigned" class="space-y-2">
-            <div v-for="(item, idx) in prescriptionItems" :key="idx" class="flex gap-2 items-center">
-              <FaInput v-model="item.drugName" :disabled="prescriptionLocked" placeholder="药品名称" class="flex-1" />
-              <FaInput v-model="item.dosage" :disabled="prescriptionLocked" placeholder="剂量" class="w-100px" />
-              <FaInput v-model="item.frequency" :disabled="prescriptionLocked" placeholder="频次" class="w-100px" />
-              <FaInput v-model.number="item.quantity" :disabled="prescriptionLocked" type="number" placeholder="数量" class="w-80px" />
-              <FaInput v-model="item.unit" :disabled="prescriptionLocked" placeholder="单位" class="w-80px" />
-              <FaButton v-if="!prescriptionLocked" variant="outline" size="icon-sm" @click="removePrescriptionItem(idx)">
-                <FaIcon name="i-ri:delete-bin-line" />
+          <!-- 处方区域 -->
+          <div class="px-4 py-3 border-t">
+            <div class="mb-2 flex items-center justify-between">
+              <span class="text-sm font-medium">处方({{ prescriptions.length }})</span>
+              <FaButton v-if="!isSigned" variant="outline" size="sm" :disabled="prescriptionLocked" :loading="savingPrescription" @click="onSavePrescription">
+                <FaIcon name="i-lucide:save" />
+                保存处方
               </FaButton>
             </div>
-            <FaButton v-if="!prescriptionLocked" variant="outline" size="sm" @click="addPrescriptionItem">
-              <FaIcon name="i-ri:add-line" />
-              添加药品
-            </FaButton>
-          </div>
-        </div>
-
-        <!-- 修订管理(仅归档后,S3.1-1) -->
-        <div v-if="isArchived" class="pt-4 border-t">
-          <div class="mb-2 flex items-center justify-between">
-            <span class="text-sm font-medium">修订管理({{ amendments.length }})</span>
-            <FaButton v-if="auth('medical_record.amend.request')" variant="outline" size="sm" @click="amendmentRequestVisible = true">
-              <FaIcon name="i-ri:edit-2-line" />
-              修订申请
-            </FaButton>
-          </div>
-          <div v-if="amendments.length === 0" class="text-xs text-gray-400">
-            暂无修订申请
-          </div>
-          <div v-else class="space-y-2">
-            <div v-for="row in amendments" :key="row.id" class="p-2 border rounded">
-              <div class="flex gap-2 items-center justify-between">
-                <div class="text-xs flex gap-2 items-center">
-                  <span>{{ AMENDMENT_STATUS_LABELS[row.status] }}</span>
-                  <span class="text-gray-500">{{ new Date(row.requested_at).toLocaleString('zh-CN') }}</span>
+            <div v-if="prescriptions.length > 0" class="mb-3 space-y-2">
+              <div v-for="rx in prescriptions" :key="rx.id" class="p-2.5 border rounded-md">
+                <div class="flex flex-wrap gap-2 items-center justify-between">
+                  <div class="flex flex-wrap gap-2 items-center">
+                    <EntityStatusTag :label="PRESCRIPTION_STATUS_LABELS[rx.status]" :variant="rx.status === 'dispensed' ? 'success' : rx.status === 'issued' ? 'info' : 'neutral'" :dot="false" />
+                    <span v-if="rx.issued_at" class="text-xs text-muted-foreground">
+                      开具于 {{ new Date(rx.issued_at).toLocaleString('zh-CN') }}
+                    </span>
+                    <span v-if="rx.valid_until" class="text-xs text-muted-foreground">
+                      有效期至 {{ new Date(rx.valid_until).toLocaleString('zh-CN') }}
+                    </span>
+                  </div>
+                  <div class="flex gap-1">
+                    <FaButton v-if="rx.status === 'draft' && auth('prescription.issue')" variant="outline" size="sm" @click="openIssue(rx)">
+                      开具
+                    </FaButton>
+                    <FaButton v-if="rx.status === 'issued' && auth('prescription.dispense')" variant="outline" size="sm" @click="onDispense(rx)">
+                      发药
+                    </FaButton>
+                    <FaButton v-if="rx.status === 'issued' && auth('prescription.extend_validity')" variant="outline" size="sm" @click="openExtend(rx)">
+                      延长
+                    </FaButton>
+                  </div>
                 </div>
-                <div class="flex gap-1">
-                  <FaButton v-if="row.status === 'pending' && auth('medical_record.amend.approve')" variant="outline" size="sm" @click="onApproveAmendment(row)">
-                    批准
-                  </FaButton>
-                  <FaButton v-if="row.status === 'pending' && auth('medical_record.amend.approve')" variant="outline" size="sm" @click="openRejectAmendment(row)">
-                    拒绝
-                  </FaButton>
-                  <FaButton v-if="row.status === 'approved' && auth('medical_record.amend.request')" variant="outline" size="sm" @click="openApplyAmendment(row)">
-                    执行修订
-                  </FaButton>
+                <div v-if="prescriptionItemsByRx[rx.id]?.length" class="mt-2 overflow-x-auto">
+                  <FaTable
+                    :data="prescriptionItemsByRx[rx.id]"
+                    :columns="[
+                      { accessorKey: 'drug_name', header: '药品', cell: (c: any) => c.getValue() },
+                      { accessorKey: 'dosage', header: '剂量', cell: (c: any) => c.getValue() },
+                      { accessorKey: 'frequency', header: '频次', cell: (c: any) => c.getValue() },
+                      { accessorKey: 'quantity', header: '数量', cell: (c: any) => c.getValue() },
+                      { accessorKey: 'unit', header: '单位', cell: (c: any) => c.getValue() },
+                      { accessorKey: 'usage_instruction', header: '用法', cell: (c: any) => c.getValue() ?? '-' },
+                    ]"
+                  />
                 </div>
               </div>
-              <div class="text-xs text-gray-600 mt-1">
-                原因:{{ row.reason }}
+            </div>
+            <div v-if="!isSigned" class="space-y-2">
+              <div v-for="(item, idx) in prescriptionItems" :key="idx" class="flex flex-wrap gap-2 items-center">
+                <FaInput v-model="item.drugName" :disabled="prescriptionLocked" placeholder="药品名称" class="w-40" />
+                <FaInput v-model="item.dosage" :disabled="prescriptionLocked" placeholder="剂量" class="w-24" />
+                <FaInput v-model="item.frequency" :disabled="prescriptionLocked" placeholder="频次" class="w-24" />
+                <FaInput v-model.number="item.quantity" :disabled="prescriptionLocked" type="number" placeholder="数量" class="w-20" />
+                <FaInput v-model="item.unit" :disabled="prescriptionLocked" placeholder="单位" class="w-20" />
+                <FaButton v-if="!prescriptionLocked" variant="outline" size="icon-sm" @click="removePrescriptionItem(idx)">
+                  <FaIcon name="i-lucide:trash-2" />
+                </FaButton>
               </div>
-              <div v-if="row.status === 'rejected' && row.rejected_reason" class="text-xs text-red-600 mt-1">
-                拒绝原因:{{ row.rejected_reason }}
-              </div>
-              <div v-if="row.status === 'applied' && row.applied_at" class="text-xs text-gray-500 mt-1">
-                已应用:{{ new Date(row.applied_at).toLocaleString('zh-CN') }}
-              </div>
+              <FaButton v-if="!prescriptionLocked" variant="outline" size="sm" @click="addPrescriptionItem">
+                <FaIcon name="i-lucide:plus" />
+                添加药品
+              </FaButton>
             </div>
           </div>
         </div>
 
-        <!-- 修订历史 -->
-        <div v-if="revisions.length > 0" class="pt-4 border-t">
-          <div class="text-sm font-medium mb-2">
-            修订历史({{ revisions.length }})
+        <!-- 右栏:修订历史 + 修订管理 -->
+        <div class="flex flex-col gap-4 min-w-0 overflow-auto">
+          <div class="border rounded-lg bg-card">
+            <div class="text-sm font-medium px-4 py-2.5 border-b">
+              修订历史({{ revisions.length }})
+            </div>
+            <div class="p-4">
+              <AuditTimeline :items="auditItems" />
+            </div>
           </div>
-          <div class="space-y-2">
-            <div v-for="rev in revisions" :key="rev.id" class="text-xs p-2 border rounded">
-              <div class="flex justify-between">
-                <span>版本 #{{ rev.revision_no }}</span>
-                <span class="text-gray-500">{{ new Date(rev.revised_at).toLocaleString('zh-CN') }}</span>
+
+          <div v-if="isArchived" class="border rounded-lg bg-card">
+            <div class="px-4 py-2.5 border-b flex items-center justify-between">
+              <span class="text-sm font-medium">修订管理({{ amendments.length }})</span>
+              <FaButton v-if="auth('medical_record.amend.request')" variant="outline" size="sm" @click="amendmentRequestVisible = true">
+                修订申请
+              </FaButton>
+            </div>
+            <div class="p-3 space-y-2">
+              <div v-for="row in amendments" :key="row.id" class="text-xs p-2.5 border rounded-md">
+                <div class="flex gap-2 items-center justify-between">
+                  <EntityStatusTag :label="AMENDMENT_STATUS_LABELS[row.status]" :variant="row.status === 'approved' ? 'success' : row.status === 'rejected' ? 'danger' : 'info'" :dot="false" />
+                  <div class="flex gap-1">
+                    <FaButton v-if="row.status === 'pending' && auth('medical_record.amend.approve')" variant="outline" size="sm" @click="onApproveAmendment(row)">
+                      批准
+                    </FaButton>
+                    <FaButton v-if="row.status === 'pending' && auth('medical_record.amend.approve')" variant="outline" size="sm" @click="openRejectAmendment(row)">
+                      拒绝
+                    </FaButton>
+                    <FaButton v-if="row.status === 'approved' && auth('medical_record.amend.request')" variant="outline" size="sm" @click="openApplyAmendment(row)">
+                      执行
+                    </FaButton>
+                  </div>
+                </div>
+                <div class="text-muted-foreground mt-1.5">
+                  <div>原因:{{ row.reason }}</div>
+                  <div class="text-muted-foreground/80">
+                    {{ new Date(row.requested_at).toLocaleString('zh-CN') }}
+                  </div>
+                  <div v-if="row.status === 'rejected' && row.rejected_reason" class="text-red-600">
+                    拒绝原因:{{ row.rejected_reason }}
+                  </div>
+                  <div v-if="row.status === 'applied' && row.applied_at" class="text-muted-foreground">
+                    已应用:{{ new Date(row.applied_at).toLocaleString('zh-CN') }}
+                  </div>
+                </div>
               </div>
-              <div class="text-gray-600 mt-1">
-                原因:{{ rev.reason }}
-              </div>
+              <EmptyState v-if="!amendments.length" compact title="暂无修订申请" />
             </div>
           </div>
         </div>
       </div>
-    </FaPageMain>
+    </div>
+
+    <WorkflowFixedBar>
+      <template #left>
+        <span v-if="encounter" class="text-sm text-muted-foreground">
+          宠物: <span class="font-medium">{{ pet?.name ?? '未知' }}</span>
+          <template v-if="archivedAtText"> · {{ archivedAtText }}</template>
+        </span>
+      </template>
+      <template #right>
+        <FaButton size="sm" variant="outline" :disabled="!isEditable" @click="onSave">
+          <FaIcon name="i-lucide:save" />
+          保存
+        </FaButton>
+        <FaButton v-if="isSigned" size="sm" variant="outline" @click="reviseVisible = true">
+          <FaIcon name="i-lucide:rotate-ccw" />
+          修订
+        </FaButton>
+      </template>
+    </WorkflowFixedBar>
 
     <!-- 签署弹窗(S30-R04:签署人固定为当前登录用户,无手选) -->
     <FaModal v-model:visible="signVisible" title="签署病历" @confirm="onSign">
