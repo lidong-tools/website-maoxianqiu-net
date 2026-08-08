@@ -3,6 +3,7 @@ import type { RouteRecordRaw } from 'vue-router'
 import pinia from '@/store'
 // 注意:example 路由模块(modules/*.example.ts)与 views/*_example 源码保留作为组件参考,
 // 但不再注册进生产动态路由。禁止删除参考源码。
+import AnalyticsModule from './modules/analytics'
 import BillingModule from './modules/billing'
 import CatalogModule from './modules/catalog'
 import ClinicalModule from './modules/clinical'
@@ -156,6 +157,16 @@ const asyncRoutes: RouteRecordMainRaw[] = [
     },
     children: [
       ...OperationsModule,
+    ],
+  },
+  {
+    meta: {
+      title: '经营分析',
+      shortTitle: '分析',
+      icon: 'i-carbon:chart-multitype',
+    },
+    children: [
+      ...AnalyticsModule,
     ],
   },
   {

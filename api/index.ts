@@ -7,6 +7,7 @@ import { handle } from 'hono/vercel'
 import { fail, failError, ok } from './lib/result'
 import { requestIdMiddleware } from './middlewares/request-id'
 import approvalsRoutes from './routes/approvals'
+import analyticsRoutes from './routes/analytics'
 import auditRoutes from './routes/audit'
 import billingRoutes from './routes/billing'
 import catalogRoutes from './routes/catalog'
@@ -15,11 +16,14 @@ import closingRoutes from './routes/closing'
 import complianceRoutes from './routes/compliance'
 import customersRoutes from './routes/customers'
 import diagnosticsRoutes from './routes/diagnostics'
+import documentsRoutes from './routes/documents'
 import employeeRoutes from './routes/employees'
 import fileCommandRoutes from './routes/files-v2'
+import importsRoutes from './routes/imports'
 import inpatientRoutes from './routes/inpatient'
 import inventoryRoutes from './routes/inventory'
 import meRoutes from './routes/me'
+import messagingRoutes from './routes/messaging'
 import operationsRoutes from './routes/operations'
 import petsRoutes from './routes/pets'
 import regulatoryRoutes from './routes/regulatory'
@@ -111,6 +115,14 @@ app.route('/inventory', inventoryRoutes)
 app.route('/operations/report-data', reportDataRoutes)
 // MXQ-12001~12009:Operations 会员/积分/消息/导入/打印/报表/安全事件
 app.route('/operations', operationsRoutes)
+// S32-A:导入中心 V2(模板/上传/映射/校验/执行/取消;跨域 Hook 见 S32-A-HANDOFF)
+app.route('/imports', importsRoutes)
+// S32-B:经营报表与驾驶舱(只读聚合,权限 analytics.view.store/tenant/export)
+app.route('/analytics', analyticsRoutes)
+// S32-C:业务文档与打印中心 V2(模板/预览/渲染/打印/历史;医疗文档按业务权限门二次校验)
+app.route('/documents', documentsRoutes)
+// S32-D:消息通知真实 Provider(模板/发送/投递/重试;webhook 本轮未实现,见 S32-D-HANDOFF)
+app.route('/messaging', messagingRoutes)
 // MXQ-7001~7011:Clinical 预约/候诊/就诊/病历签署/修订/处方/护士任务
 app.route('/clinical', clinicalRoutes)
 // MXQ-8001~8007:Billing 发票/折扣/支付/退款 RPC(幂等防重复)

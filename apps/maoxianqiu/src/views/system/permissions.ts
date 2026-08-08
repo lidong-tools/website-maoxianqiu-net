@@ -124,10 +124,22 @@ export const PERMISSIONS = [
   { code: 'points.adjust', label: '调整积分' },
   { code: 'message.manage', label: '管理消息模板' },
   { code: 'reminder.manage', label: '管理提醒' },
+  { code: 'imports.view', label: '查看导入任务' },
+  { code: 'imports.create', label: '新建导入' },
+  { code: 'imports.execute', label: '执行导入' },
+  { code: 'imports.cancel', label: '取消导入' },
   { code: 'imports.manage', label: '管理导入任务' },
   { code: 'print.manage', label: '管理打印' },
   { code: 'reports.view', label: '查看报表' },
   { code: 'security.view', label: '查看安全事件' },
+  // ===== S3.2:业务文档与打印中心 V2 权限 =====
+  { code: 'documents.view', label: '查看业务文档' },
+  { code: 'documents.print', label: '打印业务文档' },
+  { code: 'documents.template.manage', label: '管理文档模板' },
+  // ===== S3.2:经营报表与驾驶舱(Analytics)权限 =====
+  { code: 'analytics.view.store', label: '查看门店经营报表' },
+  { code: 'analytics.view.tenant', label: '查看全院经营报表' },
+  { code: 'analytics.export', label: '导出经营报表CSV' },
   // ===== S3.1-1:Compliance 合规域权限 =====
   { code: 'medical_record.archive', label: '病历归档' },
   { code: 'medical_record.amend.request', label: '病历修订申请' },

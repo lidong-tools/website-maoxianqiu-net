@@ -1,20 +1,21 @@
 import type { RouteRecordRaw } from 'vue-router'
 
 /**
- * Operations 运营管理路由(MXQ-12001~12009)
+ * Operations 运营管理路由(MXQ-12001~12009 + S3.2)
  *
  * 菜单结构:
- *   /operations/imports   导入中心
- *   /operations/print     打印中心
- *   /operations/reports   报表中心
- *   /operations/message/templates  消息模板
- *   /operations/message/deliveries 投递记录
+ *   /operations/imports      导入中心 V2(S32-A)
+ *   /operations/documents    业务文档中心 V2(S32-C)
+ *   /operations/print        打印中心(旧)
+ *   /operations/reports      报表中心(旧)
+ *   /operations/messaging    消息中心(S32-D,替代旧 message/templates+deliveries)
  *
  * 权限:
- *   - imports 权限码:imports.manage
+ *   - imports 权限码:imports.view/create/execute/cancel(菜单用 imports.manage 兼容)
+ *   - documents 权限码:documents.view
  *   - print 权限码:print.manage
  *   - reports 权限码:reports.view
- *   - message 权限码:message.manage
+ *   - messaging 权限码:message.manage(细粒度 messaging.* 拆分 deferred)
  */
 const routes: RouteRecordRaw[] = [
   {
@@ -50,6 +51,16 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: '/operations/documents',
+    name: 'operationsDocuments',
+    component: () => import('@/views/operations/documents/index.vue'),
+    meta: {
+      title: '业务文档中心',
+      icon: 'i-ri:file-list-line',
+      auth: 'documents.view',
+    },
+  },
+  {
     path: '/operations/print',
     name: 'operationsPrint',
     component: () => import('@/views/operations/print/index.vue'),
@@ -70,21 +81,11 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
-    path: '/operations/message/templates',
-    name: 'operationsMessageTemplates',
-    component: () => import('@/views/operations/message/templates.vue'),
+    path: '/operations/messaging',
+    name: 'operationsMessaging',
+    component: () => import('@/views/operations/messaging/index.vue'),
     meta: {
-      title: '消息模板',
-      icon: 'i-ri:file-copy-line',
-      auth: 'message.manage',
-    },
-  },
-  {
-    path: '/operations/message/deliveries',
-    name: 'operationsMessageDeliveries',
-    component: () => import('@/views/operations/message/deliveries.vue'),
-    meta: {
-      title: '投递记录',
+      title: '消息中心',
       icon: 'i-ri:mail-send-line',
       auth: 'message.manage',
     },
