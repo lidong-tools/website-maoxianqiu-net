@@ -70,6 +70,28 @@ function mapRpcError(error: { message: string }) {
   if (msg.includes('INVALID_QUANTITY') || msg.includes('EMPTY_ITEMS') || msg.includes('SAME_WAREHOUSE')) {
     return err.badRequest(msg.replace(/^ERROR:\s*/, ''))
   }
+  // 采购模块错误映射
+  if (msg.includes('PURCHASE_ORDER_NOT_FOUND')) {
+    return err.notFound('采购单不存在')
+  }
+  if (msg.includes('STORE_NOT_FOUND')) {
+    return err.notFound('门店不存在')
+  }
+  if (msg.includes('SUPPLIER_NOT_FOUND')) {
+    return err.notFound('供应商不存在或已停用')
+  }
+  if (msg.includes('ITEM_NOT_FOUND')) {
+    return err.notFound('采购明细不存在')
+  }
+  if (msg.includes('NOT_DRAFT')) {
+    return err.conflict('仅草稿状态可编辑')
+  }
+  if (msg.includes('INVALID_STATUS')) {
+    return err.conflict('当前状态不允许该操作')
+  }
+  if (msg.includes('INVALID_RECEIVED_QTY')) {
+    return err.badRequest('实收数量须在 0 与订购数量之间')
+  }
   // 不透传底层 DB 错误消息,避免泄露内部信息(保留业务码由 HTTP 状态映射)
   return err.internal('库存操作失败')
 }
@@ -675,6 +697,507 @@ inventoryRoutes.get('/near-expiry', async (c) => {
   }
 
   return ok(c, { list: data ?? [] })
+})
+
+// ============================================================
+// 供应商(租户级主数据,MXQ-P05)
+// 查询走浏览器直连(RLS 按 is_tenant_member);写入经 Hono Command + 审计
+// ============================================================
+
+const supplierCreateSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  name: z.string().min(1, '供应商名称必填').max(200),
+  contactName: z.string().max(100).optional(),
+  phone: z.string().max(50).optional(),
+  address: z.string().max(500).optional(),
+  unifiedCreditCode: z.string().max(50).optional(),
+  paymentTerms: z.string().max(200).optional(),
+  categories: z.array(z.string().max(50)).optional(),
+  notes: z.string().max(1000).optional(),
+})
+
+const supplierUpdateSchema = supplierCreateSchema.extend({
+  id: z.string().uuid('供应商 id 格式错误'),
+})
+
+const supplierStatusSchema = z.object({
+  id: z.string().uuid('供应商 id 格式错误'),
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  status: z.enum(['active', 'inactive']),
+})
+
+function generateSupplierNo(): string {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  const rand = Math.random().toString(36).slice(2, 8).toUpperCase()
+  return `SUP-${date}-${rand}`
+}
+
+/**
+ * 新增供应商
+ * - 权限:supplier.manage(租户级)
+ * - 行为:service role 直插 suppliers + 审计;不开放浏览器直连写
+ */
+inventoryRoutes.post('/suppliers', async (c) => {
+  const input = await parseJsonBody(c, supplierCreateSchema)
+  const scope = await requireScopedPermission(c, {
+    code: 'supplier.manage',
+    tenantId: input.tenantId,
+  })
+  const service = createServiceClient()
+
+  const { data, error } = await service
+    .from('suppliers')
+    .insert({
+      tenant_id: scope.tenantId,
+      supplier_no: generateSupplierNo(),
+      name: input.name,
+      contact_name: input.contactName ?? null,
+      phone: input.phone ?? null,
+      address: input.address ?? null,
+      unified_credit_code: input.unifiedCreditCode ?? null,
+      payment_terms: input.paymentTerms ?? null,
+      categories: input.categories ?? [],
+      notes: input.notes ?? null,
+    })
+    .select()
+    .single()
+  if (error) {
+    if (error.code === '23505') {
+      throw err.conflict('供应商编码重复,请重试')
+    }
+    throw err.internal(`创建供应商失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.supplierCreate',
+    entityType: 'supplier',
+    entityId: (data as { id: string })?.id,
+    tenantId: input.tenantId,
+    metadata: { name: input.name },
+  })
+
+  return ok(c, data)
+})
+
+/**
+ * 更新供应商
+ * - 权限:supplier.manage(租户级)
+ */
+inventoryRoutes.post('/suppliers/update', async (c) => {
+  const input = await parseJsonBody(c, supplierUpdateSchema)
+  const scope = await requireScopedPermission(c, {
+    code: 'supplier.manage',
+    tenantId: input.tenantId,
+  })
+  const service = createServiceClient()
+
+  const { data, error } = await service
+    .from('suppliers')
+    .update({
+      name: input.name,
+      contact_name: input.contactName ?? null,
+      phone: input.phone ?? null,
+      address: input.address ?? null,
+      unified_credit_code: input.unifiedCreditCode ?? null,
+      payment_terms: input.paymentTerms ?? null,
+      categories: input.categories ?? [],
+      notes: input.notes ?? null,
+    })
+    .eq('id', input.id)
+    .eq('tenant_id', scope.tenantId)
+    .select()
+    .single()
+  if (error) {
+    if (error.code === 'PGRST116') {
+      throw err.notFound('供应商不存在')
+    }
+    throw err.internal(`更新供应商失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.supplierUpdate',
+    entityType: 'supplier',
+    entityId: input.id,
+    tenantId: input.tenantId,
+    metadata: { name: input.name },
+  })
+
+  return ok(c, data)
+})
+
+/**
+ * 停用/恢复供应商
+ * - 权限:supplier.manage(租户级)
+ */
+inventoryRoutes.post('/suppliers/status', async (c) => {
+  const input = await parseJsonBody(c, supplierStatusSchema)
+  const scope = await requireScopedPermission(c, {
+    code: 'supplier.manage',
+    tenantId: input.tenantId,
+  })
+  const service = createServiceClient()
+
+  const { data, error } = await service
+    .from('suppliers')
+    .update({ status: input.status })
+    .eq('id', input.id)
+    .eq('tenant_id', scope.tenantId)
+    .select()
+    .single()
+  if (error) {
+    if (error.code === 'PGRST116') {
+      throw err.notFound('供应商不存在')
+    }
+    throw err.internal(`更新供应商状态失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.supplierStatus',
+    entityType: 'supplier',
+    entityId: input.id,
+    tenantId: input.tenantId,
+    metadata: { status: input.status },
+  })
+
+  return ok(c, data)
+})
+
+// ============================================================
+// 采购订单(MXQ-P05)
+// 查询走浏览器直连(RLS 按 can_access_store);状态流转经 Hono Command + RPC
+// 状态机:draft → submitted → approved → received → posted;draft/submitted 可取消
+// ============================================================
+
+const purchaseItemSchema = z.object({
+  catalogItemId: z.string().uuid('商品 id 格式错误'),
+  orderedQty: z.number().positive('订购数量必须大于 0'),
+  unitCost: z.number().nonnegative().optional(),
+})
+
+/** 空字符串/undefined 统一转 null,避免 RPC 内 ''::date 报错 */
+function dateOrNull(v?: string): string | null {
+  return v ? v : null
+}
+
+const purchaseCreateSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid('门店 id 格式错误'),
+  warehouseId: z.string().uuid('仓库 id 格式错误'),
+  supplierId: z.string().uuid('供应商 id 格式错误'),
+  expectedAt: z.string().optional(),
+  note: z.string().max(1000).optional(),
+  items: z.array(purchaseItemSchema).min(1, '至少一项商品'),
+})
+
+const purchaseUpdateDraftSchema = purchaseCreateSchema.extend({
+  poId: z.string().uuid('采购单 id 格式错误'),
+})
+
+const purchaseActionSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  poId: z.string().uuid('采购单 id 格式错误'),
+})
+
+const purchaseReceiveSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  poId: z.string().uuid('采购单 id 格式错误'),
+  items: z.array(z.object({
+    id: z.string().uuid('明细 id 格式错误'),
+    receivedQty: z.number().min(0, '实收数量不能为负'),
+    batchNo: z.string().max(100).optional(),
+    expiresAt: z.string().optional(),
+  })).min(1, '至少一项收货明细'),
+})
+
+/** 查采购单取 store_id 做作用域授权(创建外的所有流转共用) */
+async function resolvePurchaseOrder(c: Context<AppEnv>, tenantId: string, poId: string) {
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('purchase_orders')
+    .select('id, tenant_id, store_id, warehouse_id, supplier_id, status, po_no')
+    .eq('id', poId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+  if (error || !data) {
+    throw err.notFound('采购单不存在')
+  }
+  return data
+}
+
+/**
+ * 创建采购单草稿
+ * - 权限:purchase.create(门店作用域)
+ * - 行为:调 create_purchase_order RPC,生成 po_no 与明细
+ */
+inventoryRoutes.post('/purchase-orders', async (c) => {
+  const input = await parseJsonBody(c, purchaseCreateSchema)
+  const scope = await requireScopedPermission(c, {
+    code: 'purchase.create',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('create_purchase_order', {
+    p_tenant_id: scope.tenantId,
+    p_store_id: input.storeId,
+    p_warehouse_id: input.warehouseId,
+    p_supplier_id: input.supplierId,
+    p_expected_at: dateOrNull(input.expectedAt),
+    p_note: input.note ?? null,
+    p_items: input.items.map(i => ({ catalog_item_id: i.catalogItemId, ordered_qty: i.orderedQty, unit_cost: i.unitCost ?? 0 })),
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.purchaseCreate',
+    entityType: 'purchase_order',
+    entityId: (data as { id?: string })?.id,
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+    metadata: { poNo: (data as { poNo?: string })?.poNo, itemCount: input.items.length },
+  })
+
+  return ok(c, data)
+})
+
+/**
+ * 编辑草稿(仅 draft;替换全部明细)
+ * - 权限:purchase.create
+ */
+inventoryRoutes.post('/purchase-orders/draft', async (c) => {
+  const input = await parseJsonBody(c, purchaseUpdateDraftSchema)
+  const po = await resolvePurchaseOrder(c, input.tenantId, input.poId)
+  const scope = await requireScopedPermission(c, {
+    code: 'purchase.create',
+    tenantId: po.tenant_id,
+    storeId: po.store_id,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('update_purchase_order_draft', {
+    p_tenant_id: scope.tenantId,
+    p_po_id: input.poId,
+    p_warehouse_id: input.warehouseId,
+    p_supplier_id: input.supplierId,
+    p_expected_at: dateOrNull(input.expectedAt),
+    p_note: input.note ?? null,
+    p_items: input.items.map(i => ({ catalog_item_id: i.catalogItemId, ordered_qty: i.orderedQty, unit_cost: i.unitCost ?? 0 })),
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.purchaseDraftUpdate',
+    entityType: 'purchase_order',
+    entityId: input.poId,
+    tenantId: input.tenantId,
+    storeId: po.store_id,
+    metadata: { poNo: po.po_no, itemCount: input.items.length },
+  })
+
+  return ok(c, data)
+})
+
+/**
+ * 提交采购单(draft → submitted)
+ * - 权限:purchase.submit
+ */
+inventoryRoutes.post('/purchase-orders/submit', async (c) => {
+  const input = await parseJsonBody(c, purchaseActionSchema)
+  const po = await resolvePurchaseOrder(c, input.tenantId, input.poId)
+  const scope = await requireScopedPermission(c, {
+    code: 'purchase.submit',
+    tenantId: po.tenant_id,
+    storeId: po.store_id,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('submit_purchase_order', {
+    p_tenant_id: scope.tenantId,
+    p_po_id: input.poId,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.purchaseSubmit',
+    entityType: 'purchase_order',
+    entityId: input.poId,
+    tenantId: input.tenantId,
+    storeId: po.store_id,
+    metadata: { poNo: po.po_no },
+  })
+
+  return ok(c, data)
+})
+
+/**
+ * 审核采购单(submitted → approved)
+ * - 权限:purchase.approve
+ */
+inventoryRoutes.post('/purchase-orders/approve', async (c) => {
+  const input = await parseJsonBody(c, purchaseActionSchema)
+  const po = await resolvePurchaseOrder(c, input.tenantId, input.poId)
+  const scope = await requireScopedPermission(c, {
+    code: 'purchase.approve',
+    tenantId: po.tenant_id,
+    storeId: po.store_id,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('approve_purchase_order', {
+    p_tenant_id: scope.tenantId,
+    p_po_id: input.poId,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.purchaseApprove',
+    entityType: 'purchase_order',
+    entityId: input.poId,
+    tenantId: input.tenantId,
+    storeId: po.store_id,
+    metadata: { poNo: po.po_no },
+  })
+
+  return ok(c, data)
+})
+
+/**
+ * 取消采购单(draft / submitted → cancelled)
+ * - 权限:purchase.submit
+ */
+inventoryRoutes.post('/purchase-orders/cancel', async (c) => {
+  const input = await parseJsonBody(c, purchaseActionSchema)
+  const po = await resolvePurchaseOrder(c, input.tenantId, input.poId)
+  const scope = await requireScopedPermission(c, {
+    code: 'purchase.submit',
+    tenantId: po.tenant_id,
+    storeId: po.store_id,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('cancel_purchase_order', {
+    p_tenant_id: scope.tenantId,
+    p_po_id: input.poId,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.purchaseCancel',
+    entityType: 'purchase_order',
+    entityId: input.poId,
+    tenantId: input.tenantId,
+    storeId: po.store_id,
+    metadata: { poNo: po.po_no },
+  })
+
+  return ok(c, data)
+})
+
+/**
+ * 收货(approved / received → received;记录实收数量/批次/效期)
+ * - 权限:purchase.receive
+ * - 过账前可重复调整收货数据
+ */
+inventoryRoutes.post('/purchase-orders/receive', async (c) => {
+  const input = await parseJsonBody(c, purchaseReceiveSchema)
+  const po = await resolvePurchaseOrder(c, input.tenantId, input.poId)
+  const scope = await requireScopedPermission(c, {
+    code: 'purchase.receive',
+    tenantId: po.tenant_id,
+    storeId: po.store_id,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('receive_purchase_order', {
+    p_tenant_id: scope.tenantId,
+    p_po_id: input.poId,
+    p_items: input.items.map(i => ({
+      id: i.id,
+      received_qty: i.receivedQty,
+      batch_no: i.batchNo ?? null,
+      expires_at: dateOrNull(i.expiresAt),
+    })),
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.purchaseReceive',
+    entityType: 'purchase_order',
+    entityId: input.poId,
+    tenantId: input.tenantId,
+    storeId: po.store_id,
+    metadata: { poNo: po.po_no, itemCount: input.items.length },
+  })
+
+  return ok(c, data)
+})
+
+/**
+ * 过账(received → posted;复用 post_goods_receipt 生成批次/余额/流水)
+ * - 权限:purchase.post
+ * - 幂等:Idempotency-Key 保证重复点击只产生一次入库
+ */
+inventoryRoutes.post('/purchase-orders/post', async (c) => {
+  const input = await parseJsonBody(c, purchaseActionSchema)
+  const po = await resolvePurchaseOrder(c, input.tenantId, input.poId)
+  const scope = await requireScopedPermission(c, {
+    code: 'purchase.post',
+    tenantId: po.tenant_id,
+    storeId: po.store_id,
+  })
+  const user = c.get('user')
+  const idempotencyKey = resolveIdempotencyKey(c)
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('post_purchase_order', {
+    p_tenant_id: scope.tenantId,
+    p_po_id: input.poId,
+    p_operator_id: user.id,
+    p_idempotency_key: idempotencyKey,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.purchasePost',
+    entityType: 'purchase_order',
+    entityId: input.poId,
+    tenantId: input.tenantId,
+    storeId: po.store_id,
+    metadata: {
+      poNo: po.po_no,
+      postedTotal: (data as { postedTotal?: number })?.postedTotal,
+      idempotencyKey,
+    },
+  })
+
+  return ok(c, data)
 })
 
 export default inventoryRoutes

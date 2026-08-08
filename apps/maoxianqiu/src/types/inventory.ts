@@ -298,3 +298,134 @@ export const INVENTORY_PERMISSIONS = {
   confirm: 'inventory.confirm',
   release: 'inventory.release',
 } as const
+
+// ============================================================
+// 供应商 + 采购订单(MXQ-P05)
+// ============================================================
+
+/** 供应商状态 */
+export type SupplierStatus = 'active' | 'inactive'
+
+/** suppliers 表记录(租户级主数据) */
+export interface Supplier {
+  id: string
+  tenant_id: string
+  supplier_no: string
+  name: string
+  contact_name: string | null
+  phone: string | null
+  address: string | null
+  unified_credit_code: string | null
+  payment_terms: string | null
+  status: SupplierStatus
+  categories: string[] | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** 供应商新建/编辑请求(编辑时带 id) */
+export interface SupplierInput {
+  id?: string
+  tenantId: string
+  name: string
+  contactName?: string
+  phone?: string
+  address?: string
+  unifiedCreditCode?: string
+  paymentTerms?: string
+  categories?: string[]
+  notes?: string
+}
+
+/** 采购订单状态机:draft → submitted → approved → received → posted;draft/submitted 可取消 */
+export type PurchaseOrderStatus = 'draft' | 'submitted' | 'approved' | 'received' | 'posted' | 'cancelled'
+
+/** purchase_order_items 表记录 */
+export interface PurchaseOrderItem {
+  id: string
+  tenant_id: string
+  purchase_order_id: string
+  catalog_item_id: string
+  ordered_qty: number
+  received_qty: number
+  unit_cost: number
+  batch_no: string | null
+  expires_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** purchase_orders 表记录 */
+export interface PurchaseOrder {
+  id: string
+  tenant_id: string
+  store_id: string
+  warehouse_id: string
+  po_no: string
+  supplier_id: string | null
+  status: PurchaseOrderStatus
+  expected_at: string | null
+  total_cost: number
+  note: string | null
+  created_by: string | null
+  submitted_by: string | null
+  submitted_at: string | null
+  approved_by: string | null
+  approved_at: string | null
+  received_by: string | null
+  received_at: string | null
+  posted_by: string | null
+  posted_at: string | null
+  cancelled_by: string | null
+  cancelled_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** 采购单明细输入项(草稿阶段) */
+export interface PurchaseOrderItemInput {
+  catalogItemId: string
+  orderedQty: number
+  unitCost?: number
+}
+
+/** 收货明细输入项 */
+export interface PurchaseReceiveItemInput {
+  id: string
+  receivedQty: number
+  batchNo?: string
+  expiresAt?: string
+}
+
+/** 采购单状态标签映射(UI 显示用) */
+export const PURCHASE_ORDER_STATUS_LABELS: Record<PurchaseOrderStatus, string> = {
+  draft: '草稿',
+  submitted: '待审核',
+  approved: '已审核',
+  received: '已收货',
+  posted: '已过账',
+  cancelled: '已取消',
+}
+
+/** 供应商状态标签映射 */
+export const SUPPLIER_STATUS_LABELS: Record<SupplierStatus, string> = {
+  active: '在用',
+  inactive: '停用',
+}
+
+/** 供应商权限码常量 */
+export const SUPPLIER_PERMISSIONS = {
+  view: 'supplier.view',
+  manage: 'supplier.manage',
+} as const
+
+/** 采购权限码常量 */
+export const PURCHASE_PERMISSIONS = {
+  view: 'purchase.view',
+  create: 'purchase.create',
+  submit: 'purchase.submit',
+  approve: 'purchase.approve',
+  receive: 'purchase.receive',
+  post: 'purchase.post',
+} as const

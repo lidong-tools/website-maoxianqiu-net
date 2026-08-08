@@ -45,6 +45,26 @@ const routes: RouteRecordRaw[] = [
       auth: 'inventory.transfer',
     },
   },
+  {
+    path: '/inventory/suppliers',
+    name: 'inventorySuppliers',
+    component: () => import('@/views/inventory/suppliers/index.vue'),
+    meta: {
+      title: '供应商管理',
+      icon: 'i-ri:building-2-line',
+      auth: 'supplier.view',
+    },
+  },
+  {
+    path: '/inventory/purchasing',
+    name: 'inventoryPurchasing',
+    component: () => import('@/views/inventory/purchasing/index.vue'),
+    meta: {
+      title: '采购管理',
+      icon: 'i-ri:shopping-bag-3-line',
+      auth: 'purchase.view',
+    },
+  },
 ]
 
 export default routes
