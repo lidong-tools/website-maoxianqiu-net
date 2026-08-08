@@ -267,6 +267,16 @@ function variableLabel(key: string): string {
   return whitelist.value.find(w => w.key === key)?.label ?? key
 }
 
+/** 生成占位符文本(避免模板源码出现字面量双花括号,规避 Vue 编译器解析问题) */
+function placeholderText(key: string): string {
+  return `{{${key}}}`
+}
+
+/** 变量标签 + 占位符(用于发送 Tab 的输入标签) */
+function variableLabelWithKey(key: string): string {
+  return `${variableLabel(key)}（${placeholderText(key)}）`
+}
+
 async function submitSend() {
   if (!tenantStore.currentTenantId) return
   if (!sendForm.value.templateId) {
@@ -546,7 +556,7 @@ async function openDetail(row: MessagingDelivery) {
               模板变量
               <span class="text-slate-400">（{{ activeVariableKeys.length }} 个，白名单变量）</span>
             </div>
-            <FaLabel v-for="key in activeVariableKeys" :key="key" :label="`${variableLabel(key)}（{{ ${key} }}）`">
+            <FaLabel v-for="key in activeVariableKeys" :key="key" :label="variableLabelWithKey(key)">
               <FaInput v-model="sendForm.variables[key]" class="w-full" />
             </FaLabel>
           </div>
@@ -660,7 +670,7 @@ async function openDetail(row: MessagingDelivery) {
               class="var-chip"
               @click="insertVariable(v.key)"
             >
-              {{ v.label }} {{ '{{' }}{{ v.key }}{{ '}}' }}
+              {{ v.label }} {{ placeholderText(v.key) }}
             </button>
           </div>
         </div>
