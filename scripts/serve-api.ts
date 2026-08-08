@@ -8,7 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { serve } from '@hono/node-server'
-import { app } from '../api/index'
+import { app } from '../api/[[...route]]'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const envPath = path.resolve(dir, '../api/.env.local')

@@ -105,7 +105,9 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
 
     /* ========== 3. 预约:API 创建(今天)+ 流转到候诊 ========== */
     console.log('[闭环A] 步骤3 创建预约并候诊')
-    const start = new Date(Date.now() + 3 * 3600 * 1000)
+    // 工作台"今日预约"按本地今天过滤,预约时间须落在今天内(晚运行时 +3h 会跨午夜)
+    const start = new Date(Date.now() + 30 * 60 * 1000)
+    start.setHours(Math.min(start.getHours(), 23))
     const apptRes = (await api.post('/clinical/appointments', {
       tenantId,
       storeId,
