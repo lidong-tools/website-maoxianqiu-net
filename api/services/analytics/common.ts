@@ -27,6 +27,13 @@ export const MAX_PERIOD_DAYS = 366
 export const FETCH_PAGE_SIZE = 500
 
 /**
+ * UUID IN 查询分块大小(审计 v4 §4):
+ * 一个 UUID 约 36 字符,500 个约 1.8 万字符,叠加参数后易超常见 8KB~16KB
+ * URL 限制触发 414;取 100(约 3.6KB + 参数,安全线内)平衡请求数与 URL 长度。
+ */
+export const UUID_CHUNK_SIZE = 100
+
+/**
  * 分页拉全查询结果(规避 PostgREST 行数上限导致的静默截断)
  *
  * 背景:PostgREST 对单次请求有行数上限,若直接 select 全量行,超出部分会被

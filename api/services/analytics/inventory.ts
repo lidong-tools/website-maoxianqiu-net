@@ -162,8 +162,8 @@ export async function buildInventoryReport(
   ])]
   const catalogMap = new Map<string, CatalogInfo>()
   if (catalogIds.length > 0) {
-    // 大 IN 分批(审计 v3 §11):catalogIds 量级可能很大
-    for (const chunkIds of chunk(catalogIds, 500)) {
+    // 大 IN 分批(审计 v3 §11 + v4 §4):catalogIds 量级可能很大,按 UUID_CHUNK_SIZE 分批
+    for (const chunkIds of chunk(catalogIds, UUID_CHUNK_SIZE)) {
       const { data, error } = await service
         .from('catalog_items')
         .select('id, code, name, unit, cost_price')

@@ -143,3 +143,27 @@
 - S3.1 Source Code Gate:**PASS**(v4 §9 判定条件满足:旧 115 已从真实仓库删除)。
 - S3.2 Source Code Gate:**收口通过**(v3 §22 Blocker 1/2 已处理;Pilot 前建议项 Import Consumer / Provider 幂等按产品节奏跟进)。
 - 下一步(外部依赖,保持 `runtime_verification_pending`):staging 执行全部 Migration → `medical_loop_s3_1.sql` → RPC ACL / RLS 实库断言 → E2E。
+
+## 9. S3.1/S3.2 再审计(v5/v4)收口
+
+> 依据:`document/stage-03/subagent-3-2/S3.1-Reaudit-v5.md`、`S3.2-Reaudit-v4.md`(针对上一增量包的再次复核)。
+
+### 9.1 S3.2 v4 需修项(2 项,均已落地)
+
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| §9/§10 Messaging 顶部快速分支 replay 状态 Bug | ✅ | `sendMessage()` 顶部 `existing` 分支原为 `status === 'failed' ? failed : sent`,会把 queued/sending 中间态误报为 sent;已统一改为 `replayResult(delivery)`,与 `created=false` 分支语义一致 |
+| §4 Analytics UUID chunk 500 仍偏大 | ✅ | 500 个 UUID 约 1.8 万字符,易超 8KB~16KB URL 限制触发 414;`common.ts` 新增 `UUID_CHUNK_SIZE = 100`(约 3.6KB),revenue invoice_items/encounters/employees、inventory catalog_items 共 4 处调用点改用 |
+
+### 9.2 S3.1 v5 建议项(1 项,已落地)
+
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| §3 discharge 笼位释放 defense-in-depth | ✅ | migration 120 笼位释放 UPDATE 增加 `current_admission_id = p_admission_id` 条件 + `GET DIAGNOSTICS` 检查 affected rows;未命中仅 `RAISE NOTICE` 提示占用关系异常、跳过释放,避免历史不一致时旧住院出院误释放他人笼位,不阻断正常出院 |
+
+### 9.3 证据核验
+
+- Migration 版本唯一性:全量核验 **NO_DUPLICATE_VERSIONS(97 个唯一)**;旧 `115_s3_1_source_gate_fixes.sql` 在真实仓库中已不存在(仅 `115_messaging_idempotency_lockdown`),确认 v5 §4 唯一遗留疑问关闭。
+- 改动文件 GetDiagnostics 全部无错误(engine.ts / common.ts / revenue.ts / inventory.ts)。
+- S3.1 Source Code Gate:**PASS**;S3.2 Source Code Gate:**PASS WITH P1 HARDENING**(v4 §17 判定)。
+- 未触碰 Pilot 前建议项(§12 stale sending 结果未知语义、§6 DST 时区、§14 Import Consumer),按产品节奏跟进;Runtime Gate 保持 `runtime_verification_pending`。

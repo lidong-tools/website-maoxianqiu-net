@@ -461,7 +461,7 @@ async function buildDoctorDimension(
     const doctorMap = new Map<string, string>()
     if (doctorIds.length > 0) {
       const empOut: Array<{ user_id: string; name: string | null }> = []
-      for (const chunkIds of chunk(doctorIds, 500)) {
+      for (const chunkIds of chunk(doctorIds, UUID_CHUNK_SIZE)) {
         const { data: employees } = await service
           .from('employees')
           .select('user_id, name')

@@ -98,12 +98,20 @@ begin
   where id = p_admission_id
   returning * into v_admission;
 
-  -- 释放笼位(直接按住院记录最新 cage_id 释放,不依赖 v_cage 快照变量)
+  -- 释放笼位(审计 v5 §3 防御性收紧:仅当笼位仍指向本住院时才释放,
+  -- 避免历史不一致场景下"旧住院出院误释放已被其他住院占用的笼位";
+  -- 正常业务路径下必然命中,未命中仅记录提示,不阻断出院)。
   update public.cages
   set status = 'available',
       current_admission_id = null,
       updated_at = now()
-  where id = v_admission.cage_id;
+  where id = v_admission.cage_id
+    and current_admission_id = p_admission_id;
+  get diagnostics v_cage_rows = row_count;
+  if v_cage_rows = 0 then
+    raise notice 'discharge_patient: cage % 未指向本住院 %,笼位占用关系异常,已跳过释放',
+      v_admission.cage_id, p_admission_id;
+  end if;
 
   -- 记录幂等结果
   if p_idempotency_key is not null and p_idempotency_key <> '' then

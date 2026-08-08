@@ -337,9 +337,9 @@ export async function sendMessage(req: SendRequest): Promise<DeliveryWithAttempt
     if (existing) {
       const delivery = existing as DeliveryRow
       const attempt = await loadLatestAttempt(service, delivery.id)
-      const result: ProviderSendResult = delivery.status === 'failed'
-        ? { status: 'failed', raw: { code: 'IDEMPOTENT_REPLAY', message: delivery.error ?? '复用既有失败投递' } }
-        : { status: 'sent', providerMessageId: delivery.provider_message_id ?? undefined, raw: { idempotent: true } }
+      // 真实状态映射(审计 v4 §9/§10):顶部快速分支与 created=false 分支统一,
+      // 避免 queued/sending 中间态被误报为 sent。
+      const result = replayResult(delivery)
       return { delivery, attempt, provider: 'idempotent-replay', result }
     }
   }
