@@ -64,10 +64,11 @@ export default defineConfig({
   // 单 worker 串行执行,避免同一 Supabase 账号并发登录触发风控
   workers: 1,
   fullyParallel: false,
-  // 全局超时:每个测试 60s;断言超时放宽到 15s(登录等网络操作较慢)
-  timeout: 60_000,
+  // 全局超时:每个测试 300s(staging 远端 Supabase ap-south-1 网络延迟 ~3s/API 调用);
+  // 断言超时放宽到 30s(登录/详情加载等网络操作较慢)
+  timeout: 300_000,
   expect: {
-    timeout: 15_000,
+    timeout: 30_000,
   },
   // 失败时保留现场截图,便于排查
   reporter: [

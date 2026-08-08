@@ -10,7 +10,7 @@ export default setSettings({
       title: '工作台',
     },
     copyright: {
-      enable: true,
+      enable: false,
       dates: '2026-present',
       company: '毛线球',
     },

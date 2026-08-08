@@ -88,7 +88,7 @@ test.describe('闭环 B — 库存闭环(串行)', () => {
     await page.goto('/#/inventory/count', { waitUntil: 'domcontentloaded' })
     await expect(page.getByText('盘点').first()).toBeVisible()
     // 选择仓库(仓库 A,下拉选项显示仓库名)
-    await page.getByPlaceholder('选择仓库').click()
+    await page.getByPlaceholder('选择仓库').last().click()
     await page.locator('[role="listbox"], .fa-select, .fa-option').getByText(warehouseA.name, { exact: true }).first().click()
     // 在商品行(按商品 ID 前 8 位匹配)输入盘点数量 40
     const row = page.locator('table tbody tr').filter({ hasText: item.id.slice(0, 8) }).first()

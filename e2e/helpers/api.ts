@@ -69,7 +69,7 @@ export function createApiClient(request: APIRequestContext, base: string, token:
      * @returns 完整响应体
      */
     async get<T = unknown>(path: string): Promise<T> {
-      const res = await check(await request.get(`${base}${path}`, { headers }), `GET ${path}`)
+      const res = await check(await request.get(`${base}${path}`, { headers, timeout: 60_000 }), `GET ${path}`)
       return res.json() as Promise<T>
     },
     /**
@@ -79,7 +79,7 @@ export function createApiClient(request: APIRequestContext, base: string, token:
      * @returns 完整响应体
      */
     async post<T = unknown>(path: string, data?: unknown): Promise<T> {
-      const res = await check(await request.post(`${base}${path}`, { headers, data: data ?? {} }), `POST ${path}`)
+      const res = await check(await request.post(`${base}${path}`, { headers, data: data ?? {}, timeout: 60_000 }), `POST ${path}`)
       return res.json() as Promise<T>
     },
   }

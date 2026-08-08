@@ -51,10 +51,11 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
     /* ========== 1. 客户:UI 创建 + API 断言 ========== */
     console.log('[闭环A] 步骤1 创建客户')
     await page.goto('/#/crm/customer/new', { waitUntil: 'domcontentloaded' })
-    await page.getByPlaceholder('请输入姓名').fill(customerName)
-    await page.getByPlaceholder('请输入手机号').fill(`138${String(runId).slice(-8)}`)
+    await page.getByPlaceholder('请输入姓名').last().fill(customerName)
+    await page.getByPlaceholder('请输入手机号').last().fill(`138${String(runId).slice(-8)}`)
     await page.getByRole('button', { name: '保存' }).click()
-    await page.waitForURL(/\/#\/crm\/customer\/[^/]+$/, { timeout: 30_000 })
+    // 保存成功跳转到详情页(UUID),不能匹配 /new 新增页
+    await page.waitForURL(/\/#\/crm\/customer\/[0-9a-f-]{36}$/, { timeout: 30_000 })
     const customerId = new URL(page.url()).hash.split('/').pop()!
     await expect(page.getByText(customerName).first()).toBeVisible()
     // 数据库断言:客户已创建
@@ -72,9 +73,9 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
     await expect(page.getByRole('button', { name: '新增宠物' }).first()).toBeVisible({ timeout: 15_000 })
     await page.getByRole('button', { name: '新增宠物' }).first().click()
     await expect(page.getByPlaceholder('请输入宠物名字').first()).toBeVisible({ timeout: 10_000 })
-    await page.getByPlaceholder('请输入宠物名字').fill(petName)
+    await page.getByPlaceholder('请输入宠物名字').last().fill(petName)
     // 物种:从下拉选择「犬」(禁止手填枚举)
-    await page.getByPlaceholder('如:金毛 / 英短').fill('田园犬')
+    await page.getByPlaceholder('如:金毛 / 英短').last().fill('田园犬')
     await page.getByRole('button', { name: '保存' }).last().click()
     await expect(page.getByText('宠物建档成功').first()).toBeVisible({ timeout: 15_000 })
     // 数据库断言:UI 创建的宠物归属正确
@@ -131,8 +132,8 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
     await page.getByText(reason).first().click()
     await expect(page.getByPlaceholder('宠物主诉').first()).toBeVisible({ timeout: 15_000 })
     const complaint = `E2E主诉-${runId}`
-    await page.getByPlaceholder('宠物主诉').fill(complaint)
-    await page.getByPlaceholder('病史描述').fill(`E2E现病史-${runId}`)
+    await page.getByPlaceholder('宠物主诉').last().fill(complaint)
+    await page.getByPlaceholder('病史描述').last().fill(`E2E现病史-${runId}`)
     await page.getByRole('button', { name: '保存草稿' }).click()
     // 完成就诊(确认弹窗)
     await page.getByRole('button', { name: '完成就诊' }).click()
