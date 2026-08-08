@@ -1,8 +1,10 @@
+import api from '../index'
 import { supabase } from '@/lib/supabase'
 
 /**
  * 业务全局搜索 API 模块(CORE-03)
- * 浏览器直连 Supabase,租户/门店边界由 RLS 兜底;每类限制返回条数。
+ * P0-29:默认走服务端聚合 GET /api/search(租户/门店作用域过滤),
+ * 浏览器直连的多表搜索保留为兼容兜底(serverGlobalSearch 失败/未部署时可用)。
  */
 
 const LIMIT = 8
@@ -190,6 +192,20 @@ async function searchCatalog(q: string): Promise<SearchCatalogItem[]> {
     code: row.code ?? null,
     billingType: row.billing_type ?? null,
   }))
+}
+
+/**
+ * P0-29:服务端聚合搜索(租户 + 授权门店作用域,支持请求取消)
+ */
+export async function serverGlobalSearch(
+  params: { q: string, tenantId?: string, storeId?: string },
+  signal?: AbortSignal,
+): Promise<GlobalSearchResult> {
+  const res = await api.get<GlobalSearchResult>('search', {
+    params: { q: params.q, tenantId: params.tenantId, storeId: params.storeId || undefined },
+    signal,
+  })
+  return (res as any)?.data ?? { customers: [], pets: [], encounters: [], invoices: [], catalogItems: [] }
 }
 
 /** 统一入口:并发搜索五类业务对象,返回分组结果 */

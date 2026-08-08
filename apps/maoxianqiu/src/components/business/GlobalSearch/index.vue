@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { GlobalSearchResult } from '@/api/modules/search'
-import { globalSearch } from '@/api/modules/search'
+import { serverGlobalSearch } from '@/api/modules/search'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { useHotkeyBindings } from '@/hotkeys'
 
 defineOptions({
@@ -13,11 +14,16 @@ const isShow = defineModel<boolean>({
 
 const router = useRouter()
 const appSettingsStore = useAppSettingsStore()
+const tenantStore = useAppTenantStore()
+const { auth } = useAppAuth()
 
 const searchInput = ref('')
 const loading = ref(false)
 const actived = ref(0)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+// P0-29:请求序号 + AbortController,防止旧查询覆盖新查询
+let searchSeq = 0
+let searchAbort: AbortController | null = null
 
 interface SearchItem {
   key: string
@@ -33,12 +39,12 @@ const resultItems = ref<GlobalSearchResult>({ customers: [], pets: [], encounter
 const searchResultRef = useTemplateRef('searchResultRef')
 const searchResultItemRef = useTemplateRef<HTMLElement[]>('searchResultItemRef')
 
-// 空输入时的常用功能入口
-const quickActions: SearchItem[] = [
-  { key: 'fa-customer', group: '功能', title: '客户管理', subtitle: '查看所有客户', to: '/crm/customer', icon: 'i-mdi:account-group' },
-  { key: 'fa-cashier', group: '功能', title: '快速收银', subtitle: '新建收费单', to: '/billing/cashier', icon: 'i-mdi:wallet' },
-  { key: 'fa-catalog', group: '功能', title: '目录管理', subtitle: '药品/商品/服务目录', to: '/catalog', icon: 'i-mdi:package-variant' },
-  { key: 'fa-workbench', group: '功能', title: '医生工作台', subtitle: '候诊与接诊', to: '/clinical/workbench', icon: 'i-mdi:stethoscope' },
+// P0-29:空输入时的常用功能入口,按权限过滤
+const quickActions: Array<SearchItem & { perm: string }> = [
+  { key: 'fa-customer', group: '功能', title: '客户管理', subtitle: '查看所有客户', to: '/crm/customer', icon: 'i-mdi:account-group', perm: 'customer.view' },
+  { key: 'fa-cashier', group: '功能', title: '快速收银', subtitle: '新建收费单', to: '/billing/cashier', icon: 'i-mdi:wallet', perm: 'invoice.create' },
+  { key: 'fa-catalog', group: '功能', title: '目录管理', subtitle: '药品/商品/服务目录', to: '/catalog', icon: 'i-mdi:package-variant', perm: 'catalog.view' },
+  { key: 'fa-workbench', group: '功能', title: '医生工作台', subtitle: '候诊与接诊', to: '/clinical/workbench', icon: 'i-mdi:stethoscope', perm: 'encounter.view' },
 ]
 
 function buildItems(): SearchItem[] {
@@ -64,7 +70,8 @@ function buildItems(): SearchItem[] {
 
 const displayItems = computed<SearchItem[]>(() => {
   if (!searchInput.value.trim()) {
-    return quickActions
+    // P0-29:快捷入口按权限过滤,无权功能不出现
+    return quickActions.filter(item => auth(item.perm))
   }
   return buildItems()
 })
@@ -137,14 +144,33 @@ function jump(item: SearchItem) {
 }
 
 async function doSearch() {
+  // P0-29:序号 + 取消旧请求,慢查询不再覆盖新结果
+  const seq = ++searchSeq
+  searchAbort?.abort()
+  const controller = new AbortController()
+  searchAbort = controller
   loading.value = true
   try {
-    const payload = await globalSearch(searchInput.value)
+    const payload = await serverGlobalSearch({
+      q: searchInput.value,
+      tenantId: tenantStore.currentTenantId || undefined,
+      storeId: tenantStore.currentStoreId || undefined,
+    }, controller.signal)
+    if (seq !== searchSeq) {
+      return
+    }
     resultItems.value = payload
     actived.value = 0
   }
+  catch {
+    if (seq === searchSeq) {
+      resultItems.value = { customers: [], pets: [], encounters: [], invoices: [], catalogItems: [] }
+    }
+  }
   finally {
-    loading.value = false
+    if (seq === searchSeq) {
+      loading.value = false
+    }
   }
 }
 
@@ -187,6 +213,7 @@ onBeforeUnmount(() => {
   if (searchTimer) {
     clearTimeout(searchTimer)
   }
+  searchAbort?.abort()
 })
 </script>
 

@@ -88,6 +88,15 @@ function getDataList() {
   })
 }
 
+// P0-06:切店后重置分页与门店筛选并重载
+useStoreScopedPage({
+  load: getDataList,
+  reset: () => {
+    search.value.storeId = tenantStore.currentStoreId
+    onCurrentChange(1)
+  },
+})
+
 onMounted(async () => {
   await loadStoreOptions()
   if (tenantStore.currentStoreId) {
@@ -119,13 +128,8 @@ function onEdit(row: CustomerRow) {
 }
 
 function onImport() {
-  useFaModal().confirm({
-    title: '导入客户',
-    content: '导入功能开发中,将通过文件上传创建导入任务并追踪进度。',
-    onConfirm: () => {
-      useFaToast().info('导入功能开发中')
-    },
-  })
+  // S3.1-AGENT-04:死入口改为真实深链(Import Center 默认客户类型,query contract 兼容)
+  router.push('/operations/imports?type=customers&action=create')
 }
 
 function moreFor(row: CustomerRow) {

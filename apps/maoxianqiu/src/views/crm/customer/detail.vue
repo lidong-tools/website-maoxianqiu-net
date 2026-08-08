@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import type { CustomerRecord, PetRecord } from '@/types/customer'
+import type { Customer360Result, CustomerRecord, FollowupTaskRecord, PetRecord } from '@/types/customer'
 import type { AttachmentWithFile } from '@/types/file'
 import apiCustomer from '@/api/modules/customer'
 import apiFile from '@/api/modules/file'
+import FollowupCreateDrawer from '@/components/followups/FollowupCreateDrawer/index.vue'
+import FollowupDetailDrawer from '@/components/followups/FollowupDetailDrawer/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import {
   CUSTOMER_GENDER_LABELS,
   CUSTOMER_STATUS_LABELS,
+  FOLLOWUP_STATUS_LABELS,
+  FOLLOWUP_TASK_TYPE_LABELS,
   MEMBER_LEVEL_LABELS,
   PET_GENDER_LABELS,
   PET_SPECIES_LABELS,
@@ -30,6 +34,15 @@ const saving = ref(false)
 const customer = ref<CustomerRecord | null>(null)
 const pets = ref<PetRecord[]>([])
 const attachments = ref<AttachmentWithFile[]>([])
+
+/** 客户 360 聚合(S3.1-AGENT-04) */
+const customer360 = ref<Customer360Result | null>(null)
+
+/** 回访 Tab:待办 / 历史 */
+const followupTab = ref<'pending' | 'history'>('pending')
+const followupCreateVisible = ref(false)
+const followupDetailVisible = ref(false)
+const followupDetailId = ref('')
 
 /** 新增宠物抽屉显隐(AUD-004 客户 → 宠物建档) */
 const petDrawerVisible = ref(false)
@@ -79,12 +92,30 @@ async function loadDetail() {
 
     // 加载附件
     loadAttachments()
+    // 加载 360 聚合(最近就诊/最近消费/回访)
+    load360()
   }
   catch (e: any) {
     useFaToast().error('加载失败', { description: e?.message })
   }
   finally {
     loading.value = false
+  }
+}
+
+/**
+ * 加载客户 360 聚合(S3.1-AGENT-04)
+ */
+async function load360() {
+  if (isNew.value) {
+    return
+  }
+  try {
+    const res: any = await apiCustomer.getCustomer360(customerId.value)
+    customer360.value = res.data as Customer360Result
+  }
+  catch {
+    customer360.value = null
   }
 }
 
@@ -171,6 +202,36 @@ function onViewPet(pet: PetRecord) {
  */
 function onPetCreated() {
   loadDetail()
+}
+
+/**
+ * 回访相关(S3.1-AGENT-04)
+ */
+const pendingFollowups = computed(() =>
+  (customer360.value?.followups ?? []).filter(t => t.status === 'pending' || t.status === 'in_progress'))
+const historyFollowups = computed(() =>
+  (customer360.value?.followups ?? []).filter(t => t.status === 'completed' || t.status === 'cancelled'))
+
+function openFollowupDetail(task: FollowupTaskRecord) {
+  followupDetailId.value = task.id
+  followupDetailVisible.value = true
+}
+
+function onFollowupCreated() {
+  load360()
+}
+
+function onFollowupChanged() {
+  load360()
+}
+
+function fmtFollowupTime(iso?: string | null): string {
+  if (!iso) {
+    return '-'
+  }
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 /**
@@ -350,9 +411,78 @@ onMounted(loadDetail)
         </div>
       </FaCard>
 
-      <!-- 就诊历史(占位) -->
-      <FaCard v-if="!isNew" title="就诊历史" class="mt-4">
-        <FaEmptyState description="就诊历史功能开发中" />
+      <!-- 最近就诊(S3.1-AGENT-04:真实数据替代占位) -->
+      <FaCard v-if="!isNew" title="最近就诊" class="mt-4">
+        <FaEmptyState v-if="!customer360?.recentEncounters?.length" description="暂无就诊记录" />
+        <div v-else class="flex flex-col divide-y">
+          <div v-for="enc in customer360?.recentEncounters" :key="enc.id" class="flex items-center gap-3 py-2">
+            <span class="w-24 text-xs text-muted-foreground">{{ fmtFollowupTime(enc.started_at) }}</span>
+            <span class="flex-1 truncate text-sm">{{ enc.chief_complaint || '主诉未记录' }}</span>
+            <FaButton variant="ghost" size="sm" @click="router.push(`/clinical/encounter/${enc.id}`)">
+              查看
+            </FaButton>
+          </div>
+        </div>
+      </FaCard>
+
+      <!-- 最近消费(S3.1-AGENT-04) -->
+      <FaCard v-if="!isNew" title="最近消费" class="mt-4">
+        <FaEmptyState v-if="!customer360?.recentInvoices?.length" description="暂无消费记录" />
+        <div v-else class="flex flex-col divide-y">
+          <div v-for="inv in customer360?.recentInvoices" :key="inv.id" class="flex items-center gap-3 py-2">
+            <span class="w-24 text-xs text-muted-foreground">{{ fmtFollowupTime(inv.created_at) }}</span>
+            <span class="flex-1 truncate text-sm">{{ inv.invoice_no }}</span>
+            <span class="text-sm font-medium">¥{{ Number(inv.total ?? 0).toFixed(2) }}</span>
+          </div>
+        </div>
+      </FaCard>
+
+      <!-- 回访任务(S3.1-AGENT-04) -->
+      <FaCard v-if="!isNew" title="回访任务" class="mt-4">
+        <template #extra>
+          <FaButton variant="outline" size="sm" @click="followupCreateVisible = true">
+            <FaIcon name="i-ri:add-line" />
+            新建回访
+          </FaButton>
+        </template>
+        <FaTabs
+          v-model="followupTab"
+          :list="[
+            { label: '待办', value: 'pending' },
+            { label: '历史', value: 'history' },
+          ]"
+          class="mb-2"
+        />
+        <template v-if="followupTab === 'pending'">
+          <FaEmptyState v-if="!pendingFollowups.length" description="暂无待办回访" />
+          <div v-else class="flex flex-col divide-y">
+            <div
+              v-for="t in pendingFollowups"
+              :key="t.id"
+              class="flex items-center gap-3 py-2 rounded cursor-pointer hover:bg-muted/40"
+              @click="openFollowupDetail(t)"
+            >
+              <span class="w-24 text-xs text-muted-foreground">{{ fmtFollowupTime(t.scheduled_at) }}</span>
+              <span class="flex-1 truncate text-sm">{{ FOLLOWUP_TASK_TYPE_LABELS[t.task_type] ?? t.task_type }} · {{ t.pet_name ?? '无宠物' }}</span>
+              <span class="text-xs">{{ FOLLOWUP_STATUS_LABELS[t.status] }}</span>
+            </div>
+          </div>
+        </template>
+        <template v-else>
+          <FaEmptyState v-if="!historyFollowups.length" description="暂无历史回访" />
+          <div v-else class="flex flex-col divide-y">
+            <div
+              v-for="t in historyFollowups"
+              :key="t.id"
+              class="flex items-center gap-3 py-2 rounded cursor-pointer hover:bg-muted/40"
+              @click="openFollowupDetail(t)"
+            >
+              <span class="w-24 text-xs text-muted-foreground">{{ fmtFollowupTime(t.completed_at ?? t.scheduled_at) }}</span>
+              <span class="flex-1 truncate text-sm">{{ FOLLOWUP_TASK_TYPE_LABELS[t.task_type] ?? t.task_type }} · {{ t.pet_name ?? '无宠物' }}</span>
+              <span class="text-xs">{{ FOLLOWUP_STATUS_LABELS[t.status] }}</span>
+            </div>
+          </div>
+        </template>
       </FaCard>
 
       <!-- 附件 -->
@@ -367,6 +497,21 @@ onMounted(loadDetail)
         :customer-id="customer.id"
         :tenant-id="customer.tenant_id"
         @created="onPetCreated"
+      />
+
+      <!-- 回访抽屉(S3.1-AGENT-04) -->
+      <FollowupCreateDrawer
+        v-if="customer && !isNew"
+        v-model="followupCreateVisible"
+        :tenant-id="customer.tenant_id"
+        :store-id="customer.store_id ?? undefined"
+        :preset-customer-id="customer.id"
+        @created="onFollowupCreated"
+      />
+      <FollowupDetailDrawer
+        v-model="followupDetailVisible"
+        :task-id="followupDetailId"
+        @changed="onFollowupChanged"
       />
     </FaPageMain>
   </div>

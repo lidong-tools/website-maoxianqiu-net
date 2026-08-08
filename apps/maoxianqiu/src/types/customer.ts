@@ -374,3 +374,194 @@ export const IMPORT_JOB_STATUS_LABELS: Record<ImportJobStatus, string> = {
   completed: '已完成',
   failed: '失败',
 }
+
+// ===== 客户回访任务(S3.1-AGENT-04) =====
+
+/** 回访任务状态机:pending → in_progress → completed;pending/in_progress → cancelled */
+export type FollowupStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled'
+
+/** 回访来源类型 */
+export type FollowupSourceType = 'manual' | 'encounter' | 'discharge' | 'reminder' | 'complaint'
+
+/** 回访任务类型 */
+export type FollowupTaskType = 'post_visit' | 'post_discharge' | 'medication' | 'recheck' | 'customer_care' | 'other'
+
+/** 回访渠道 */
+export type FollowupChannel = 'phone' | 'wechat' | 'sms' | 'in_person' | 'other'
+
+/** 回访结果码(消息发送成功 ≠ 回访完成) */
+export type FollowupResultCode = 'contacted' | 'unreachable' | 'rescheduled' | 'other'
+
+/** followup_tasks 表记录(含服务端聚合的名称字段) */
+export interface FollowupTaskRecord {
+  id: string
+  tenant_id: string
+  store_id: string | null
+  customer_id: string
+  pet_id: string | null
+
+  source_type: FollowupSourceType
+  source_id: string | null
+
+  task_type: FollowupTaskType
+  scheduled_at: string
+  assignee_employee_id: string | null
+  channel: FollowupChannel | null
+
+  status: FollowupStatus
+
+  result_code: FollowupResultCode | null
+  result_note: string | null
+  started_at: string | null
+  completed_at: string | null
+  completed_by: string | null
+  cancel_reason: string | null
+  next_followup_at: string | null
+
+  created_by: string | null
+  created_at: string
+  updated_at: string
+
+  // 服务端聚合(Hono enrich)
+  customer_name?: string | null
+  customer_no?: string | null
+  customer_phone?: string | null
+  pet_name?: string | null
+  pet_species?: string | null
+  assignee_name?: string | null
+}
+
+/** 回访列表查询参数 */
+export interface FollowupListParams {
+  /** 时间桶:逾期/今天/未来/已完成/全部;与 status 二选一,status 优先 */
+  bucket?: 'overdue' | 'today' | 'upcoming' | 'finished' | 'all'
+  status?: FollowupStatus
+  keyword?: string
+  customerId?: string
+  assigneeId?: string
+  storeId?: string
+  page?: number
+  pageSize?: number
+}
+
+/** 回访列表响应 */
+export interface FollowupListResult {
+  list: FollowupTaskRecord[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+/** 创建回访入参(仅手动创建;自动触发由对应域 Owner 集成) */
+export interface CreateFollowupInput {
+  tenantId: string
+  storeId?: string
+  customerId: string
+  petId?: string
+  sourceType?: FollowupSourceType
+  sourceId?: string
+  taskType?: FollowupTaskType
+  scheduledAt?: string
+  assigneeEmployeeId?: string
+  channel?: FollowupChannel
+}
+
+/** 更新回访入参(仅 pending 可改) */
+export interface UpdateFollowupInput {
+  scheduledAt?: string
+  assigneeEmployeeId?: string | null
+  channel?: FollowupChannel | null
+  taskType?: FollowupTaskType
+}
+
+/** 登记回访结果入参(in_progress → completed) */
+export interface CompleteFollowupInput {
+  resultCode?: FollowupResultCode
+  resultNote?: string
+  nextFollowupAt?: string | null
+}
+
+/** 客户 360 聚合响应 */
+export interface Customer360Result {
+  customer: CustomerRecord
+  pets: PetRecord[]
+  recentEncounters: Array<{
+    id: string
+    pet_id: string
+    started_at: string
+    ended_at: string | null
+    status: string
+    chief_complaint: string | null
+    follow_up_date: string | null
+    doctor_id: string | null
+  }>
+  recentInvoices: Array<{
+    id: string
+    invoice_no: string
+    total: number
+    paid_amount: number
+    status: string
+    created_at: string
+  }>
+  followups: FollowupTaskRecord[]
+  followupCounts: Record<FollowupStatus, number>
+}
+
+// ===== 回访状态机与展示映射 =====
+
+/** 回访任务状态机转换矩阵 */
+export const FOLLOWUP_STATUS_TRANSITIONS: Record<FollowupStatus, FollowupStatus[]> = {
+  pending: ['in_progress', 'cancelled'],
+  in_progress: ['completed', 'cancelled'],
+  completed: [],
+  cancelled: [],
+}
+
+/** 校验回访状态转换是否合法 */
+export function canTransitionFollowupStatus(from: FollowupStatus, to: FollowupStatus): boolean {
+  return FOLLOWUP_STATUS_TRANSITIONS[from].includes(to)
+}
+
+/** 回访状态标签映射 */
+export const FOLLOWUP_STATUS_LABELS: Record<FollowupStatus, string> = {
+  pending: '待处理',
+  in_progress: '进行中',
+  completed: '已完成',
+  cancelled: '已取消',
+}
+
+/** 回访来源类型标签映射 */
+export const FOLLOWUP_SOURCE_LABELS: Record<FollowupSourceType, string> = {
+  manual: '手动',
+  encounter: '就诊',
+  discharge: '出院',
+  reminder: '提醒',
+  complaint: '投诉',
+}
+
+/** 回访任务类型标签映射 */
+export const FOLLOWUP_TASK_TYPE_LABELS: Record<FollowupTaskType, string> = {
+  post_visit: '诊后回访',
+  post_discharge: '出院回访',
+  medication: '用药跟进',
+  recheck: '复诊提醒',
+  customer_care: '关怀回访',
+  other: '其他',
+}
+
+/** 回访渠道标签映射 */
+export const FOLLOWUP_CHANNEL_LABELS: Record<FollowupChannel, string> = {
+  phone: '电话',
+  wechat: '微信',
+  sms: '短信',
+  in_person: '当面',
+  other: '其他',
+}
+
+/** 回访结果码标签映射 */
+export const FOLLOWUP_RESULT_LABELS: Record<FollowupResultCode, string> = {
+  contacted: '已联系',
+  unreachable: '未接通',
+  rescheduled: '已改期',
+  other: '其他',
+}

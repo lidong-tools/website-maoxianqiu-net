@@ -1,11 +1,18 @@
 import type {
   BatchImportCustomersInput,
+  CompleteFollowupInput,
   CreateCustomerInput,
+  CreateFollowupInput,
+  Customer360Result,
   CustomerListParams,
   CustomerRecord,
+  FollowupListParams,
+  FollowupListResult,
+  FollowupTaskRecord,
   MergeCustomersInput,
   PetRecord,
   UpdateCustomerInput,
+  UpdateFollowupInput,
 } from '@/types/customer'
 import { supabase } from '@/lib/supabase'
 import api from '../index'
@@ -209,5 +216,71 @@ export default {
    */
   getImportJob(id: string) {
     return api.get(`customers/import/${id}`)
+  },
+
+  /**
+   * 回访任务列表(S3.1-AGENT-04)
+   * 走 Hono 聚合,服务端回填客户/宠物/负责人名称
+   */
+  async listFollowups(params?: FollowupListParams) {
+    const res = await api.get('customers/followups', {
+      params: {
+        bucket: params?.bucket ?? undefined,
+        status: params?.status ?? undefined,
+        keyword: params?.keyword || undefined,
+        customerId: params?.customerId ?? undefined,
+        assigneeId: params?.assigneeId ?? undefined,
+        storeId: params?.storeId ?? undefined,
+        page: params?.page ?? 1,
+        pageSize: params?.pageSize ?? 20,
+      },
+    })
+    return { status: 1, error: '', data: (res as any).data as FollowupListResult }
+  },
+
+  /** 回访任务详情 */
+  async getFollowup(id: string) {
+    const res = await api.get(`customers/followups/${id}`)
+    return { status: 1, error: '', data: (res as any).data as FollowupTaskRecord }
+  },
+
+  /** 创建回访任务(仅手动) */
+  async createFollowup(input: CreateFollowupInput) {
+    const res = await api.post('customers/followups', input)
+    return { status: 1, error: '', data: (res as any).data as FollowupTaskRecord }
+  },
+
+  /** 更新回访任务(仅 pending 可改) */
+  async updateFollowup(id: string, input: UpdateFollowupInput) {
+    const res = await api.patch(`customers/followups/${id}`, input)
+    return { status: 1, error: '', data: (res as any).data as FollowupTaskRecord }
+  },
+
+  /** 开始回访(pending → in_progress) */
+  async startFollowup(id: string) {
+    const res = await api.post(`customers/followups/${id}/start`)
+    return { status: 1, error: '', data: (res as any).data as FollowupTaskRecord }
+  },
+
+  /** 登记回访结果(in_progress → completed) */
+  async completeFollowup(id: string, input: CompleteFollowupInput) {
+    const res = await api.post(`customers/followups/${id}/complete`, {
+      resultCode: input.resultCode ?? undefined,
+      resultNote: input.resultNote ?? undefined,
+      nextFollowupAt: input.nextFollowupAt ?? undefined,
+    })
+    return { status: 1, error: '', data: (res as any).data as FollowupTaskRecord }
+  },
+
+  /** 取消回访(pending/in_progress → cancelled) */
+  async cancelFollowup(id: string, reason: string) {
+    const res = await api.post(`customers/followups/${id}/cancel`, { reason })
+    return { status: 1, error: '', data: (res as any).data as FollowupTaskRecord }
+  },
+
+  /** 客户 360 聚合(客户 + 宠物 + 最近就诊 + 最近消费 + 回访) */
+  async getCustomer360(id: string) {
+    const res = await api.get(`customers/${id}/360`)
+    return { status: 1, error: '', data: (res as any).data as Customer360Result }
   },
 }

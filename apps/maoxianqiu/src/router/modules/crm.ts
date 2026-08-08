@@ -3,6 +3,17 @@ import type { RouteRecordRaw } from 'vue-router'
 // CRM 客户关系管理(MXQ-5001~5010)
 const routes: RouteRecordRaw[] = [
   {
+    // 回访任务(S3.1-AGENT-04)
+    path: '/crm/followups',
+    name: 'crmFollowups',
+    component: () => import('@/views/crm/followups/index.vue'),
+    meta: {
+      title: '回访任务',
+      icon: 'i-lucide:phone-call',
+      auth: 'followup.view',
+    },
+  },
+  {
     // 客户管理
     path: '/crm/customer',
     name: 'crmCustomer',
