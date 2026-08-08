@@ -171,7 +171,8 @@ const CLEANUP_TABLES = [
   'store_catalog_items', 'catalog_drug_extensions', 'catalog_vaccine_extensions',
   'catalog_items', 'catalog_categories', 'diagnosis_dict', 'intake_questions',
   'lab_panels', 'lab_analytes',
-  // 库存
+  // 库存(注意:opening_stock_import_requests 引用 warehouses,需先删)
+  'opening_stock_import_requests',
   'inventory_movements', 'inventory_balances', 'inventory_batches', 'warehouses',
   // 采购
   'purchase_order_items', 'purchase_orders', 'suppliers',
@@ -179,8 +180,8 @@ const CLEANUP_TABLES = [
   'message_delivery_attempts', 'message_deliveries', 'message_templates', 'reminders',
   // 日结/对账
   'closing_adjustments', 'daily_closings', 'reconciliation_records',
-  // 导入
-  'import_job_errors', 'opening_stock_import_requests', 'employee_invite_imports', 'import_jobs',
+  // 导入(import_job_errors 无 tenant_id,由 import_jobs 级联删除)
+  'employee_invite_imports', 'import_jobs',
 ]
 
 async function cleanup() {
@@ -497,6 +498,50 @@ async function seedCrm() {
     tenant_id: ctx.tenantId, pet_id: pets[i].id, weight: p[5], recorded_at: iso(-1), recorded_by: ctx.userId,
   })))
   track('pet_weights', weights)
+
+  // ===== 批量扩展:20 个生成客户 + 20 只生成宠物(列表分页/筛选验证) =====
+  const genCustDefs = Array.from({ length: 20 }, (_, i) => ({
+    key: 'G' + pad(i + 1),
+    name: `演示客户${pad(i + 1)}`,
+    gender: i % 2 ? 'female' : 'male',
+    phone: `139${String(10000000 + i * 137).slice(-8)}`,
+    level: ['normal', 'silver', 'gold', 'diamond'][i % 4],
+    points: (i % 6) * 200 + 50,
+    balance: (i % 4) * 60,
+    source: ['walk_in', 'online', 'referral'][i % 3],
+  }))
+  const genCusts = await ins('customers', genCustDefs.map((c, i) => ({
+    tenant_id: ctx.tenantId, store_id: ctx.storeId, customer_no: `DEMO-CUST-${bizDate(0)}-G${pad(i + 1)}`,
+    name: c.name, gender: c.gender, phone: c.phone, member_level: c.level,
+    member_points: c.points, balance: c.balance, source: c.source,
+    birthday: `${1995 + (i % 15)}-${(i % 12) + 1}-15`,
+    remark: '演示数据-生成客户', created_by: ctx.userId,
+  })))
+  track('customers', genCusts)
+  genCustDefs.forEach((c, i) => { ctx.custId[c.key] = genCusts[i].id })
+
+  const genPetDefs = genCustDefs.map((c, i) => ({
+    key: c.key,
+    name: `演示宠${pad(i + 1)}`,
+    species: ['犬', '猫', '兔', '仓鼠'][i % 4],
+    breed: ['比熊', '暹罗猫', '垂耳兔', '金丝熊'][i % 4],
+    gender: i % 2 ? 'female' : 'male',
+    weight: 2 + (i % 15) * 1.5,
+    neutered: i % 3 === 0,
+  }))
+  const genPets = await ins('pets', genPetDefs.map((p, i) => ({
+    tenant_id: ctx.tenantId, customer_id: ctx.custId[p.key], name: p.name, species: p.species, breed: p.breed,
+    gender: p.gender, birth_date: `${2020 + (i % 4)}-${(i % 9) + 1}-10`,
+    weight: p.weight, is_neutered: p.neutered, status: 'active',
+    medical_notes: '批量生成宠物', remark: '演示数据-生成宠物',
+  })))
+  track('pets', genPets)
+  genPetDefs.forEach((p, i) => { ctx.petId[p.key] = genPets[i].id })
+
+  const genWeights = await ins('pet_weights', genPets.map((p, i) => ({
+    tenant_id: ctx.tenantId, pet_id: p.id, weight: genPetDefs[i].weight, recorded_at: iso(-1), recorded_by: ctx.userId,
+  })))
+  track('pet_weights', genWeights)
 }
 
 /* ============ 9. 临床 Clinical ============ */
@@ -627,6 +672,59 @@ async function seedClinical(itemId) {
     { tenant_id: ctx.tenantId, store_id: ctx.storeId, encounter_id: ctx.encId['咪咪-in_progress'], pet_id: ctx.petId['咪咪'], assigned_to: ctx.userId, task_type: 'observation', description: '演示-皮下补液已完成', scheduled_at: iso(0, 11), status: 'done', started_at: iso(0, 11), completed_at: iso(0, 12), completed_by: ctx.userId, source_type: 'medical_order', source_id: mo3.id },
   ])
   track('nurse_tasks', ntRows)
+
+  // ===== 批量扩展:24 个生成预约(状态轮换,列表/筛选验证) =====
+  const genStatuses = ['pending', 'confirmed', 'completed', 'completed', 'cancelled', 'no_show', 'checked_in', 'in_progress']
+  const genAppts = Array.from({ length: 24 }, (_, i) => {
+    const gkey = 'G' + pad((i % 20) + 1)
+    const status = genStatuses[i % genStatuses.length]
+    const offset = status === 'pending' || status === 'confirmed'
+      ? 1 + (i % 6)
+      : status === 'completed' || status === 'cancelled' || status === 'no_show'
+        ? -(1 + (i % 12))
+        : 0
+    return {
+      customer: gkey, pet: gkey, reason: `批量${i + 1}号预约`,
+      offset, hour: 9 + (i % 8), status, source: ['online', 'walk_in', 'phone'][i % 3],
+    }
+  })
+  const genApptRows = await ins('appointments', genAppts.map(a => ({
+    tenant_id: ctx.tenantId, store_id: ctx.storeId,
+    customer_id: ctx.custId[a.customer], pet_id: ctx.petId[a.pet], doctor_id: ctx.userId,
+    scheduled_start: iso(a.offset, a.hour), scheduled_end: iso(a.offset, a.hour, 30),
+    reason: `演示-${a.reason}`, status: a.status, source: a.source,
+    created_by: ctx.userId, remark: '批量演示预约',
+  })))
+  track('appointments', genApptRows)
+  ctx.genAppts = genApptRows
+
+  // 为其中 completed/checked_in/in_progress 的预约生成就诊
+  const genEncPlan = []
+  for (let i = 0; i < genAppts.length; i++) {
+    const a = genAppts[i]
+    if (a.status === 'completed' || a.status === 'checked_in' || a.status === 'in_progress') {
+      genEncPlan.push({ appt: i, offset: a.offset, status: a.status === 'in_progress' ? 'in_progress' : i % 2 ? 'signed' : 'completed' })
+    }
+  }
+  const genEncs = await ins('encounters', genEncPlan.map(e => ({
+    tenant_id: ctx.tenantId, store_id: ctx.storeId,
+    appointment_id: genApptRows[e.appt].id,
+    customer_id: genApptRows[e.appt].customer_id, pet_id: genApptRows[e.appt].pet_id,
+    doctor_id: ctx.userId,
+    started_at: iso(e.offset, 9), ended_at: e.status === 'in_progress' ? null : iso(e.offset, 11),
+    status: e.status, chief_complaint: `演示-批量就诊${e.appt + 1}`,
+    history_present: '批量演示病史', diagnosis_codes: ['GE'], diagnosis_text: '演示诊断:消化道症状',
+    treatment_plan: '对症支持治疗',
+    signed_by: e.status === 'signed' ? ctx.userId : null,
+    signed_at: e.status === 'signed' ? iso(e.offset, 12) : null,
+  })))
+  track('encounters', genEncs)
+  genEncPlan.forEach((e, i) => { ctx.encId['GENC' + pad(i + 1)] = genEncs[i].id })
+  // 供发票/处方扩展引用
+  ctx.genEncs = genEncPlan.map((e, i) => ({
+    key: 'GENC' + pad(i + 1), id: genEncs[i].id, status: e.status,
+    customer_id: genEncs[i].customer_id, pet_id: genEncs[i].pet_id,
+  }))
 }
 
 async function getItemName(code, itemId) {
@@ -721,6 +819,53 @@ async function seedBilling(itemId) {
     { tenant_id: ctx.tenantId, store_id: ctx.storeId, entity_type: 'refund', entity_id: ctx.invByKey['雪球-signed']?.id, requested_by: ctx.userId, reason: '演示-待审批退款', status: 'pending', approval_metadata: { amount: 152 } },
   ])
   track('approvals', appr)
+
+  // ===== 批量扩展:为生成就诊追加发票(状态轮换,收银台/账单列表验证) =====
+  const genInvStatuses = ['paid', 'paid', 'paid', 'paid', 'draft', 'draft', 'confirmed', 'confirmed', 'partially_paid', 'refunded', 'cancelled', 'paid']
+  const genPayMethods = ['cash', 'wechat', 'alipay', 'card']
+  const genEncs = ctx.genEncs ?? []
+  for (let i = 0; i < genEncs.length && i < genInvStatuses.length; i++) {
+    const enc = genEncs[i]
+    const status = genInvStatuses[i]
+    // signed 就诊才允许已收款终态,其余走未收款流转
+    const effStatus = (['paid', 'partially_paid', 'refunded'].includes(status) && enc.status !== 'signed') ? 'confirmed' : status
+    const items = [['DEMO-DRUG-AMX', 2 + (i % 5), 15], ['DEMO-SVC-REG', 1, 20]]
+    const subtotal = items.reduce((s, it) => s + it[1] * it[2], 0)
+    const total = subtotal
+    const paid = effStatus === 'paid' ? total
+      : effStatus === 'partially_paid' ? Math.round(total / 2)
+        : effStatus === 'refunded' ? total : 0
+    const invNo = `DEMO-INV-${bizDate(0)}-G${pad(i + 1)}`
+    const [inv] = await ins('invoices', [{
+      tenant_id: ctx.tenantId, store_id: ctx.storeId, invoice_no: invNo,
+      customer_id: enc.customer_id, pet_id: enc.pet_id, encounter_id: enc.id,
+      subtotal, discount_amount: 0, tax_amount: 0, total, paid_amount: paid,
+      status: effStatus,
+      payment_method: paid > 0 ? genPayMethods[i % 4] : null,
+      confirmed_at: ['paid', 'partially_paid', 'refunded', 'confirmed'].includes(effStatus) ? iso(-1, 11) : null,
+      confirmed_by: ctx.userId, created_by: ctx.userId,
+    }])
+    track('invoices', 1)
+    const invItems = await ins('invoice_items', items.map((it, j) => ({
+      tenant_id: ctx.tenantId, invoice_id: inv.id, catalog_item_id: itemId[it[0]],
+      name: it[0], unit_price: it[2], quantity: it[1], amount: it[1] * it[2], sort_order: j,
+      category: it[0].startsWith('DEMO-DRUG') ? 'drug' : 'service',
+    })))
+    track('invoice_items', invItems)
+    if (paid > 0) {
+      await insertRow('payments', {
+        tenant_id: ctx.tenantId, invoice_id: inv.id, amount: paid,
+        method: genPayMethods[i % 4], transaction_no: `DEMO-PAY-G${pad(i + 1)}`,
+        idempotency_key: `demo-pay-gen-${i}`, operator_id: ctx.userId,
+      })
+      if (effStatus === 'refunded') {
+        await insertRow('refunds', {
+          tenant_id: ctx.tenantId, invoice_id: inv.id, amount: total,
+          reason: '演示-生成发票退款', idempotency_key: `demo-refund-gen-${i}`, operator_id: ctx.userId,
+        })
+      }
+    }
+  }
 }
 
 /* ============ 11. 住院 Inpatient ============ */
@@ -822,6 +967,38 @@ async function seedInpatient(itemId) {
     outgoing_user: ctx.userId, incoming_user: ctx.userId,
   }])
   track('shift_handovers', hds)
+
+  // ===== 批量扩展:2 个生成住院记录(旺财/富贵,占用剩余笼位) =====
+  const genAdmDefs = [
+    { customer: '陈静', pet: '旺财', cage: 'CAGE-W6', offset: 0, reason: '犬瘟恢复期住院观察' },
+    { customer: '周芳', pet: '富贵', cage: 'CAGE-ICU1', offset: 0, reason: '膀胱结石术后ICU监护' },
+  ]
+  const genAdms = await ins('admissions', genAdmDefs.map(a => ({
+    tenant_id: ctx.tenantId, store_id: ctx.storeId,
+    customer_id: ctx.custId[a.customer], pet_id: ctx.petId[a.pet], cage_id: ctx.cageId[a.cage],
+    doctor_id: ctx.userId, admission_reason: `演示-${a.reason}`,
+    admitted_at: iso(a.offset, 10), status: 'admitted',
+    total_charge: a.pet === '富贵' ? 680 : 260,
+    settlement_status: 'unsettled', receivable_amount: 0, paid_amount: 0,
+  })))
+  track('admissions', genAdms)
+  for (const [i, a] of genAdmDefs.entries()) {
+    await api('cages', {
+      method: 'PATCH', filter: `id=eq.${ctx.cageId[a.cage]}`, body: { status: 'occupied', current_admission_id: genAdms[i].id },
+    })
+  }
+  // 生成病程 + 住院收费(演示病房/ICU 明细)
+  const genNotes = await ins('inpatient_progress_notes', [
+    { tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: genAdms[0].id, pet_id: ctx.petId['旺财'], note_no: nextNo('DEMO-PN'), note_type: 'daily', content: '犬瘟恢复期,饮食正常,继续口服维生素', status: 'signed', recorded_at: iso(0, 9), recorded_by: ctx.userId, signed_at: iso(0, 10), signed_by: ctx.userId },
+    { tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: genAdms[1].id, pet_id: ctx.petId['富贵'], note_no: nextNo('DEMO-PN'), note_type: 'postop', content: '术后首日,留置导尿管通畅,心电监护稳定', status: 'draft', recorded_at: iso(0, 9), recorded_by: ctx.userId },
+  ])
+  track('inpatient_progress_notes', genNotes)
+  const genCharges = await ins('inpatient_charges', [
+    { tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: genAdms[0].id, charge_date: bizDate(0), catalog_item_id: itemId['DEMO-SVC-INFU'], description: '住院观察费', quantity: 1, unit_price: 260, amount: 260, is_auto: true },
+    { tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: genAdms[1].id, charge_date: bizDate(0), catalog_item_id: itemId['DEMO-EXM-US'], description: '术后B超复查', quantity: 1, unit_price: 120, amount: 120, is_auto: false },
+    { tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: genAdms[1].id, charge_date: bizDate(0), catalog_item_id: itemId['DEMO-SVC-INFU'], description: 'ICU监护费', quantity: 1, unit_price: 300, amount: 300, is_auto: true },
+  ])
+  track('inpatient_charges', genCharges)
 }
 
 /* ============ 12. 检验/疫苗/驱虫 Diagnostics ============ */
@@ -1087,6 +1264,43 @@ async function seedPurchasing(itemId) {
     track('purchase_order_items', items)
   }
   track('purchase_orders', pos)
+
+  // ===== 批量扩展:3 张生成采购单(posted/submitted/draft,列表滚动验证) =====
+  const genPoPlan = [
+    { status: 'posted', supplier: supA, items: [['DEMO-VAC-FPV', 30, 28, 30]], days: -8 },
+    { status: 'submitted', supplier: supA, items: [['DEMO-PRD-FOOD', 40, 15, 0]], days: -1 },
+    { status: 'draft', supplier: supB, items: [['DEMO-PRD-DEW', 25, 10, 0]], days: 0 },
+  ]
+  for (const [i, p] of genPoPlan.entries()) {
+    const total = p.items.reduce((s, it) => s + it[1] * it[2], 0)
+    const row = {
+      tenant_id: ctx.tenantId, store_id: ctx.storeId, warehouse_id: ctx.warehouses.def,
+      po_no: `DEMO-PO-G${pad(i + 1)}`, supplier_id: p.supplier.id, status: p.status,
+      expected_at: bizDate(p.days + 7), total_cost: total, note: `演示-生成采购单`,
+      created_by: ctx.userId,
+    }
+    if (p.status === 'submitted' || p.status === 'posted') {
+      row.submitted_by = ctx.userId
+      row.submitted_at = iso(p.days, 9)
+    }
+    if (p.status === 'posted') {
+      row.approved_by = ctx.userId
+      row.approved_at = iso(p.days, 10)
+      row.received_by = ctx.userId
+      row.received_at = iso(p.days, 11)
+      row.posted_by = ctx.userId
+      row.posted_at = iso(p.days, 12)
+    }
+    const [gpo] = await ins('purchase_orders', [row])
+    const gitems = await ins('purchase_order_items', p.items.map(it => ({
+      tenant_id: ctx.tenantId, purchase_order_id: gpo.id, catalog_item_id: itemId[it[0]],
+      ordered_qty: it[1], received_qty: it[3] ?? 0, unit_cost: it[2],
+      batch_no: it[3] > 0 ? `DEMO-PO-B-G${pad(i + 1)}` : null,
+      expires_at: it[3] > 0 ? bizDate(400) : null,
+    })))
+    track('purchase_order_items', gitems)
+  }
+  track('purchase_orders', genPoPlan)
 }
 
 /* ============ 15. 影像 Imaging ============ */
@@ -1125,6 +1339,17 @@ async function seedImaging(itemId) {
     { tenant_id: ctx.tenantId, store_id: ctx.storeId, imaging_order_id: ctx.imgId['富贵'], version: 1, findings: '膀胱内可见一约1.2cm高回声团块', impression: '膀胱结石待排', recommendation: '建议手术取石', author_id: ctx.userId, status: 'submitted' },
   ])
   track('imaging_reports', reports)
+
+  // ===== 批量扩展:补全 performed/reviewed 状态 + 1 张报告 =====
+  const genImgs = await ins('imaging_orders', [
+    { tenant_id: ctx.tenantId, store_id: ctx.storeId, order_no: nextNo('DEMO-IMG'), encounter_id: ctx.encId['大圣-signed'], customer_id: ctx.custId['孙磊'], pet_id: ctx.petId['大圣'], requested_by: ctx.userId, imaging_type: 'xray', catalog_item_id: itemId['DEMO-EXM-XRAY'], scheduled_at: iso(-1, 10), performed_at: iso(-1, 10, 30), performed_by: ctx.userId, status: 'performed', clinical_question: '复查前肢恢复情况', notes: '演示-已执行待报告' },
+    { tenant_id: ctx.tenantId, store_id: ctx.storeId, order_no: nextNo('DEMO-IMG'), encounter_id: ctx.encId['富贵-signed'], customer_id: ctx.custId['周芳'], pet_id: ctx.petId['富贵'], requested_by: ctx.userId, imaging_type: 'ultrasound', catalog_item_id: itemId['DEMO-EXM-US'], scheduled_at: iso(-1, 14), performed_at: iso(-1, 14, 30), performed_by: ctx.userId, status: 'reviewed', clinical_question: '膀胱结石复查', notes: '演示-已审核待发布' },
+  ])
+  track('imaging_orders', genImgs)
+  const genReports = await ins('imaging_reports', [
+    { tenant_id: ctx.tenantId, store_id: ctx.storeId, imaging_order_id: genImgs[1].id, version: 1, findings: '膀胱内高回声团块较前缩小至约0.8cm', impression: '结石较前缩小,保守治疗有效', recommendation: '继续保守治疗,一月后复查', author_id: ctx.userId, reviewer_id: ctx.userId, status: 'reviewed' },
+  ])
+  track('imaging_reports', genReports)
 }
 
 /* ============ 16. 日结/对账 Closing ============ */
