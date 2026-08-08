@@ -92,6 +92,7 @@ declare global {
   const useRoute: typeof import('vue-router').useRoute
   const useRouter: typeof import('vue-router').useRouter
   const useSlots: typeof import('vue').useSlots
+  const useStoreScopedPage: typeof import('../composables/business/useStoreScopedPage').useStoreScopedPage
   const useTemplateRef: typeof import('vue').useTemplateRef
   const useUnsavedChangesGuard: typeof import('../composables/business/useUnsavedChangesGuard').useUnsavedChangesGuard
   const watch: typeof import('vue').watch
@@ -105,6 +106,9 @@ declare global {
   export type { Component, Slot, Slots, ComponentPublicInstance, ComputedRef, DirectiveBinding, ExtractDefaultPropTypes, ExtractPropTypes, ExtractPublicPropTypes, InjectionKey, PropType, Ref, ShallowRef, MaybeRef, MaybeRefOrGetter, VNode, WritableComputedRef } from 'vue'
   import('vue')
   // @ts-ignore
-  export type { ContextStore, ContextTenant, TenantContext } from '../store/modules/app/tenant'
+  export type { ContextStore, ContextTenant, TenantContext, ContextMode } from '../store/modules/app/tenant'
   import('../store/modules/app/tenant')
+  // @ts-ignore
+  export type { StoreScopedPageOptions } from '../composables/business/useStoreScopedPage'
+  import('../composables/business/useStoreScopedPage')
 }

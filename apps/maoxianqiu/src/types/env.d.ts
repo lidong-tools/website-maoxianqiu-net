@@ -4,6 +4,7 @@ interface ImportMetaEnv {
   /**
    * 网络请求地址，应用于 axios 的 baseURL
    * Network request address, applied to axios's baseURL
+   * Hono API 挂在 /api(本地联调由 scripts/serve-api.ts 起在 8787,Vite /api 代理过去)
    */
   readonly VITE_APP_API_BASEURL: string
   /**
