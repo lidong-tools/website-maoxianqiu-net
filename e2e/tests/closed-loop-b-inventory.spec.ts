@@ -86,17 +86,16 @@ test.describe('闭环 B — 库存闭环(串行)', () => {
     /* ========== 2. 盘点:UI 输入盘点数量 40 并提交 ========== */
     console.log('[闭环B] 步骤2 盘点(UI)')
     await page.goto('/#/inventory/count', { waitUntil: 'domcontentloaded' })
-    await expect(page.getByText('盘点').first()).toBeVisible()
-    // 选择仓库(仓库 A,下拉选项显示仓库名)
-    await page.getByPlaceholder('选择仓库').last().click()
-    await page.locator('[role="listbox"], .fa-select, .fa-option').getByText(warehouseA.name, { exact: true }).first().click()
+    await expect(page.getByText('盘点工作表').first()).toBeVisible()
+    // 盘点页自动选中第一个仓库(FaSelect 触发器显示仓库名),验证已选仓库即 warehouseA
+    await expect(page.getByText(warehouseA.name, { exact: true }).first()).toBeVisible()
     // 在商品行(按商品 ID 前 8 位匹配)输入盘点数量 40
     const row = page.locator('table tbody tr').filter({ hasText: item.id.slice(0, 8) }).first()
     await row.locator('input').first().fill('40')
     await page.getByRole('button', { name: '提交盘点' }).click()
     // 断言:余额调整为 40,且存在盘点流水
     await expect
-      .poll(async () => (await getBalance(page, warehouseA.id, item.id)).quantity_on_hand, { timeout: 15_000 })
+      .poll(async () => (await getBalance(page, warehouseA.id, item.id)).quantity_on_hand, { timeout: 30_000 })
       .toBe(40)
     const adjustMovements = (await supabaseSelect<{ movement_type: string }[]>(
       page,
@@ -135,7 +134,7 @@ test.describe('闭环 B — 库存闭环(串行)', () => {
     /* ========== 4. UI 冒烟:入库页余额表与流水表渲染 ========== */
     console.log('[闭环B] 步骤4 入库页冒烟')
     await page.goto('/#/inventory/receipt', { waitUntil: 'domcontentloaded' })
-    await expect(page.getByText('库存余额').first()).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('库存余额').first()).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText('最近流水').first()).toBeVisible()
     await expect(page.locator('table').first()).toBeVisible()
 

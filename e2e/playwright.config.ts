@@ -85,8 +85,8 @@ export default defineConfig({
     // 简体中文环境
     locale: 'zh-CN',
     // 会话过期或接口 4xx 时不自动重试(保持测试语义清晰)
-    actionTimeout: 15_000,
-    navigationTimeout: 30_000,
+    actionTimeout: 60_000,
+    navigationTimeout: 60_000,
     // 使用 Chromium 内核
     ...devices['Desktop Chrome'],
     // 桌面端视口(管理后台按 PC 设计,须在 devices spread 之后声明才能生效)

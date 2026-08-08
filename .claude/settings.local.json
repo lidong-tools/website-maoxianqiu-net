@@ -7,7 +7,8 @@
       "Bash(awk '{print $6, $7, $8}')",
       "Read(//c/Users/lidd47732/**)",
       "Bash(pnpm config *)",
-      "Bash(echo \"REAL_EXIT_CODE=$?\")"
+      "Bash(echo \"REAL_EXIT_CODE=$?\")",
+      "Bash(npx tsc *)"
     ]
   }
 }

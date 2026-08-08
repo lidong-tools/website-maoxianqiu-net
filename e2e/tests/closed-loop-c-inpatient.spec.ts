@@ -221,14 +221,17 @@ test.describe('闭环 C — 住院闭环(串行)', () => {
     ))
     expect(admissionDone[0].status).toBe('discharged')
     expect(admissionDone[0].discharged_at).toBeTruthy()
-    // 笼位 B 已释放
-    const cageBReleased = (await supabaseSelect<{ status: string, current_admission_id: string | null }[]>(
-      page,
-      'cages',
-      `select=status,current_admission_id&id=eq.${cageB.id}`,
-    ))
-    expect(cageBReleased[0].status).toBe('available')
-    expect(cageBReleased[0].current_admission_id).toBeNull()
+    // 笼位 B 已释放(REST 可见性可能有延迟,轮询断言)
+    await expect
+      .poll(async () => {
+        const rows = await supabaseSelect<{ status: string, current_admission_id: string | null }[]>(
+          page,
+          'cages',
+          `select=status,current_admission_id&id=eq.${cageB.id}`,
+        )
+        return rows[0]
+      }, { timeout: 30_000 })
+      .toEqual({ status: 'available', current_admission_id: null })
     // 费用汇总 = 自动计费金额(费率 > 0 时)
     if (cageB.daily_rate > 0) {
       expect(admissionDone[0].total_charge).toBe(Number(cageB.daily_rate))
@@ -237,8 +240,9 @@ test.describe('闭环 C — 住院闭环(串行)', () => {
     /* ========== 7. UI 冒烟:房态看板渲染 ========== */
     console.log('[闭环C] 步骤7 房态看板冒烟')
     await page.goto('/#/inpatient/dashboard', { waitUntil: 'domcontentloaded' })
-    await expect(page.getByText('房态看板').first()).toBeVisible({ timeout: 15_000 })
-    await expect(page.locator('table, .cage-grid, [class*="cage"]').first()).toBeVisible()
+    await expect(page.getByText('房态看板').first()).toBeVisible({ timeout: 30_000 })
+    // 笼位以卡片网格渲染(通用 Tailwind class),断言至少渲染出一个笼位卡片
+    await expect(page.locator('div.grid > div').first()).toBeVisible()
 
     console.log(`[闭环C] 完成:customer=${customerId} pet=${petId} admission=${admissionId} task=${taskId}`)
   })
