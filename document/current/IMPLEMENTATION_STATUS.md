@@ -334,7 +334,7 @@ S3.1 Sprint 1（A 租户初始化 + B 日结对账 + C 医疗闭环） = code_co
 - 权限码 seed 与 migration 一致：tenant.initialize / tenant.initialization.read / daily_closing.* / reconciliation.* / nurse_task.manage / lab_sample.* / lab_critical.* / progress.* / settlement.* 均已在 `supabase/seed.sql` 注册。
 - 角色授权矩阵：system_admin / tenant_owner / store_manager 全量；cashier 只读；doctor 部分（标本+危急值只读+病程只读）；nurse 标本+危急值只读+病程只读；迁移 37/49 已 revoke+grant service_role。
 - Hono 路由权限码与 seed/migration 一致（closing / tenants / clinical / diagnostics / inpatient）。
-- 已记录缺口（见 KNOWN_GAPS）：seed.sql 中 tenant_owner 角色 `permissions` 数组缺 S3.1-A 与 S31-C 医疗权限（运行时依赖 role_permissions 关联表路径，migration 已兜底，数组路径缺失）；seed 无 nurse 角色（db reset 时 roles 被 seed 覆盖，依赖 migration 21/22 重建）。
+- ✅ S3.1 审计收口：seed.sql 权限目录表与角色数组已全量同步前端 `views/system/permissions.ts`（含 boarding/purchase/imaging/followup/analytics/documents/audit/approval/settings/platform.tenant 等新域权限码；system_admin 全量、store_manager/doctor/nurse/tenant_owner 按域补齐）。原"tenant_owner 缺 S3.1-A/S31-C 医疗权限""seed 无 nurse 角色"缺口已关闭（nurse 角色本就在 seed 中，原描述过时）。
 
 ### D-4 Router / Menu / Migration 静态检查
 
@@ -344,7 +344,8 @@ S3.1 Sprint 1（A 租户初始化 + B 日结对账 + C 医疗闭环） = code_co
 ### D-5 SQL 测试静态检查
 
 - `supabase/tests/tenant_initialization_s3_1.sql` / `daily_closing_s3_1.sql` / `reconciliation_s3_1.sql`：独立可执行（自建 tests.assert_*、单事务 begin/rollback、固定合法 UUID）、函数签名与最终实现一致、权限矩阵断言齐全。
-- 已记录缺口：`supabase/tests/medical_loop_s3_1.sql` **缺失**（任务 C 交付建议的测试文件未产出）；E2E 无 Loop D（tenant init）/ Loop E（billing→closing→reconciliation）/ Loop F（admission→settlement→discharge）。
+- ✅ S3.1 审计收口：新增 `supabase/tests/medical_loop_s3_1.sql`（单事务 begin/rollback，ML1~ML12 断言矩阵覆盖：权限矩阵 / 入院 / 医嘱→护士任务幂等 / 标本流转 / 危急值 / 病程签署不可变 / 出院结算 / 跨租户拒绝 / discharge_patient 笼位释放）；P0-01 Forward Fix（migration 115）由 ML11 验证。
+- 剩余缺口：E2E 无 Loop D（tenant init）/ Loop E（billing→closing→reconciliation）/ Loop F（admission→settlement→discharge）。
 
 ### D-6 Build Gate（实际运行，保留原始输出）
 

@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
+import { getRequestIdempotencyKey } from '../lib/idempotency'
 import { requireScopedPermission } from '../lib/permission'
 import { getContext, loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
@@ -62,6 +63,8 @@ const sendSchema = z.object({
   channel: z.enum(CHANNELS).optional(),
   recipient: z.string().trim().min(1, '接收人不能为空'),
   variables: z.record(z.string(), z.unknown()).optional(),
+  /** 幂等键(可选;相同键的重复发送直接返回既有投递,防止外部重复发送) */
+  idempotencyKey: z.string().trim().max(64).optional(),
 })
 
 const listSchema = z.object({
@@ -250,6 +253,8 @@ messagingRoutes.post('/send', async (c) => {
     channel: input.channel,
     recipient: input.recipient,
     variables: input.variables,
+    // 幂等键:优先 Idempotency-Key 请求头,兼容 body 传入
+    idempotencyKey: input.idempotencyKey ?? (getRequestIdempotencyKey(c) || undefined),
   }
   const { delivery, attempt, provider, result } = await sendMessage(req)
 
@@ -265,6 +270,7 @@ messagingRoutes.post('/send', async (c) => {
       provider,
       status: result.status,
       providerMessageId: result.providerMessageId,
+      idempotent: provider === 'idempotent-replay',
     },
   })
   return ok(c, { delivery, attempt, result })

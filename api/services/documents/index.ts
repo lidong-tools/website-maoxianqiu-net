@@ -23,9 +23,10 @@ export interface ResolvedTemplate {
 
 /**
  * 模板解析(读取优先级:门店覆盖 → 租户默认 → 系统默认)
- * @param tenantId  目标租户(必须非空)
- * @param storeId   目标门店(可空)
- * @param templateId 指定模板时直接返回
+ * @param service      service-role 客户端
+ * @param opts.tenantId  目标租户(必须非空)
+ * @param opts.storeId   目标门店(可空)
+ * @param opts.templateId 指定模板时,额外校验作用域(租户/门店/文档类型/启用态)
  */
 export async function resolveTemplate(
   service: Service,
@@ -48,6 +49,19 @@ export async function resolveTemplate(
       throw err.notFound('文档模板不存在')
     }
     const row = data as unknown as DocumentTemplateRow
+    // 作用域校验:指定模板必须与目标实体同文档类型、同租户/门店作用域,且处于启用态
+    if (row.document_type !== documentType) {
+      throw err.badRequest('指定模板与当前文档类型不匹配')
+    }
+    if (row.tenant_id !== null && row.tenant_id !== tenantId) {
+      throw err.forbidden('指定模板不属于当前租户')
+    }
+    if (row.store_id !== null && row.store_id !== storeId) {
+      throw err.forbidden('指定模板不属于当前门店')
+    }
+    if (!row.is_active) {
+      throw err.badRequest('指定模板已停用,请选择启用中的模板')
+    }
     const level: TemplateLevel = row.store_id
       ? 'store'
       : row.tenant_id

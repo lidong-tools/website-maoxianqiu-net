@@ -154,6 +154,8 @@ export const SERVICE_ROLE_ONLY_RPC: readonly string[] = [
   'settle_admission',
   'waive_admission_charge',
   'finalize_settlement',
+  // ---- analytics(S32-B 经营报表,P0-B DB 侧聚合) ----
+  'get_analytics_revenue_summary',
   // ---- 审计结论(S30-F02):仅服务端/内部辅助,无前端直连,撤销 authenticated ----
   'generate_customer_no',
   'generate_invoice_no',

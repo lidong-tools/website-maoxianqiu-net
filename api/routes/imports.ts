@@ -1,8 +1,10 @@
 import type { AppEnv } from '../lib/types'
+import { randomUUID } from 'node:crypto'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
+import { getRequestIdempotencyKey } from '../lib/idempotency'
 import { requireScopedPermission } from '../lib/permission'
 import { loadContext, resolveRequestedTenant } from '../lib/request-context'
 import { ok } from '../lib/result'
@@ -71,6 +73,7 @@ interface ImportJobRow {
   success_count: number
   failed_count: number
   error_summary: Record<string, unknown>
+  execution_key: string | null
   started_at: string | null
   finished_at: string | null
   created_by: string | null
@@ -418,7 +421,7 @@ importsRoutes.post('/:id/validate', async (c) => {
   }
   const invalidCount = rows.length - validCount
 
-  // 清空旧错误并写入新错误(限量)
+  // 清空旧错误并写入新错误(限量,标记阶段 validate)
   await service.from('import_job_errors').delete().eq('import_job_id', id)
   const toInsert = allErrors.slice(0, MAX_ERRORS_STORED).map(e => ({
     import_job_id: id,
@@ -427,6 +430,7 @@ importsRoutes.post('/:id/validate', async (c) => {
     code: e.code,
     message: e.message,
     raw_data: e.rawData ?? null,
+    stage: 'validate',
   }))
   if (toInsert.length > 0) {
     const { error } = await service.from('import_job_errors').insert(toInsert)
@@ -473,7 +477,10 @@ importsRoutes.post('/:id/validate', async (c) => {
 /**
  * POST /imports/:id/start
  * - 权限:imports.execute
- * - 行为:逐行(重校验+执行)写入业务数据/生成命令,更新成功/失败计数
+ * - 行为:原子 claim(可执行态 → processing)防止并发重复执行;
+ *        逐行(重校验+执行)写入业务数据/生成命令;
+ *        执行期错误持久化 import_job_errors(stage=execute);
+ *        幂等:相同 Idempotency-Key 的重复请求返回既有结果。
  */
 importsRoutes.post('/:id/start', async (c) => {
   const id = c.req.param('id')
@@ -481,9 +488,55 @@ importsRoutes.post('/:id/start', async (c) => {
   const job = await loadJob(service, id)
   await authorizeJob(c, job, 'imports.execute')
 
-  if (job.status !== 'validated' && job.status !== 'mapped' && job.status !== 'uploaded') {
-    throw err.conflict('当前状态不可执行导入')
+  // 请求幂等键:优先 Idempotency-Key 请求头,缺省生成随机键(仍保证单执行者)
+  const requestKey = getRequestIdempotencyKey(c) || randomUUID()
+
+  // 幂等保护:同一执行键已有结果 → 直接返回既有结果,不重复执行
+  if (job.execution_key) {
+    if (job.execution_key !== requestKey) {
+      throw err.conflict('该导入任务已被其他执行请求处理')
+    }
+    if (job.status === 'processing') {
+      throw err.conflict('导入任务正在处理中,请勿重复提交')
+    }
+    if (job.status === 'completed' || job.status === 'failed') {
+      return ok(c, {
+        job,
+        idempotent: true,
+        successRows: job.success_count,
+        skippedRows: 0,
+        failedRows: job.failed_count,
+        totalRows: job.total_rows,
+        pendingOpeningCommands: 0,
+        pendingEmployeeInvites: 0,
+        failedSamples: [],
+      })
+    }
   }
+
+  // 原子 claim:仅一个执行者可从可执行态抢到 processing(PostgreSQL 行级锁保证并发安全)
+  const { data: claimed, error: claimErr } = await service
+    .from('import_jobs')
+    .update({
+      status: 'processing',
+      started_at: new Date().toISOString(),
+      execution_key: requestKey,
+    })
+    .eq('id', id)
+    .in('status', ['validated', 'mapped', 'uploaded'])
+    .select('*')
+    .maybeSingle()
+  if (claimErr) {
+    throw err.internal(`抢占导入任务失败: ${claimErr.message}`)
+  }
+  if (!claimed) {
+    const cur = await loadJob(service, id)
+    if (cur.status === 'completed' || cur.status === 'failed' || cur.status === 'cancelled') {
+      throw err.conflict('导入任务已处于终态,不可重复执行')
+    }
+    throw err.conflict('导入任务正在处理中,请勿重复提交')
+  }
+
   const meta = getTypeMeta(job.type)
   const mapping = job.mapping ?? {}
   const strategy = job.duplicate_strategy ?? 'skip'
@@ -497,40 +550,67 @@ importsRoutes.post('/:id/start', async (c) => {
   let failedCount = 0
   const failedSamples: RowError[] = []
 
-  for (const row of rows) {
-    const mapped = applyMapped(row, mapping)
-    const errs = validateRow(meta, row, mapped, ctx, scope)
-    if (errs.length > 0) {
-      failedCount++
-      failedSamples.push(...errs)
-      continue
+  // 执行期间不可恢复异常(连接中断等):任务落 failed,而非停留在 processing
+  let fatalError: string | null = null
+  try {
+    for (const row of rows) {
+      const mapped = applyMapped(row, mapping)
+      const errs = validateRow(meta, row, mapped, ctx, scope)
+      if (errs.length > 0) {
+        failedCount++
+        failedSamples.push(...errs)
+        continue
+      }
+      const res = await executeRow({ meta, row, mapped, strategy, ctx, scope, jobId: id, userId: user.id, service })
+      if (res.status === 'success') {
+        successCount++
+      }
+      else if (res.status === 'skipped') {
+        skippedCount++
+      }
+      else {
+        failedCount++
+        failedSamples.push({ rowNumber: row.rowNumber, code: 'EXECUTE_FAILED', message: res.error ?? '执行失败', rawData: row.cells })
+      }
     }
-    const res = await executeRow({ meta, row, mapped, strategy, ctx, scope, jobId: id, userId: user.id, service })
-    if (res.status === 'success') {
-      successCount++
-    }
-    else if (res.status === 'skipped') {
-      skippedCount++
-    }
-    else {
-      failedCount++
-      failedSamples.push({ rowNumber: row.rowNumber, code: 'EXECUTE_FAILED', message: res.error ?? '执行失败', rawData: row.cells })
+  }
+  catch (e) {
+    fatalError = (e as { message?: string })?.message ?? String(e)
+  }
+
+  // 执行期错误持久化(stage='execute'),页面错误详情按阶段可查
+  const executeErrors = failedSamples.slice(0, MAX_ERRORS_STORED).map(e => ({
+    import_job_id: id,
+    row_number: e.rowNumber,
+    field: e.field ?? null,
+    code: e.code,
+    message: e.message,
+    raw_data: e.rawData ?? null,
+    stage: 'execute',
+  }))
+  if (executeErrors.length > 0) {
+    const { error: errIns } = await service.from('import_job_errors').insert(executeErrors)
+    if (errIns) {
+      throw err.internal(`写入执行错误明细失败: ${errIns.message}`)
     }
   }
 
+  const finishedAt = new Date().toISOString()
+  const terminalStatus = fatalError ? 'failed' : 'completed'
   const { data: updated, error: updErr } = await service.from('import_jobs').update({
     success_count: successCount,
     failed_count: failedCount,
-    status: 'completed',
-    started_at: new Date().toISOString(),
-    finished_at: new Date().toISOString(),
-    error_summary: { success: successCount, skipped: skippedCount, failed: failedCount },
+    status: terminalStatus,
+    finished_at: finishedAt,
+    error_summary: fatalError
+      ? { fatal: fatalError, success: successCount, skipped: skippedCount, failed: failedCount }
+      : { success: successCount, skipped: skippedCount, failed: failedCount },
   }).eq('id', id).select().single()
   if (updErr) {
     throw err.internal(`更新执行结果失败: ${updErr.message}`)
   }
 
-  // 统计生成的命令队列
+  // 统计生成的命令队列(期初入账/员工待邀请,交由 Integrator 消费)
   const [openingCount, inviteCount] = await Promise.all([
     service.from('opening_stock_import_requests').select('id', { count: 'exact', head: true }).eq('import_job_id', id),
     service.from('employee_invite_imports').select('id', { count: 'exact', head: true }).eq('import_job_id', id),
@@ -542,7 +622,7 @@ importsRoutes.post('/:id/start', async (c) => {
     entityId: id,
     tenantId: job.tenant_id,
     storeId: job.store_id ?? undefined,
-    metadata: { success: successCount, skipped: skippedCount, failed: failedCount },
+    metadata: { success: successCount, skipped: skippedCount, failed: failedCount, fatal: fatalError },
   })
 
   return ok(c, {

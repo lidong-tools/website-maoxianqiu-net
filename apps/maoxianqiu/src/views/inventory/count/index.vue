@@ -159,6 +159,12 @@ watch(selectedWarehouseId, () => {
   loadBalances()
 })
 
+// P1(审计 25):未保存内容保护 - 存在盘点差异(实盘与系统不一致)时视为 dirty
+const countGuard = usePageUnsavedGuard('inventory-count')
+watch(() => countRows.value.some(row => row.diff !== 0), (hasDiff) => {
+  countGuard.setDirty(hasDiff)
+}, { immediate: true })
+
 // P0-06:切店后清空仓库选择并按新门店重载
 useStoreScopedPage({
   load: loadWarehouses,

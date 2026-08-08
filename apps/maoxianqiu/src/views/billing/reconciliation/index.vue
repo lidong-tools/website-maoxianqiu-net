@@ -6,8 +6,8 @@ import type {
   ReconciliationRecord,
   ReconciliationStatus,
 } from '@/types/closing'
-import apiApp from '@/api/modules/app'
 import apiClosing from '@/api/modules/closing'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
 import {
   PAYMENT_CHANNEL_LABELS,
   RECONCILIATION_STATUS_LABELS,
@@ -32,6 +32,7 @@ interface DisplayRow {
   confirmedAt: string | null
 }
 
+const tenantStore = useAppTenantStore()
 const loading = ref(false)
 const summaryLoading = ref(false)
 const dataList = ref<ReconciliationRecord[]>([])
@@ -304,10 +305,9 @@ const summaryCards = computed(() => {
   }))
 })
 
-onMounted(async () => {
-  const res: any = await apiApp.profile()
-  const memberships = res.data.memberships ?? []
-  currentTenantId.value = memberships[0]?.tenant_id ?? ''
+onMounted(() => {
+  // 审计 S3.1 P0-03:统一使用全局 Tenant Store 上下文,不再自行从 memberships 推导当前租户
+  currentTenantId.value = tenantStore.currentTenantId
   platformUiDeferred.value = !currentTenantId.value
   getDataList()
 })

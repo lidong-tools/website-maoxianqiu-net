@@ -1,11 +1,12 @@
 /**
  * S32-B 库存分析(inventory)
  *
- * 口径(S32-B 规格 §8 + KPI-DEFINITIONS.md):
+ * 口径(S32-B 规格 §8 + KPI-DEFINITIONS.md + 审计 #25):
  *   - 库存 SKU   = 有在库(quantity_on_hand > 0)的目录项数;
  *   - 库存价值   = Σ(quantity_on_hand × catalog_items.cost_price);
- *   - 低库存     = 可用数量(quantity_on_hand − quantity_reserved) ≤ 0 的 SKU 数
- *               (系统暂无每 SKU 低库存阈值,第一版以"断货/不可售"为口径);
+ *   - 缺货 SKU   = 可用数量(quantity_on_hand − quantity_reserved) ≤ 0 的 SKU 数
+ *               (系统暂无每 SKU 低库存阈值,第一版以"断货/不可售"为口径,
+ *                避免给管理层不存在的"低库存阈值"概念);
  *   - 近效期     = 30 天内到期且仍有剩余库存的活跃批次(inventory_batches)数;
  *   - 报损       = movement_type='adjust' 且数量为负、reference_type 含
  *               报损/waste/damage/报废/expire 的负向调整合计(按 catalog cost_price 计价);
@@ -18,8 +19,8 @@ import type { ServiceClient } from './common'
 import { toNum } from './common'
 import type { ExpiringRow, InventoryReport, LowStockRow, RevenueFilters } from './types'
 
-/** 低库存口径:可用数量阈值(含) */
-const LOW_STOCK_MAX_AVAILABLE = 0
+/** 缺货口径:可用数量阈值(含),available ≤ 0 即断货/不可售(审计 #25) */
+const STOCKOUT_MAX_AVAILABLE = 0
 /** 近效期窗口(天) */
 const EXPIRING_DAYS = 30
 
@@ -51,7 +52,7 @@ interface CatalogInfo {
   cost_price: number
 }
 
-/** 低库存 SKU 计数(驾驶舱复用) */
+/** 缺货 SKU 计数(驾驶舱复用,审计 #25:缺货 = 可用 ≤ 0) */
 export async function countLowStock(
   service: ServiceClient,
   f: RevenueFilters,
@@ -66,10 +67,10 @@ export async function countLowStock(
     .eq('tenant_id', f.tenantId)
     .in('warehouse_id', warehouseIds)
   if (error) {
-    throw new Error(`低库存查询失败: ${error.message}`)
+    throw new Error(`缺货 SKU 查询失败: ${error.message}`)
   }
   return (data as Array<{ quantity_on_hand: number; quantity_reserved: number }> | null)?.filter(
-    b => toNum(b.quantity_on_hand) - toNum(b.quantity_reserved) <= LOW_STOCK_MAX_AVAILABLE,
+    b => toNum(b.quantity_on_hand) - toNum(b.quantity_reserved) <= STOCKOUT_MAX_AVAILABLE,
   ).length ?? 0
 }
 
@@ -173,7 +174,7 @@ export async function buildInventoryReport(
     }
   }
 
-  // 库存 SKU / 价值 / 低库存
+  // 库存 SKU / 价值 / 缺货
   const skuSet = new Set<string>()
   let stockValue = 0
   const lowStockRows: LowStockRow[] = []
@@ -184,7 +185,7 @@ export async function buildInventoryReport(
     const cat = catalogMap.get(b.catalog_item_id)
     stockValue += toNum(b.quantity_on_hand) * (cat?.cost_price ?? 0)
     const available = toNum(b.quantity_on_hand) - toNum(b.quantity_reserved)
-    if (available <= LOW_STOCK_MAX_AVAILABLE) {
+    if (available <= STOCKOUT_MAX_AVAILABLE) {
       lowStockRows.push({
         warehouseId: b.warehouse_id,
         warehouseName: warehouseNameMap.get(b.warehouse_id) ?? b.warehouse_id.slice(0, 8),
@@ -304,10 +305,10 @@ export async function buildInventoryReport(
       },
       {
         key: 'lowStock',
-        label: '低库存',
+        label: '缺货 SKU',
         value: lowStockCount,
         format: 'integer',
-        definition: '可用数量(在库−预留) ≤ 0 的 SKU 数(断货/不可售口径)。',
+        definition: '可用数量(在库−预留) ≤ 0 的 SKU 数(断货/不可售口径;暂无低库存阈值配置,审计 #25)。',
       },
       {
         key: 'expiring',

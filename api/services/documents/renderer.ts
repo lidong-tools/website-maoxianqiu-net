@@ -18,6 +18,11 @@ const EACH_CLOSE = '{{/each}}'
 /** 含 JS 运算符或模板块语法的字符(禁止) */
 const FORBIDDEN_INNER = /[(){}[\]+\-*/%<>=!&|^~]/
 
+/**
+ * HTML 转义(插值默认安全化,阻断业务数据注入)
+ * @param v 原始文本
+ * @returns 转义后的安全文本
+ */
 export function escapeHtml(v: string): string {
   return v
     .replace(/&/g, '&amp;')
@@ -138,11 +143,213 @@ export function renderTemplate(templateHtml: string, data: Record<string, unknow
   return renderSegment(templateHtml, data, data)
 }
 
+// ============================================================
+// 模板合法性校验(S32-C FIX P0-A)
+// 从"黑名单"升级为"白名单"模型:
+//   - 标签白名单(允许 div/span/table/p/strong/img 等版式标签);
+//   - 属性白名单(仅 class/style/表格属性/alt/title 等);
+//   - URL 协议白名单(禁止 javascript:/data:(非图片)/vbscript:/file:,
+//     外链 http(s) 一律禁止,img 仅允许 data:image base64 或站内相对路径);
+//   - CSS 属性白名单(仅版式属性,禁止 url()/expression/@import 等);
+//   - 模板语法白名单(仅 {{path}} 与 {{#each}})。
+// 禁止的标签即使出现也会被拒绝保存,从根源阻断 Stored XSS。
+// ============================================================
+
+/** 允许的标签白名单 */
+const ALLOWED_TAGS = new Set([
+  // 文档外壳(仅允许静态包装,无脚本)
+  'html', 'head', 'body', 'title',
+  // 版式块级
+  'div', 'span', 'p', 'br', 'hr', 'section', 'article', 'main', 'aside',
+  'header', 'footer', 'figure', 'figcaption', 'blockquote', 'pre',
+  // 表格
+  'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption',
+  'col', 'colgroup',
+  // 文本样式
+  'strong', 'b', 'em', 'i', 'u', 's', 'small', 'sub', 'sup', 'code',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li',
+  // 图片(仅受控 data:image / 相对路径)
+  'img',
+])
+
+/** 禁用的高风险标签(仅名称出现即拒绝;含 style/meta 需要在内容层单独放行) */
+const FORBIDDEN_TAGS = new Set([
+  'script', 'style', 'iframe', 'object', 'embed', 'form', 'link',
+  'base', 'svg', 'math', 'template', 'textarea', 'input',
+  'button', 'select', 'option', 'noscript', 'frame', 'frameset',
+  'audio', 'video', 'source', 'track', 'canvas',
+])
+
+/** 标签 → 允许的属性集合(全局通用属性另计) */
+const TAG_ATTRS: Record<string, Set<string>> = {
+  meta: new Set(['charset']),
+  table: new Set(['border', 'cellpadding', 'cellspacing', 'width', 'align']),
+  th: new Set(['colspan', 'rowspan', 'width', 'align', 'scope']),
+  td: new Set(['colspan', 'rowspan', 'width', 'align']),
+  col: new Set(['width', 'align', 'span']),
+  img: new Set(['src', 'alt', 'width', 'height', 'align']),
+}
+
+/** 全局通用属性(所有标签都允许) */
+const GLOBAL_ATTRS = new Set([
+  'class', 'style', 'id', 'title',
+])
+
+/** 允许的 CSS 属性白名单(版式) */
+const ALLOWED_CSS_PROPS = new Set([
+  'color', 'background-color', 'font-size', 'font-weight', 'font-family',
+  'font-style', 'text-align', 'text-decoration', 'line-height', 'letter-spacing',
+  'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+  'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+  'border', 'border-top', 'border-right', 'border-bottom', 'border-left',
+  'border-color', 'border-width', 'border-style', 'border-collapse',
+  'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height',
+  'display', 'vertical-align', 'white-space', 'word-break', 'word-wrap',
+  'border-radius', 'box-sizing', 'position', 'top', 'right', 'bottom', 'left',
+])
+
+/** 禁止的 CSS 值片段(URL/表达式/导入/行为) */
+const FORBIDDEN_CSS_FRAGMENTS = /url\s*\(|expression\s*\(|@import|behavior\s*:|javascript:|vbscript:|-moz-binding/i
+
+/** 属性名是否命中禁止内联事件(on*=) */
+function isEventAttr(name: string): boolean {
+  return /^on/i.test(name)
+}
+
+/** 属性名是否属于 URL 承载属性 */
+const URL_ATTRS = new Set([
+  'src', 'href', 'action', 'background', 'cite', 'poster',
+  'formaction', 'longdesc', 'xlink:href',
+])
+
+/** URL 值安全校验(协议白名单 + 外链禁止) */
+function isSafeUrlValue(attrName: string, value: string): string | null {
+  const v = value.trim().toLowerCase()
+  if (!v) {
+    return null
+  }
+  // 协议化前缀检测:javascript:/vbscript:/file:/data:(除图片)/blob: 一律禁止
+  if (/^(javascript|vbscript|file|blob|about)\s*:/i.test(v)) {
+    return `属性 ${attrName} 使用了禁止的 URL 协议`
+  }
+  if (/^data\s*:/i.test(v)) {
+    // img 仅允许 base64 图片数据;其余 data: 一律拒绝
+    if (attrName === 'src' && /^data:image\/(png|jpe?g|gif|webp);base64,/i.test(v)) {
+      return null
+    }
+    return `属性 ${attrName} 不允许 data: 数据`
+  }
+  // 外链(http/https///)禁止:模板内容不得向第三方发起任何资源请求
+  if (/^https?:/i.test(v) || /^\/\//.test(v)) {
+    return `属性 ${attrName} 不允许外部 URL`
+  }
+  // 其余视为站内相对路径/锚点
+  return null
+}
+
+/** 校验单个 style 属性值(仅允许白名单属性,值内禁止可执行片段) */
+function validateStyle(value: string): string | null {
+  const decls = value.split(';')
+  for (const decl of decls) {
+    const idx = decl.indexOf(':')
+    if (idx === -1) {
+      continue
+    }
+    const prop = decl.slice(0, idx).trim().toLowerCase()
+    const val = decl.slice(idx + 1).trim()
+    if (!prop) {
+      continue
+    }
+    if (!ALLOWED_CSS_PROPS.has(prop)) {
+      return `style 属性 ${prop} 不在白名单内`
+    }
+    if (FORBIDDEN_CSS_FRAGMENTS.test(val)) {
+      return `style 属性 ${prop} 包含被禁止的表达式或资源引用`
+    }
+  }
+  return null
+}
+
 /**
- * 模板合法性校验(保存模板时调用,防御内嵌脚本)
- * 禁止:<script / javascript: / on\w+= / 表达式块(#if/#unless/#for/{{{) / eval
+ * 模板合法性校验(保存模板时调用,防御内嵌脚本与外部资源窃取)
+ * 返回错误信息;返回 null 表示通过。
  */
 export function validateTemplateHtml(templateHtml: string): string | null {
+  // 1) 模板语法白名单
+  if (/\{\{\{/.test(templateHtml)) {
+    return '模板禁止使用 {{{ 三花括号(原样输出)'
+  }
+  if (/\{\{#(if|unless|for|with)\b/.test(templateHtml)) {
+    return '模板仅支持 {{path}} 与 {{#each}},不支持 #if/#unless/#for'
+  }
+  // style 标签内容单独校验(白名单 CSS 属性 + 禁止 url()/@import 等),校验后视为普通内容跳过
+  const STYLE_BLOCK_RE = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi
+  const styleContent: string[] = []
+  templateHtml = templateHtml.replace(STYLE_BLOCK_RE, (_full, inner: string) => {
+    const problem = validateStyleBlock(inner)
+    if (problem) {
+      return problem
+    }
+    styleContent.push(inner)
+    return ''
+  })
+  if (styleContent.length > 0 && STYLE_BLOCK_RE.lastIndex === 0) {
+    // no-op:replace 已完成
+  }
+  if (styleContent.some(s => s.includes('\u0000'))) {
+    return '模板包含非法字符'
+  }
+
+  // 2) 标签级校验:先粗筛必须禁止的标签,再逐标签校验属性
+  const TAG_RE = /<\/?\s*([a-zA-Z][a-zA-Z0-9-]*)((?:"[^"]*"|'[^']*'|[^'">])*?)\s*\/?>/g
+  let m: RegExpExecArray | null
+  while ((m = TAG_RE.exec(templateHtml)) !== null) {
+    const tagName = m[1].toLowerCase()
+    if (tagName === '!doctype' || tagName === '!--') {
+      continue
+    }
+    if (FORBIDDEN_TAGS.has(tagName)) {
+      return `模板禁止使用 <${tagName}> 标签`
+    }
+    if (!ALLOWED_TAGS.has(tagName)) {
+      return `模板包含未授权的标签 <${tagName}>`
+    }
+
+    // 属性解析(容忍标签内任意引号)
+    const attrStr = m[2]
+    const ATTR_RE = /([a-zA-Z-_:]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g
+    let am: RegExpExecArray | null
+    while ((am = ATTR_RE.exec(attrStr)) !== null) {
+      const attrName = am[1].toLowerCase()
+      const attrValue = am[2] ?? am[3] ?? am[4] ?? ''
+      if (isEventAttr(attrName)) {
+        return `模板禁止使用内联事件属性 ${attrName}`
+      }
+      if (attrName.startsWith('data-') || attrName.startsWith('aria-')) {
+        return `模板禁止使用 ${attrName} 自定义属性`
+      }
+      const allowedSet = TAG_ATTRS[tagName] ?? new Set<string>()
+      if (!GLOBAL_ATTRS.has(attrName) && !allowedSet.has(attrName)) {
+        return `<${tagName}> 标签包含未授权的属性 ${attrName}`
+      }
+      // URL 承载属性统一协议校验
+      if (URL_ATTRS.has(attrName)) {
+        const problem = isSafeUrlValue(attrName, attrValue)
+        if (problem) {
+          return problem
+        }
+      }
+      // style 属性值白名单校验
+      if (attrName === 'style') {
+        const problem = validateStyle(attrValue)
+        if (problem) {
+          return problem
+        }
+      }
+    }
+  }
+
+  // 3) 深度防御:残留的协议/事件模式(规避正则解析遗漏)
   if (/<script/i.test(templateHtml)) {
     return '模板禁止包含 <script> 标签'
   }
@@ -155,11 +362,34 @@ export function validateTemplateHtml(templateHtml: string): string | null {
   if (/\beval\s*\(/i.test(templateHtml)) {
     return '模板禁止包含 eval'
   }
-  if (/\{\{\{/.test(templateHtml)) {
-    return '模板禁止使用 {{{ 三花括号(原样输出)'
+  return null
+}
+
+/**
+ * 校验 <style> 块内容:仅允许白名单 CSS 属性,禁止 url()/@import/expression 等。
+ * 静态样式不会执行 JS,配合 iframe sandbox 形成纵深防御。
+ */
+function validateStyleBlock(content: string): string | null {
+  if (/@(import|charset|font-face|keyframes|supports|media\b)/i.test(content)) {
+    return '模板 style 禁止使用 @ 规则(@import/@media 等)'
   }
-  if (/\{\{#(if|unless|for|with)\b/.test(templateHtml)) {
-    return '模板仅支持 {{path}} 与 {{#each}},不支持 #if/#unless/#for'
+  // 提取每个 {} 声明块,逐条校验属性
+  const BLOCK_RE = /[^{}]+\{([^{}]*)\}/g
+  let bm: RegExpExecArray | null
+  let found = false
+  while ((bm = BLOCK_RE.exec(content)) !== null) {
+    found = true
+    const problem = validateStyle(bm[1])
+    if (problem) {
+      return `模板 style 块校验失败: ${problem}`
+    }
+  }
+  if (!found && content.trim()) {
+    // 无 {} 块但有内容(裸声明或异常片段),仍逐条校验
+    const problem = validateStyle(content)
+    if (problem) {
+      return `模板 style 内容校验失败: ${problem}`
+    }
   }
   return null
 }

@@ -12,9 +12,9 @@ test.describe('登录页', () => {
     // 访问登录页(hash 路由)
     await page.goto('/#/login', { waitUntil: 'domcontentloaded' })
 
-    // 欢迎语与登录方式切换 tab
+    // 欢迎语与产品标题(maoxianqiu 登录组件已移除登录方式切换 tab)
     await expect(page.getByText('欢迎使用').first()).toBeVisible()
-    await expect(page.getByText('账号密码登录')).toBeVisible()
+    await expect(page.getByText('毛线球').first()).toBeVisible()
 
     // 账号密码输入框(FaInput 包装层与内部 input 均带 placeholder,须用 role 精确匹配)
     await expect(page.getByRole('textbox', { name: '用户名' })).toBeVisible()

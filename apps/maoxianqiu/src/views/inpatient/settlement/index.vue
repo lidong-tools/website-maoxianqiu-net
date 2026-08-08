@@ -109,6 +109,26 @@ async function getDataList() {
   }
 }
 
+// P1(审计 25):未保存内容保护 - 收款/减免金额相对打开时默认值有改动或填写了减免原因时视为 dirty
+const settleGuard = usePageUnsavedGuard('inpatient-settlement')
+const settleBaseline = ref<{ paid: number, amount: number }>({ paid: 0, amount: 0 })
+function refreshSettleDirty() {
+  settleGuard.setDirty(
+    settleForm.paidAmount !== settleBaseline.value.paid
+    || waiveForm.amount !== settleBaseline.value.amount
+    || !!waiveForm.reason,
+  )
+}
+watch(settleVisible, (v) => {
+  if (v) { settleBaseline.value = { ...settleBaseline.value, paid: settleForm.paidAmount } }
+  else { settleGuard.setDirty(false) }
+})
+watch(waiveVisible, (v) => {
+  if (v) { settleBaseline.value = { ...settleBaseline.value, amount: waiveForm.amount } }
+  else { settleGuard.setDirty(false) }
+})
+watch([() => settleForm.paidAmount, () => waiveForm.amount, () => waiveForm.reason], refreshSettleDirty)
+
 // P0-06:切店后重置分页与门店筛选并重载
 useStoreScopedPage({
   load: getDataList,

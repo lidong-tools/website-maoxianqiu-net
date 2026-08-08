@@ -1,4 +1,5 @@
 import type { Context } from 'hono'
+import { createHash } from 'node:crypto'
 import type { AppEnv } from '../lib/types'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -62,6 +63,15 @@ const AUDIT_ENTITY_TYPE: Record<DocumentType, string> = {
 
 function getAuditEntityType(dt: DocumentType): string {
   return AUDIT_ENTITY_TYPE[dt]
+}
+
+/**
+ * 计算渲染 HTML 的 SHA-256 摘要(合规重放/内容一致性校验)
+ * @param html 渲染后的文档 HTML
+ * @returns 十六进制哈希
+ */
+function hashRenderedHtml(html: string): string {
+  return createHash('sha256').update(html, 'utf8').digest('hex')
 }
 
 /** 校验模板内容安全(允许 null 表示通过,返回错误信息字符串) */
@@ -380,6 +390,7 @@ documentsRoutes.post('/render', async (c) => {
     template_id: rendered.templateId,
     template_version: rendered.templateVersion,
     paper_size: rendered.paperSize,
+    render_hash: hashRenderedHtml(rendered.html),
     action: 'render',
     operator_id: user.id,
   })
@@ -449,6 +460,7 @@ documentsRoutes.post('/print', async (c) => {
     template_id: rendered.templateId,
     template_version: rendered.templateVersion,
     paper_size: rendered.paperSize,
+    render_hash: hashRenderedHtml(rendered.html),
     action: 'print',
     operator_id: user.id,
   })

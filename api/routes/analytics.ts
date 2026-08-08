@@ -77,7 +77,7 @@ async function resolveReportContext(c: Context<AppEnv>): Promise<ReportContext> 
   })
 
   const service = createServiceClient()
-  const period = await resolvePeriod(service, scope.tenantId, startAt ?? undefined, endAt ?? undefined)
+  const period = await resolvePeriod(service, scope.tenantId, startAt ?? undefined, endAt ?? undefined, storeId ?? undefined)
 
   return {
     service,
@@ -153,7 +153,7 @@ analyticsRoutes.get('/export', async (c) => {
   })
 
   const service = createServiceClient()
-  const period = await resolvePeriod(service, scope.tenantId, startAt ?? undefined, endAt ?? undefined)
+  const period = await resolvePeriod(service, scope.tenantId, startAt ?? undefined, endAt ?? undefined, storeId ?? undefined)
   const filters: RevenueFilters = { tenantId: scope.tenantId, storeIds: allowedStoreIds, period }
 
   let columns: CsvColumn[] = []

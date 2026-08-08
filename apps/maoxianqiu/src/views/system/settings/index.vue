@@ -526,6 +526,22 @@ function onTabChange() {
   }
 }
 
+// P0-06/审计 26:切店后同步门店相关子页的门店 id 并按当前 Tab 重载,避免残留旧门店数据
+useStoreScopedPage({
+  load: () => {
+    if (activeTab.value === 'store') { return loadStore() }
+    if (activeTab.value === 'rules') { return loadRules() }
+    if (activeTab.value === 'payment') { return loadPayment() }
+    if (activeTab.value === 'print') { return loadPrint() }
+  },
+  reset: () => {
+    storeId.value = tenantStore.currentStoreId
+    rulesStoreId.value = tenantStore.currentStoreId
+    payStoreId.value = tenantStore.currentStoreId
+    printStoreId.value = tenantStore.currentStoreId
+  },
+})
+
 onMounted(loadTenant)
 </script>
 

@@ -3,6 +3,7 @@ import type { TableColumn } from '@fantastic-admin/components'
 import apiApp from '@/api/modules/app'
 import apiStore from '@/api/modules/store'
 import apiUser from '@/api/modules/user'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
 import PasswordForm from './components/PasswordForm.vue'
 import RoleChangeForm from './components/RoleChangeForm.vue'
 import UserForm from './components/UserForm.vue'
@@ -79,6 +80,7 @@ interface DisplayRow {
 
 const { pagination, getParams, onSizeChange, onCurrentChange } = usePagination()
 
+const tenantStore = useAppTenantStore()
 const loading = ref(false)
 const dataList = ref<Array<EmployeeItem | LegacyMembershipItem>>([])
 const useNewModel = ref(false)
@@ -176,6 +178,11 @@ const tableColumns = computed<TableColumn<DisplayRow>[]>(() => [
 ])
 
 onMounted(async () => {
+  // 审计 S3.1 P0-03:currentTenantId 统一取自全局 Tenant Store(与顶部工具栏上下文一致),
+  // 不再以 memberships[0] 作为当前租户决策来源。
+  currentTenantId.value = tenantStore.currentTenantId
+
+  // 账号级角色判断(管理员可管理全部门店),仅影响表单门店下拉,不作租户决策
   const res: any = await apiApp.profile()
   const memberships = res.data.memberships ?? []
   // 兼容新模型 memberships(含 roles 数组对象)与旧模型(roles 是 {code,name})
@@ -183,7 +190,6 @@ onMounted(async () => {
     const roleCode = item.roles?.code ?? (Array.isArray(item.roles) ? item.roles[0]?.code : null)
     return roleCode === 'system_admin'
   })
-  currentTenantId.value = memberships[0]?.tenant_id ?? ''
 
   if (isAdmin.value) {
     const storeRes: any = await apiStore.list()
@@ -199,7 +205,7 @@ onMounted(async () => {
         const roleCode = item.roles?.code ?? (Array.isArray(item.roles) ? item.roles[0]?.code : null)
         return roleCode === 'store_manager' || roleCode === 'tenant_manager'
       })
-    memberships.map((item: any) => ({ label: item.stores?.name ?? '', value: item.store_id }))
+      .map((item: any) => ({ label: item.stores?.name ?? '', value: item.store_id }))
   }
 
   currentStoreId.value = storeOptions.value[0]?.value ?? ''

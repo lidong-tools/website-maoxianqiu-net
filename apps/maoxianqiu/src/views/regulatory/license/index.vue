@@ -5,9 +5,9 @@ import type {
   InstitutionLicenseVersionRecord,
   LicenseStatus,
 } from '@/types/regulatory'
-import apiApp from '@/api/modules/app'
 import apiFile from '@/api/modules/file'
 import apiRegulatory from '@/api/modules/regulatory'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { LICENSE_STATUS_LABELS } from '@/types/regulatory'
 
 defineOptions({
@@ -29,6 +29,7 @@ interface DisplayRow {
   hasCertificate: boolean
 }
 
+const tenantStore = useAppTenantStore()
 const loading = ref(false)
 const dataList = ref<InstitutionLicenseRecord[]>([])
 const currentTenantId = ref('')
@@ -291,12 +292,9 @@ function onCertUploaded(payload: { fileId: string }) {
   form.certificateFileId = payload.fileId
 }
 
-onMounted(async () => {
-  // 租户上下文来源与现有页面一致:普通租户用户取 memberships[0].tenant_id;
-  // 平台管理员(无租户成员关系)暂不提供跨租户维护 UI。
-  const res: any = await apiApp.profile()
-  const memberships = res.data.memberships ?? []
-  currentTenantId.value = memberships[0]?.tenant_id ?? ''
+onMounted(() => {
+  // 审计 S3.1 P0-03:统一使用全局 Tenant Store 上下文,不再自行从 memberships 推导当前租户
+  currentTenantId.value = tenantStore.currentTenantId
   platformUiDeferred.value = !currentTenantId.value
   getDataList()
 })

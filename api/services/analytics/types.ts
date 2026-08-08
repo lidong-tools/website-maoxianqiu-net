@@ -55,7 +55,7 @@ export interface RevenueFilters {
 export interface DashboardReport extends AnalyticsBaseReport {
   /** 本月每日净收入趋势(供驾驶舱迷你图) */
   revenueTrend: RevenueTrendRow[]
-  /** 低库存数量(驾驶舱快捷提示) */
+  /** 缺货 SKU 数量(驾驶舱快捷提示,可用 ≤ 0,审计 #25) */
   lowStockCount: number
   /** 近效期数量(30 天内到期) */
   expiringCount: number
@@ -150,7 +150,7 @@ export interface LowStockRow {
   quantityReserved: number
   /** 可用数量 = onHand - reserved */
   available: number
-  /** 低库存阈值(来自批次/目录规则,默认取 0 表示未配置) */
+  /** 缺货阈值(来自批次/目录规则,默认取 0 表示未配置;当前口径:可用 ≤ 0 即缺货) */
   lowStockThreshold: number
   /** 当前库存成本价值 */
   stockValue: number

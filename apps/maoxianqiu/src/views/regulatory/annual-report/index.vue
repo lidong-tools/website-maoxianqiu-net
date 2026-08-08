@@ -4,8 +4,8 @@ import type {
   AnnualRegulatoryReportRecord,
   RegulatoryReportStatus,
 } from '@/types/regulatory'
-import apiApp from '@/api/modules/app'
 import apiRegulatory from '@/api/modules/regulatory'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { REGULATORY_REPORT_STATUS_LABELS } from '@/types/regulatory'
 
 defineOptions({
@@ -22,6 +22,7 @@ interface DisplayRow {
   submittedAt: string
 }
 
+const tenantStore = useAppTenantStore()
 const loading = ref(false)
 const dataList = ref<AnnualRegulatoryReportRecord[]>([])
 const currentTenantId = ref('')
@@ -250,11 +251,9 @@ function onExport(row: DisplayRow) {
   URL.revokeObjectURL(a.href)
 }
 
-onMounted(async () => {
-  // 租户上下文来源与现有页面一致(普通租户用户取 memberships[0].tenant_id)
-  const res: any = await apiApp.profile()
-  const memberships = res.data.memberships ?? []
-  currentTenantId.value = memberships[0]?.tenant_id ?? ''
+onMounted(() => {
+  // 审计 S3.1 P0-03:统一使用全局 Tenant Store 上下文,不再自行从 memberships 推导当前租户
+  currentTenantId.value = tenantStore.currentTenantId
   platformUiDeferred.value = !currentTenantId.value
   getDataList()
 })

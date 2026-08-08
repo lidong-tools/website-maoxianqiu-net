@@ -33,14 +33,11 @@
 | R2 文件签名下载 | 新文件模型仅在开发环境验证 | P0-03 |
 | 报表口径核对 | report-data 聚合结果与账目核对未做 | P0-06 |
 | 监管 RPC 与门店权限自校验（migration 31~34） | migration 31~34 未进入任何共享环境：save_institution_license / save_epidemic_event / save_waste_record 函数签名（已修复 DEFAULT 后无默认参数，migration 32/34 一致，待 staging 执行确认）、generate_regulatory_report 兽医数（门店+时间有效性边界）、can_access_store store↔tenant 自校验，待 staging 空库/旧库升级 + SQL tests 验证 | S31-MERGE-FINAL |
-| S3.1 医疗闭环 SQL 测试缺失 | `supabase/tests/medical_loop_s3_1.sql` 未产出（并发任务 C 交付建议的测试文件）；医嘱/标本/危急值/病程/出院结算 RPC 与 RLS 仅静态检查，无独立可执行 SQL 断言 | S31-C / S31-INTEGRATION-D |
 | S3.1 新闭环 E2E 缺失 | E2E 仅有闭环 A/B/C，无 Loop D（tenant init）/ Loop E（billing→closing→reconciliation）/ Loop F（admission→settlement→discharge）；真实执行依赖 staging | S31-INTEGRATION-D |
-| seed.sql 角色权限数组缺口 | `tenant_owner` 角色 `permissions` 数组缺 S3.1-A（tenant.initialize 等）与 S31-C 医疗权限（lab_sample / lab_critical / progress / settlement / nurse_task）；运行时依赖 role_permissions 关联表路径（migration 37/49 已兜底），但数组路径缺失；seed 无 `nurse` 角色（db reset 时 roles 被 seed 覆盖，依赖 migration 21/22 重建） | S31-A / S31-C / S31-INTEGRATION-D |
-| progress_notes update RLS 未排除已签署行 | 病程记录签署后仍可通过 update RLS 策略修改（有 RPC 状态机兜底拒签后修改，但 RLS 层未排除 signed 状态） | S31-C / S31-INTEGRATION-D |
 | S3.1 并行新模块迁移未 staging | migration 54~73 + 90/91 未在真实 DB 演练（空库/旧库升级）；寄养→计费原子集成、租户停用拦截、回访自动生成均仅静态检查 | S3.1-PARALLEL |
 | 寄养离店 → 发票运行时未验证 | `boarding_checkout` 内嵌 `create_invoice` 同事务；发票失败回滚、幂等重试、金额一致性需 staging 实测 | S3.1-PARALLEL |
 | 自动回访生成未验证 | 病历随访日期 / 出院 → `autoCreateFollowup`（去重、best-effort）未运行时验证 | S3.1-PARALLEL |
-| seed.sql 角色权限数组缺口扩展 | `tenant_owner`/`nurse` 数组缺本批新权限（boarding/purchase/imaging/followup/platform.tenant）；运行时依赖 role_permissions 关联表兜底 | S3.1-PARALLEL |
+| DB 类型生成未执行 | `db:gen-types` 依赖在线 Supabase 项目，未在本地执行；前端 supabase client 未使用生成类型（动态查询），无编译影响 | S3.1 P1 |
 
 ## 已关闭缺口
 
@@ -69,3 +66,7 @@
 | E2E 宠物用 API 绕过 UI | ✅ 已关闭 | S30-R05：closed-loop-a 步骤 2 改 UI「新增宠物」建档 |
 | inventory receipt 预留手填商品、nursing/print 手填实体 | ✅ 已关闭 | S30-R06：BusinessCatalogItemPicker + value-key="user_id" + print 非可选取类型禁用 |
 | src 目录 .js 编译产物残留导致 vite build MISSING_EXPORT | ✅ 已关闭 | S31-INTEGRATION-D：清理 `apps/maoxianqiu/src` 下 276 个 .js 编译产物（rolldown 解析 `@/types/*` 优先命中旧 .js 产物）；产物未被 git 跟踪（根 `.gitignore` `**/*.js` 兜底）；清理后 vite build 35.46s PASS |
+| S3.1 医疗闭环 SQL 测试缺失 | ✅ 已关闭 | S3.1 审计收口：新增 `supabase/tests/medical_loop_s3_1.sql`，单事务 begin/rollback，断言矩阵 ML1~ML12（权限矩阵 / 入院 / 医嘱→护士任务 / 标本流转 / 危急值 / 病程签署不可变 / 出院结算 / 跨租户拒绝 / discharge_patient 笼位释放） |
+| seed.sql 角色权限数组缺口 | ✅ 已关闭 | S3.1 审计收口：`supabase/seed.sql` 角色权限数组与 permissions 目录表全量同步前端 `views/system/permissions.ts`（补齐 store_manager/doctor/nurse/tenant_owner 及 system_admin 新增域权限）；`nurse` 角色本就存在于 seed，缺口的"无 nurse 角色"描述为过时结论 |
+| progress_notes update RLS 未排除已签署行 | ✅ 已关闭 | S3.1 审计 P0-02：migration 115 重建 RLS（update/delete 要求 status='draft'）+ 触发器 `prevent_signed_progress_note_update/delete`（`app.allow_signed_note_update/delete` 显式放行），signed 病程不可变；ML9 测试覆盖 authenticated 0 行 / superuser 抛 `SIGNED_PROGRESS_NOTE_IMMUTABLE` / set_config 放行 |
+| seed.sql 角色权限数组缺口扩展 | ✅ 已关闭 | S3.1 审计收口：`supabase/seed.sql` 同步补齐 boarding/purchase/imaging/followup/analytics/documents/audit/approval/settings/platform.tenant 等新域权限码到对应角色数组与 permissions 目录表 |

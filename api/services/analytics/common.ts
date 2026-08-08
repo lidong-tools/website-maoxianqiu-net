@@ -1,8 +1,9 @@
 /**
  * S32-B 经营报表与驾驶舱 — 公共工具
  *
- * 时区处理(S32-B 规格 §11):
- *   - 日期切片必须按 Store Timezone → Tenant Timezone(门店无时区字段,沿用租户时区);
+ * 时区处理(S32-B 规格 §11 + 审计 #24 Store Timezone Override):
+ *   - 日期切片按 Store Timezone → Tenant Timezone 优先顺序:
+ *     单门店报表若门店配置了 stores.timezone 则按门店时区切日,否则沿用租户时区;
  *   - 用 Intl 计算指定时区的本地日期键与日界,不依赖 Server UTC 直接切天;
  *   - 不引入 dayjs 等运行时依赖,纯 Intl 实现,避免影响共享构建。
  *
@@ -33,11 +34,30 @@ export function toInt(v: unknown): number {
 
 export type ServiceClient = ReturnType<typeof createServiceClient>
 
-/** 查询租户时区(门店无时区字段,一律沿用租户时区) */
+/**
+ * 解析报表时区(S32-B 审计 #24 Store Timezone Override)
+ *   - 指定门店且该门店配置了 stores.timezone → 优先使用门店时区;
+ *   - 否则回退租户时区(tenants.timezone,缺省 Asia/Shanghai)。
+ */
 export async function resolveTenantTimezone(
   service: ServiceClient,
   tenantId: string,
+  storeId?: string,
 ): Promise<string> {
+  // 门店级时区覆盖(单门店报表场景)
+  if (storeId) {
+    const { data: store } = await service
+      .from('stores')
+      .select('timezone')
+      .eq('tenant_id', tenantId)
+      .eq('id', storeId)
+      .maybeSingle()
+    const storeTz = (store as { timezone?: string | null } | null)?.timezone
+    if (storeTz) {
+      return storeTz
+    }
+  }
+  // 租户级时区回退
   const { data } = await service
     .from('tenants')
     .select('timezone')
@@ -114,15 +134,17 @@ function parseDateKey(key: string): Date {
 
 /**
  * 解析查询时间范围。
- * 缺省 = 当前租户时区的本月;日期按租户时区解释为闭区间;最长 366 天。
+ * 缺省 = 当前租户时区的本月;日期按租户/门店时区解释为闭区间;最长 366 天。
+ * storeId 可选:指定门店且配置了 stores.timezone 时按门店时区切日(审计 #24)。
  */
 export async function resolvePeriod(
   service: ServiceClient,
   tenantId: string,
   startAt?: string,
   endAt?: string,
+  storeId?: string,
 ): Promise<AnalyticsPeriod> {
-  const tz = await resolveTenantTimezone(service, tenantId)
+  const tz = await resolveTenantTimezone(service, tenantId, storeId)
   const now = new Date()
   const todayKey = dayKeyInTz(now, tz)
   const [cy, cm] = todayKey.split('-').map(Number)

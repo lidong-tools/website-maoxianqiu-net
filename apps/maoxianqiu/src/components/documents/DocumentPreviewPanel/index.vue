@@ -34,6 +34,7 @@ const PAPER_WIDTH: Record<PaperSize, string> = {
       v-else-if="html"
       :srcdoc="html"
       class="w-full"
+      sandbox=""
       style="height: 60vh; border: 0; background: #fff;"
     />
     <div v-else class="flex-center py-20 text-sm text-muted-foreground">

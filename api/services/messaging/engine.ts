@@ -39,6 +39,8 @@ export interface SendRequest {
   channel?: MessageChannel
   recipient: string
   variables?: Record<string, unknown>
+  /** 幂等键:相同键的重复发送直接返回既有投递,避免外部重复发送 */
+  idempotencyKey?: string
 }
 
 interface TemplateRow {
@@ -67,6 +69,7 @@ interface DeliveryRow {
   error: string | null
   attempts: number
   sent_at: string | null
+  idempotency_key: string | null
   created_at: string
 }
 
@@ -151,6 +154,7 @@ export async function createDeliveryRecord(
     contentSnapshot: string
     subjectSnapshot: string | null
     variables: Record<string, unknown>
+    idempotencyKey?: string
   },
 ): Promise<DeliveryRow> {
   const { data, error } = await service
@@ -165,12 +169,25 @@ export async function createDeliveryRecord(
       content_snapshot: params.contentSnapshot,
       subject_snapshot: params.subjectSnapshot,
       variables_snapshot: params.variables,
+      idempotency_key: params.idempotencyKey ?? null,
       status: 'queued',
       attempts: 0,
     })
     .select('*')
     .single()
   if (error) {
+    // 幂等键冲突:并发同键请求,另一请求已建投递 → 读取并复用
+    if (params.idempotencyKey && (error.message.includes('duplicate key') || error.message.includes('idx_message_deliveries_tenant_idem'))) {
+      const { data: existing } = await service
+        .from('message_deliveries')
+        .select('*')
+        .eq('tenant_id', params.tenantId)
+        .eq('idempotency_key', params.idempotencyKey)
+        .maybeSingle()
+      if (existing) {
+        return existing as DeliveryRow
+      }
+    }
     throw err.internal(`创建投递记录失败: ${error.message}`)
   }
   return data as DeliveryRow
@@ -260,10 +277,30 @@ async function dispatchAndRecord(
 /**
  * 发送一条消息(创建 delivery + 立即发送)
  * - 白名单变量校验通过后渲染
+ * - 幂等:携带 idempotencyKey 时,命中既有投递直接返回,不重复外部发送
  */
 export async function sendMessage(req: SendRequest): Promise<DeliveryWithAttempt> {
   assertSendAllowed()
   const service = createServiceClient()
+
+  // 幂等优先:同键已有投递 → 复用既有结果(终态成功/失败均可安全返回)
+  if (req.idempotencyKey) {
+    const { data: existing } = await service
+      .from('message_deliveries')
+      .select('*')
+      .eq('tenant_id', req.tenantId)
+      .eq('idempotency_key', req.idempotencyKey)
+      .maybeSingle()
+    if (existing) {
+      const delivery = existing as DeliveryRow
+      const attempt = await loadLatestAttempt(service, delivery.id)
+      const result: ProviderSendResult = delivery.status === 'failed'
+        ? { status: 'failed', raw: { code: 'IDEMPOTENT_REPLAY', message: delivery.error ?? '复用既有失败投递' } }
+        : { status: 'sent', providerMessageId: delivery.provider_message_id ?? undefined, raw: { idempotent: true } }
+      return { delivery, attempt, provider: 'idempotent-replay', result }
+    }
+  }
+
   const template = await loadTemplate(service, req.tenantId, req)
   const channel = req.channel ?? template.channel
   validateRecipient(channel, req.recipient)
@@ -288,6 +325,7 @@ export async function sendMessage(req: SendRequest): Promise<DeliveryWithAttempt
     contentSnapshot: body,
     subjectSnapshot: subject,
     variables,
+    idempotencyKey: req.idempotencyKey,
   })
 
   const { result, provider } = await dispatchAndRecord(
@@ -310,26 +348,48 @@ export async function sendMessage(req: SendRequest): Promise<DeliveryWithAttempt
   return { delivery: fresh, attempt, provider, result }
 }
 
-/** 人工重试(最多 MAX_ATTEMPTS 次;终态 sent/delivered 拒绝) */
+/**
+ * 人工重试(最多 MAX_ATTEMPTS 次;终态 sent/delivered 拒绝)
+ * 并发安全:先原子 claim(状态置 retry + attempts+1),成功者才执行 Provider 副作用,
+ * 防止并发重试重复发送外部消息。
+ */
 export async function retryDelivery(deliveryId: string): Promise<DeliveryWithAttempt> {
   assertSendAllowed()
   const service = createServiceClient()
-  const delivery = await loadDelivery(service, deliveryId)
-  if (delivery.status === 'sent' || delivery.status === 'delivered') {
+  const existing = await loadDelivery(service, deliveryId)
+  if (existing.status === 'sent' || existing.status === 'delivered') {
     throw err.unprocessable('该投递已成功,无需重试')
   }
-  if (delivery.attempts >= MAX_ATTEMPTS) {
-    throw err.unprocessable(`该投递已达最大重试次数(${MAX_ATTEMPTS})`)
+
+  // 原子 claim:attempts 上限与状态判断均在 UPDATE 条件内,保证单执行者
+  const { data: claimed, error: claimErr } = await service
+    .from('message_deliveries')
+    .update({ status: 'retry', attempts: existing.attempts + 1 })
+    .eq('id', deliveryId)
+    .in('status', ['queued', 'failed', 'retry'])
+    .lt('attempts', MAX_ATTEMPTS)
+    .select('*')
+    .maybeSingle()
+  if (claimErr) {
+    throw err.internal(`抢占重试失败: ${claimErr.message}`)
+  }
+  if (!claimed) {
+    const cur = await loadDelivery(service, deliveryId)
+    if (cur.attempts >= MAX_ATTEMPTS) {
+      throw err.unprocessable(`该投递已达最大重试次数(${MAX_ATTEMPTS})`)
+    }
+    throw err.conflict('该投递正在重试中,请勿重复操作')
   }
 
-  const attemptNo = delivery.attempts + 1
+  const delivery = claimed as DeliveryRow
+  const attemptNo = delivery.attempts
   const { result, provider } = await dispatchAndRecord(
     service,
     delivery,
     attemptNo,
     delivery.subject_snapshot,
     delivery.content_snapshot,
-    { retryOf: delivery.id, fromStatus: delivery.status, scene: delivery.scene ?? null },
+    { retryOf: deliveryId, fromStatus: existing.status, scene: delivery.scene ?? null },
   )
 
   const fresh = await loadDelivery(service, delivery.id)

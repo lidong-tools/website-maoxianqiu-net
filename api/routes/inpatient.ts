@@ -7,7 +7,7 @@ import { err } from '../lib/errors'
 import { autoCreateFollowup } from '../lib/followup'
 import { getRequestIdempotencyKey } from '../lib/idempotency'
 import { requireScopedPermission } from '../lib/permission'
-import { getContext, loadContext } from '../lib/request-context'
+import { getContext, loadContext, resolveRequestedTenant } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { parseJsonBody } from '../lib/validation'
@@ -455,7 +455,7 @@ inpatientRoutes.post('/charges/generate', async (c) => {
  */
 inpatientRoutes.get('/cages/status', async (c) => {
   // P0-02 scoped:校验 tenant 归属(缺失取调用者默认租户),并强制按 scope.tenantId 过滤
-  const tenantId = c.req.query('tenantId') ?? getContext(c).memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c, c.req.query('tenantId'))
   const storeId = c.req.query('storeId')
   const scope = await requireScopedPermission(c, {
     code: 'inpatient.view',
@@ -832,7 +832,7 @@ const boardingListSchema = z.object({
  */
 inpatientRoutes.get('/boarding', async (c) => {
   const input = boardingListSchema.parse(c.req.query())
-  const tenantId = c.req.query('tenantId') ?? getContext(c).memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c, c.req.query('tenantId'))
   if (!tenantId) {
     throw err.forbidden('无法确定租户作用域')
   }
@@ -863,7 +863,7 @@ inpatientRoutes.get('/boarding', async (c) => {
  * - 权限:boarding.view
  */
 inpatientRoutes.get('/boarding/cages/status', async (c) => {
-  const tenantId = c.req.query('tenantId') ?? getContext(c).memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c, c.req.query('tenantId'))
   const storeId = c.req.query('storeId')
   const scope = await requireScopedPermission(c, {
     code: 'boarding.view',

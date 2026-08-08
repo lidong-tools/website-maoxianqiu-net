@@ -168,19 +168,44 @@ function onPrint() {
   doRender('print')
 }
 
-/** 浏览器打印:新窗口写入 HTML 后调用打印 */
+/** HTML 属性值转义(用于 srcdoc 属性注入) */
+function escapeAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+/**
+ * 浏览器打印:新窗口内用 sandbox iframe 承载服务端已净化 HTML。
+ * 不直接 document.write 文档内容,避免脚本执行环境;打印调用 iframe 自身的打印流程。
+ */
 function openPrintWindow(html: string) {
   const win = window.open('', '_blank', 'width=900,height=700')
   if (!win) {
     useFaToast().warning('请允许弹出窗口以进行打印')
     return
   }
-  win.document.write(html)
+  // 外层仅写入静态打印壳;文档放入 sandbox="" iframe,阻断脚本与同源访问
+  win.document.write(
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>打印</title>'
+    + '<style>html,body{margin:0;padding:0}iframe{width:100%;height:100%;border:0;display:block}</style>'
+    + '</head><body>'
+    + `<iframe sandbox="" srcdoc="${escapeAttr(html)}"></iframe>`
+    + '</body></html>',
+  )
   win.document.close()
   win.focus()
   setTimeout(() => {
-    win.print()
-  }, 300)
+    const frame = win.document.querySelector('iframe')
+    if (frame?.contentWindow) {
+      frame.contentWindow.print()
+    }
+    else {
+      win.print()
+    }
+  }, 400)
 }
 
 // ===== 模板管理(create / edit)=====

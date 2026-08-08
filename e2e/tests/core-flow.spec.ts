@@ -24,10 +24,10 @@ test.describe('核心业务流程', () => {
 
     // 工作台页面标题
     await expect(page.getByText('工作台').first()).toBeVisible()
-    // 欢迎语
-    await expect(page.getByText('欢迎使用毛线球')).toBeVisible()
+    // 欢迎语(页面描述)
+    await expect(page.getByText('毛线球宠物医院管理系统').first()).toBeVisible()
     // 工作台指标卡片分组
-    await expect(page.getByText('今日经营指标')).toBeVisible()
+    await expect(page.getByText('今日预约').first()).toBeVisible()
     await expect(page.getByText('快捷操作')).toBeVisible()
   })
 
@@ -39,9 +39,10 @@ test.describe('核心业务流程', () => {
     await expect(page).toHaveURL(/\/#\/crm\/customer/)
     await expect(page.getByText('客户管理').first()).toBeVisible()
 
-    // 表格表头渲染(客户编号/姓名列)
-    await expect(page.getByText('客户编号').first()).toBeVisible()
-    await expect(page.getByText('姓名').first()).toBeVisible()
+    // 表格表头渲染(客户/宠物列,限定在表头区域内避免误匹配侧边栏菜单)
+    const tableHeader = page.locator('table thead')
+    await expect(tableHeader.getByText('客户').first()).toBeVisible()
+    await expect(tableHeader.getByText('宠物').first()).toBeVisible()
 
     // 等待数据加载完成并渲染出数据行(测试租户含 seed 初始化数据)
     const firstRow = page.locator('table tbody tr').first()
@@ -72,17 +73,17 @@ test.describe('核心业务流程', () => {
     await page.goto('/#/crm/customer/new', { waitUntil: 'domcontentloaded' })
     await expect(page.getByText('新增客户').first()).toBeVisible()
 
-    // 填写必填字段「客户姓名」并提交
-    await page.getByPlaceholder('请输入姓名').fill(customerName)
+    // 填写必填字段「客户姓名」并提交(FaInput 包装层与内部 input 均带 placeholder,须定位到真实 input)
+    await page.getByPlaceholder('请输入姓名').locator('input').fill(customerName)
     await page.getByRole('button', { name: '保存' }).click()
 
     // 保存成功跳转客户详情页,详情展示新客户姓名
     await page.waitForURL(/\/#\/crm\/customer\/[^/]+$/, { timeout: 30_000 })
     await expect(page.getByText(customerName).first()).toBeVisible()
 
-    // 返回客户列表,按姓名关键词搜索
+    // 返回客户列表,按姓名关键词搜索(placeholder 为「姓名 / 手机号 / 编号」)
     await page.goto('/#/crm/customer', { waitUntil: 'domcontentloaded' })
-    const keywordInput = page.getByPlaceholder('姓名/手机号/编号')
+    const keywordInput = page.getByPlaceholder('姓名 / 手机号 / 编号')
     await keywordInput.fill(customerName)
     // 输入框回车触发列表查询
     await keywordInput.press('Enter')

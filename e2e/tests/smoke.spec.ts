@@ -15,24 +15,26 @@ test.describe('核心页面冒烟测试', () => {
     test.skip(!loggedIn, '未配置 E2E_USERNAME / E2E_PASSWORD,跳过冒烟测试')
   })
 
-  test('主导航菜单渲染:九个业务模块入口齐全', async ({ page }) => {
-    // 主导航侧边栏容器
+  test('主导航菜单渲染:业务模块入口齐全', async ({ page }) => {
+    // 主导航侧边栏容器(菜单以 meta.shortTitle 简称渲染,见 MainSidebar/mainMenuTitle)
     const mainSidebar = page.locator('.main-sidebar-container')
 
-    // 断言全部业务模块菜单项可见(与 src/router/routes.ts 的 asyncRoutes 对齐)
+    // 断言业务模块菜单项可见(与 src/router/routes.ts 的 asyncRoutes 对齐,精确匹配短标题)
     const moduleTitles = [
-      '系统管理',
-      '客户宠物',
-      '目录价目',
-      '库存管理',
-      '收费收银',
-      '诊疗核心',
-      '住院管理',
-      '疫苗检验',
-      '运营管理',
+      '客户',
+      '目录',
+      '库存',
+      '收费',
+      '诊疗',
+      '住院',
+      '疫苗',
+      '运营',
+      '监管',
+      '日结',
+      '系统',
     ]
     for (const title of moduleTitles) {
-      await expect(mainSidebar.getByText(title).first()).toBeVisible()
+      await expect(mainSidebar.getByText(title, { exact: true }).first()).toBeVisible()
     }
   })
 
@@ -69,6 +71,6 @@ test.describe('核心页面冒烟测试', () => {
 
     // 断言路由与页面标题
     await expect(page).toHaveURL(/\/#\/billing\/cashier/)
-    await expect(page.getByText('收银工作台').first()).toBeVisible()
+    await expect(page.getByText('快速收银').first()).toBeVisible()
   })
 })

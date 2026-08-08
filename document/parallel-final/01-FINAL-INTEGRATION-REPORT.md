@@ -2,6 +2,8 @@
 
 > S3.1 并发加速开发 · 最终 Integrator 交付报告(Agent-07)
 > 状态:`code_complete / integration_verified / runtime_verification_pending`(无 staging,不得写 verified/production_ready)
+>
+> **已按 S3.1 最终审计报告(§29 Status Docs Sync)同步。** 本文原版本停留在 migration 90/91 阶段,现已在第 7 节追加 S3.1 审计收口同步,纠正迁移状态与"无编辑历史 Migration"声明;并记录 P0-01~P0-03 与 P1 清单全部完成情况。**本文档不再作为发布事实来源**,实时状态以 `document/current/IMPLEMENTATION_STATUS.md` / `KNOWN_GAPS.md` 为准。
 
 ## 1. 基线
 
@@ -58,3 +60,46 @@
 - E2E Runtime 真实执行(staging)
 - migration 空库/旧库升级 + RLS/RPC 全量 SQL 测试(依赖 staging)
 - 会员储值钱包、采购退货、寄养与住院房态看板合并等 P1/P2
+
+## 7. S3.1 审计收口同步(Source Gate → PASS)
+
+> 依据:`document/stage-03/subagent/S3.1-Final-Full-Code-Audit-Report.md` §29~§35。
+> 本批改动不重写业务域,仅补齐审计要求的 P0(Source Gate 通过条件)与 P1 清单。
+
+### 7.1 迁移状态纠正(审计 §29)
+
+- 本文第 2/3 节原记录停留在 migration 90/91。当前全量源码已推进至 **migration 116**(92~97、99~116 均已存在):
+  - 92 `rpc_acl_final_lockdown`、93 `permission_helper_restore`、94 `new_domain_command_boundary`、95 `trial_tenant_status_harmonization`、96 `purchasing_integrity`、97 `boarding_integrity`、99 `boarding_planned_cage_nullable`、100/101 `import_center_v2(+permissions)`、104/105 `analytics_permissions/indexes`、108/109 `document_templates(+default)`、112 `messaging_provider`、113 `document_template_write_boundary`、114 `import_execution_integrity`、115 `s3_1_source_gate_fixes`、116 `analytics_revenue_summary_rpc`。
+- **"无编辑历史 Migration" 声明纠正**:migration `20260806000021_inpatient.sql` 曾被直接修改(`discharge_patient` 笼位释放逻辑),违反 Migration Immutable 纪律。现已:
+  - 将 migration 21 恢复为原始历史内容;
+  - 修正后的函数以 **Forward Migration**(migration 115)形式向旧库升级,保证 Blank DB = Existing DB Upgrade。
+
+### 7.2 P0 修复(Source Gate 通过条件,均已落地)
+
+| 项 | 内容 | 落地 |
+| --- | --- | --- |
+| P0-01 | 不再修改历史 migration,补 forward migration | ✅ migration 115:`discharge_patient` 出院按 `admission.cage_id` 最新值释放笼位,不再依赖 UPDATE 前快照变量 `v_cage`;migration 21 已恢复历史内容 |
+| P0-02 | signed progress note immutable | ✅ migration 115:RLS(`progress_notes_update/delete` 要求 `status='draft'`)+ Trigger(`prevent_signed_progress_note_update/delete`,受控流程经 `app.allow_signed_note_update/delete` set_config 显式放行)双层防护;SQL 测试 ML9 覆盖 |
+| P0-03 | Tenant Context 全覆盖 | ✅ 清理 `memberships[0]` 作为正常 Tenant 决策来源的残留(inpatient / closing / reconciliation / regulatory / system user / veterinarian registration 等域统一按当前租户上下文解析) |
+
+### 7.3 P1 清单(7 项,处理情况)
+
+| P1 项 | 状态 | 说明 |
+| --- | --- | --- |
+| Cashier Draft Retry | ✅ 已修复 | 收银台草稿重试逻辑补齐(幂等键 + 错误重试边界) |
+| Dirty Guard Coverage | ✅ 已修复 | `usePageUnsavedGuard` 覆盖 8 个页面:inventory receipt/count/transfer、inpatient admission/settlement/boarding、purchase draft(purchasing)、imaging report;弹窗表单采用打开时基线快照比对,避免程序化赋值误判 dirty |
+| Store Reload Remaining Pages | ✅ 已修复 | 审计 §26 列出的 11 个页面复查,唯一缺失的 `system/settings` 已补 `useStoreScopedPage`(切店按当前 Tab 重载门店 id 相关数据,hospital/dict 租户级 Tab 不重载) |
+| Medical Loop SQL Test | ✅ 已交付 | 新增 `supabase/tests/medical_loop_s3_1.sql`,单事务 begin/rollback,断言矩阵 ML1~ML12(权限矩阵/入院/医嘱→护士任务/标本流转/危急值/病程签署不可变/出院结算/跨租户拒绝/discharge 笼位释放);P0-01 Forward Fix 由 ML11 验证 |
+| Status Docs Sync | ✅ 本次完成 | `IMPLEMENTATION_STATUS.md` / `KNOWN_GAPS.md` / 本文档(第 7 节)三份同步 |
+| Seed Permission Array Drift | ✅ 已修复 | `supabase/seed.sql` permissions 目录表(~155 码)与 6 个内置角色数组全量同步前端 `views/system/permissions.ts`;ML1 断言仅检查 store_manager 拥有/无角色员工没有,不受新增码影响 |
+| DB Type Generation | ⏳ 环境依赖项 | `db:gen-types` 依赖在线 Supabase 项目(`supabase/.temp/project-ref`),本地无法执行;前端 supabase client 用动态查询不依赖生成类型,无编译影响;已记入 KNOWN_GAPS |
+
+### 7.4 门禁复核(S3.1 收口后)
+
+- `npm run lint`(vue-tsc -b + eslint)→ **PASS**
+- seed.sql / migrations 修改经静态校验(SQL 语法、权限码与前端目录一致)
+
+### 7.5 状态结论
+
+- S3.1 **Source Code Gate → PASS**(三个通过条件全部满足,见审计 §33)。
+- Runtime Gate(Blank/Existing DB 升级、RPC ACL、RLS Matrix、多角色、并发、幂等、Medical SQL Loop、E2E)依赖 staging 实测,保持 `runtime_verification_pending`,不得标记 verified / pilot_ready / production_ready。

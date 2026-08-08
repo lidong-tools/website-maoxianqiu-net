@@ -7,10 +7,10 @@
  *   本月新增客户 = 本月建档客户数
  *   平均客单价 = 本月净收入 ÷ 本月有效发票数
  *   退款金额 = 本月退款合计
- *   住院收入 = 本月住院计费(inpatient_charges.amount)合计
- *   寄养收入 = 本月寄养计费(boarding_service_charges.amount)合计
- *   会员贡献 = 会员客户(银卡/金卡/钻石)本月消费合计
- *   低库存 / 近效期 = 见 inventory.ts
+ *   住院计费额 = 本月住院计费(inpatient_charges.amount)合计(已计费 ≠ 已实现收入,审计 #23)
+ *   寄养附加服务金额 = 本月寄养附加服务计费(boarding_service_charges.amount)合计(审计 #22)
+ *   会员贡献 = 有效会员关系(customer_memberships,未过期)客户本月消费合计(审计 #21)
+ *   缺货 SKU / 近效期 = 见 inventory.ts(审计 #25:可用数量 ≤ 0 为缺货而非低库存)
  */
 import type { ServiceClient } from './common'
 import {
@@ -22,8 +22,6 @@ import {
 import { computeRevenueSummary, buildTrendFromRows } from './revenue'
 import { countExpiring, countLowStock } from './inventory'
 import type { DashboardReport, RevenueFilters } from './types'
-
-const MEMBER_LEVELS = ['silver', 'gold', 'diamond']
 
 export async function buildDashboardReport(
   service: ServiceClient,
@@ -43,7 +41,7 @@ export async function buildDashboardReport(
     period: { ...period, startISO: todayStart.toISOString(), endISO: todayEnd.toISOString() },
   }
 
-  const [monthSummary, todaySummary, invRes, custRes, encRes, ipRes, bdRes] = await Promise.all([
+  const [monthSummary, todaySummary, invRes, custRes, encRes, ipRes, bdRes, tierRes, membRes] = await Promise.all([
     computeRevenueSummary(service, f),
     computeRevenueSummary(service, todayFilters),
     // 本月发票(会员贡献 + 趋势)
@@ -56,7 +54,7 @@ export async function buildDashboardReport(
       .lte('created_at', period.endISO),
     // 客户(会员贡献 + 本月新增)
     service.from('customers')
-      .select('id, member_level, created_at')
+      .select('id, created_at')
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .lte('created_at', period.endISO),
@@ -74,13 +72,21 @@ export async function buildDashboardReport(
       .in('store_id', f.storeIds)
       .gte('charge_date', period.startDate)
       .lte('charge_date', period.endDate),
-    // 本月寄养计费
+    // 本月寄养附加服务计费
     service.from('boarding_service_charges')
       .select('amount')
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .gte('charge_date', period.startDate)
       .lte('charge_date', period.endDate),
+    // 会员层级定义(审计 #21 会员口径)
+    service.from('membership_tiers')
+      .select('id, is_active')
+      .eq('tenant_id', f.tenantId),
+    // 当前有效会员关系(审计 #21 会员口径)
+    service.from('customer_memberships')
+      .select('customer_id, tier_id, expires_at')
+      .eq('tenant_id', f.tenantId),
   ])
   if (invRes.error) {
     throw new Error(`发票查询失败: ${invRes.error.message}`)
@@ -97,9 +103,15 @@ export async function buildDashboardReport(
   if (bdRes.error) {
     throw new Error(`寄养计费查询失败: ${bdRes.error.message}`)
   }
+  if (tierRes.error) {
+    throw new Error(`会员层级查询失败: ${tierRes.error.message}`)
+  }
+  if (membRes.error) {
+    throw new Error(`会员关系查询失败: ${membRes.error.message}`)
+  }
 
   const invoices = (invRes.data as Array<{ customer_id: string | null; total: number; created_at: string }> | null) ?? []
-  const customers = (custRes.data as Array<{ id: string; member_level: string | null; created_at: string }> | null) ?? []
+  const customers = (custRes.data as Array<{ id: string; created_at: string }> | null) ?? []
   const todayEncounters = (encRes.data as unknown[] | null)?.length ?? 0
   const inpatientRevenue = (ipRes.data as Array<{ amount: number }> | null)?.reduce((s, r) => s + toNum(r.amount), 0) ?? 0
   const boardingRevenue = (bdRes.data as Array<{ amount: number }> | null)?.reduce((s, r) => s + toNum(r.amount), 0) ?? 0
@@ -107,15 +119,30 @@ export async function buildDashboardReport(
   // 本月新增客户
   const newCustomersMonth = customers.filter(c => c.created_at >= period.startISO).length
 
-  // 会员贡献:会员客户的本月消费
-  const memberLevelByCustomer = new Map<string, string>()
-  for (const c of customers) {
-    if (c.member_level && MEMBER_LEVELS.includes(c.member_level)) {
-      memberLevelByCustomer.set(c.id, c.member_level)
+  // 会员贡献:有效会员关系(customer_memberships,未过期)客户的本月消费
+  const activeTierIds = new Set(
+    ((tierRes.data as Array<{ id: string; is_active: boolean }> | null) ?? [])
+      .filter(t => t.is_active)
+      .map(t => t.id),
+  )
+  const customerIdSet = new Set(customers.map(c => c.id))
+  const nowISO = new Date().toISOString()
+  const memberCustomerIds = new Set<string>()
+  for (const m of (membRes.data as Array<{ customer_id: string; tier_id: string | null; expires_at: string | null }> | null) ?? []) {
+    if (!m.tier_id || !customerIdSet.has(m.customer_id)) {
+      continue
     }
+    if (!activeTierIds.has(m.tier_id)) {
+      continue
+    }
+    // 过期会员不计入当前有效关系
+    if (m.expires_at && m.expires_at <= nowISO) {
+      continue
+    }
+    memberCustomerIds.add(m.customer_id)
   }
   const memberContribution = invoices
-    .filter(inv => inv.customer_id && memberLevelByCustomer.has(inv.customer_id))
+    .filter(inv => inv.customer_id && memberCustomerIds.has(inv.customer_id))
     .reduce((s, inv) => s + toNum(inv.total), 0)
 
   // 本月每日趋势(迷你图)
@@ -188,31 +215,31 @@ export async function buildDashboardReport(
       },
       {
         key: 'inpatientRevenue',
-        label: '住院收入',
+        label: '住院计费额',
         value: Math.round(inpatientRevenue * 100) / 100,
         format: 'money',
-        definition: '本月住院计费(inpatient_charges)合计。',
+        definition: '本月住院计费(inpatient_charges)合计;已计费 ≠ 已实现收入(审计 #23)。',
       },
       {
         key: 'boardingRevenue',
-        label: '寄养收入',
+        label: '寄养附加服务金额',
         value: Math.round(boardingRevenue * 100) / 100,
         format: 'money',
-        definition: '本月寄养计费(boarding_service_charges)合计。',
+        definition: '本月寄养附加服务计费(boarding_service_charges)合计;基础房费在退房结算时进入发票,未包含在本指标(审计 #22)。',
       },
       {
         key: 'memberContribution',
         label: '会员贡献',
         value: Math.round(memberContribution * 100) / 100,
         format: 'money',
-        definition: '银卡/金卡/钻石会员客户本月消费合计。',
+        definition: '有效会员关系(customer_memberships,未过期)客户本月消费合计(审计 #21)。',
       },
       {
         key: 'lowStock',
-        label: '低库存',
+        label: '缺货 SKU',
         value: lowStockCount,
         format: 'integer',
-        definition: '可用数量 ≤ 0 的 SKU 数(断货/不可售)。',
+        definition: '可用数量(在库−预留) ≤ 0 的 SKU 数(断货/不可售口径,审计 #25)。',
       },
       {
         key: 'expiring',

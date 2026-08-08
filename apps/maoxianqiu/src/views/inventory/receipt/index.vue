@@ -303,6 +303,18 @@ watch(() => form.warehouseId, () => {
   loadInventoryData()
 })
 
+// P1(审计 25):未保存内容保护 - 入库/预留表单有用户输入时视为 dirty(仓库为自动选中项不计入)
+const receiptGuard = usePageUnsavedGuard('inventory-receipt')
+watch([form, reserveForm], () => {
+  const f = form
+  const rf = reserveForm
+  receiptGuard.setDirty(
+    !!f.catalogItemId || !!f.batchNo || f.quantity !== 1 || f.unitCost !== 0
+    || !!f.expiryDate || !!f.supplier || !!f.referenceId
+    || !!rf.catalogItemId || rf.quantity !== 1 || !!rf.referenceType || !!rf.referenceId,
+  )
+}, { deep: true, immediate: true })
+
 // P0-06:切店后清空仓库选择并按新门店重载
 useStoreScopedPage({
   load: loadWarehouses,

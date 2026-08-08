@@ -264,6 +264,23 @@ const receiveVisible = ref(false)
 const receiveSubmitting = ref(false)
 const receiveForm = ref<Array<{ id: string, orderedQty: number, receivedQty: number, batchNo: string, expiresAt: string }>>([])
 
+// P1(审计 25):未保存内容保护 - 采购草稿/收货表单相对打开时快照有变化视为 dirty
+const purchaseGuard = usePageUnsavedGuard('inventory-purchasing')
+const purchaseBaseline = ref('')
+const purchaseSig = () => JSON.stringify([createForm, createItems.value, receiveForm.value])
+function refreshPurchaseDirty() {
+  purchaseGuard.setDirty(purchaseSig() !== purchaseBaseline.value)
+}
+watch(createVisible, (v) => {
+  if (v) { purchaseBaseline.value = purchaseSig() }
+  else { purchaseGuard.setDirty(false) }
+})
+watch(receiveVisible, (v) => {
+  if (v) { purchaseBaseline.value = purchaseSig() }
+  else { purchaseGuard.setDirty(false) }
+})
+watch(purchaseSig, refreshPurchaseDirty)
+
 function openReceive() {
   receiveForm.value = detailItems.value
     .filter(i => i.ordered_qty > 0)

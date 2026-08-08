@@ -129,7 +129,7 @@ const trendOption = computed<EChartsOption>(() => {
       <div class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
         <div class="flex items-center gap-2 font-medium">
           <FaIcon name="i-carbon:warning-alt" />
-          低库存预警
+          缺货预警
         </div>
         <div class="mt-2 text-xs text-amber-700 dark:text-amber-400">
           当前可用数量 ≤ 0(断货/不可售)的 SKU 共

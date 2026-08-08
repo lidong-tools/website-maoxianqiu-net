@@ -146,6 +146,8 @@ function syncReportForm() {
   reportForm.findings = latest?.findings ?? ''
   reportForm.impression = latest?.impression ?? ''
   reportForm.recommendation = latest?.recommendation ?? ''
+  // P1(审计 25):报告表单刷新后重置 dirty 基线,避免程序化赋值被误判为未保存
+  imagingBaseline.value = imagingSig()
 }
 
 function displayRow(row: { pet_id: string, customer_id: string }) {
@@ -412,6 +414,23 @@ const imagingForm = reactive<{
   clinicalQuestion: '',
   notes: '',
 })
+
+// P1(审计 25):未保存内容保护 - 报告/新建申请/排程表单相对快照有变化视为 dirty
+const imagingGuard = usePageUnsavedGuard('diagnostics-imaging')
+const imagingBaseline = ref('')
+const imagingSig = () => JSON.stringify([reportForm, imagingForm, scheduleDate.value])
+function refreshImagingDirty() {
+  imagingGuard.setDirty(imagingSig() !== imagingBaseline.value)
+}
+watch(createVisible, (v) => {
+  if (v) { imagingBaseline.value = imagingSig() }
+  else { imagingGuard.setDirty(false) }
+})
+watch(scheduleVisible, (v) => {
+  if (v) { imagingBaseline.value = imagingSig() }
+  else { imagingGuard.setDirty(false) }
+})
+watch(imagingSig, refreshImagingDirty)
 
 const prefilledEncounterId = computed(() => (typeof route.query.encounterId === 'string' ? route.query.encounterId : ''))
 

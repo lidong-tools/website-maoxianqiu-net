@@ -65,6 +65,8 @@ test.describe('闭环 B — 库存闭环(串行)', () => {
 
     /* ========== 1. 入库 50 → 余额断言 + receive 流水 ========== */
     console.log('[闭环B] 步骤1 入库')
+    // 相对断言:先读入库前余额,避免与 closed-loop-a 同商品入库及历史运行残留耦合
+    const balanceA0 = await getBalance(page, warehouseA.id, item.id)
     await api.post('/inventory/goods-receipt', {
       tenantId,
       warehouseId: warehouseA.id,
@@ -75,7 +77,7 @@ test.describe('闭环 B — 库存闭环(串行)', () => {
       idempotencyKey: newIdemKey('e2e-b-receipt'),
     })
     const balanceA1 = await getBalance(page, warehouseA.id, item.id)
-    expect(balanceA1.quantity_on_hand).toBe(50)
+    expect(balanceA1.quantity_on_hand).toBe(balanceA0.quantity_on_hand + 50)
     const receiveMovements = (await supabaseSelect<{ movement_type: string }[]>(
       page,
       'inventory_movements',
@@ -106,6 +108,8 @@ test.describe('闭环 B — 库存闭环(串行)', () => {
 
     /* ========== 3. 调拨 10 (A→B) ========== */
     console.log('[闭环B] 步骤3 调拨')
+    // B 仓余额相对断言,避免历史运行残留耦合
+    const balanceB0 = await getBalance(page, warehouseB.id, item.id)
     await api.post('/inventory/transfer', {
       tenantId,
       fromWarehouseId: warehouseA.id,
@@ -117,7 +121,7 @@ test.describe('闭环 B — 库存闭环(串行)', () => {
     const balanceA2 = await getBalance(page, warehouseA.id, item.id)
     const balanceB = await getBalance(page, warehouseB.id, item.id)
     expect(balanceA2.quantity_on_hand).toBe(30)
-    expect(balanceB.quantity_on_hand).toBe(10)
+    expect(balanceB.quantity_on_hand).toBe(balanceB0.quantity_on_hand + 10)
     const transferOut = (await supabaseSelect<{ movement_type: string }[]>(
       page,
       'inventory_movements',

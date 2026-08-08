@@ -88,7 +88,9 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
       gender: 'unknown',
     })) as { data: { id: string } }
     const petId = petRes.data.id
-    await page.goto(`/#/crm/customer/${customerId}`, { waitUntil: 'domcontentloaded' })
+    // 注意:当前 URL 已是客户详情页,再 page.goto 相同 hash URL 只会触发 hashchange 而不会重新挂载组件,
+    // onMounted → loadDetail 不会重跑,宠物列表仍是创建前的空数组。须用 reload 强制全量刷新。
+    await page.reload({ waitUntil: 'domcontentloaded' })
     // UI 验证宠物出现在详情页
     await expect(page.getByText(petName).first()).toBeVisible({ timeout: 30_000 })
     // 数据库断言:宠物归属正确
@@ -273,9 +275,9 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
     // S30-R04:签署人强制为当前登录用户,弹窗无医生选择器,点击「签署」直接确认
     await expect(page.getByRole('button', { name: '签署' }).first()).toBeVisible({ timeout: 30_000 })
     await page.getByRole('button', { name: '签署' }).first().click()
-    // 弹窗内展示当前登录账号(只读),点击确认完成签署
+    // 弹窗内展示当前登录账号(只读),点击确认完成签署(FaModal 确认按钮默认文案为「确定」)
     await expect(page.getByText('签署人').first()).toBeVisible({ timeout: 20_000 })
-    await page.locator('.fa-modal, [role="dialog"]').last().getByRole('button', { name: '确认' }).click()
+    await page.locator('.fa-modal, [role="dialog"]').last().getByRole('button', { name: '确定' }).click()
     await expect(page.getByText('病历已签署').first()).toBeVisible({ timeout: 30_000 })
     // 数据库断言:签署完成 + 签署人=当前登录用户(auth.users.id)
     const encSigned = (await supabaseSelect<{ status: string, signed_at: string | null, signed_by: string | null }[]>(

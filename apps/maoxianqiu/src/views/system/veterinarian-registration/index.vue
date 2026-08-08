@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
 import type { VeterinarianRegistrationListItem, VeterinarianRegistrationStatus } from '@/types/compliance'
-import apiApp from '@/api/modules/app'
 import apiCompliance from '@/api/modules/compliance'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { VET_REG_STATUS_LABELS } from '@/types/compliance'
 
 defineOptions({
@@ -23,6 +23,7 @@ interface DisplayRow {
   status: VeterinarianRegistrationStatus
 }
 
+const tenantStore = useAppTenantStore()
 const loading = ref(false)
 const dataList = ref<VeterinarianRegistrationListItem[]>([])
 const currentTenantId = ref('')
@@ -182,14 +183,11 @@ async function onSubmit() {
   }
 }
 
-onMounted(async () => {
-  // FINAL-01(第三轮审计):租户上下文来源与权限模型对齐。
-  // 普通租户用户(tenant_owner/store 角色)通过 memberships[0] 取得当前租户;
-  // 平台管理员(platform_user_roles,无租户成员关系)不依赖 memberships[0]
-  // 作为目标租户——跨租户维护备案的专用 UI 推迟到 S3.1-2 提供(platform UI deferred)。
-  const res: any = await apiApp.profile()
-  const memberships = res.data.memberships ?? []
-  currentTenantId.value = memberships[0]?.tenant_id ?? ''
+onMounted(() => {
+  // 审计 S3.1 P0-03:统一使用全局 Tenant Store 上下文,不再自行从 memberships 推导当前租户。
+  // 平台管理员(platform_user_roles,无租户成员关系)不依赖 memberships——跨租户维护备案的
+  // 专用 UI 推迟到 S3.1-2 提供(platform UI deferred)。
+  currentTenantId.value = tenantStore.currentTenantId
   platformUiDeferred.value = !currentTenantId.value
   getDataList()
 })

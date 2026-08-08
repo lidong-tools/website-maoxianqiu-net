@@ -366,6 +366,23 @@ const serviceCharges = ref<Awaited<ReturnType<typeof apiBoarding.listServiceChar
 const recordForm = reactive({ recordDate: '', feeding: '', walking: '', medication: '', condition: '', note: '' })
 const chargeForm = reactive({ description: '', quantity: 1, unitPrice: 0, chargeDate: '' })
 
+// P1(审计 25):未保存内容保护 - 入住/预约/照护记录/服务费表单相对打开时快照有变化视为 dirty
+const boardingGuard = usePageUnsavedGuard('inpatient-boarding')
+const boardingBaseline = ref('')
+const boardingSig = () => JSON.stringify([form, recordForm, chargeForm])
+function refreshBoardingDirty() {
+  boardingGuard.setDirty(boardingSig() !== boardingBaseline.value)
+}
+watch(formVisible, (v) => {
+  if (v) { boardingBaseline.value = boardingSig() }
+  else { boardingGuard.setDirty(false) }
+})
+watch(detailVisible, (v) => {
+  if (v) { boardingBaseline.value = boardingSig() }
+  else { boardingGuard.setDirty(false) }
+})
+watch(boardingSig, refreshBoardingDirty)
+
 const DETAIL_TABS = [
   { label: '每日记录', value: 'records' },
   { label: '服务消费', value: 'charges' },

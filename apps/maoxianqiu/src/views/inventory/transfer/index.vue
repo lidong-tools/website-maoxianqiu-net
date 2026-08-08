@@ -132,6 +132,12 @@ watch(() => [form.fromWarehouseId, form.toWarehouseId], () => {
   loadBalances()
 })
 
+// P1(审计 25):未保存内容保护 - 已选商品或修改数量时视为 dirty(源/目标仓库为自动选中项不计入)
+const transferGuard = usePageUnsavedGuard('inventory-transfer')
+watch([() => form.catalogItemId, () => form.quantity], () => {
+  transferGuard.setDirty(!!form.catalogItemId || form.quantity !== 1)
+}, { immediate: true })
+
 // P0-06:切店后清空仓库选择并按新门店重载
 useStoreScopedPage({
   load: loadWarehouses,

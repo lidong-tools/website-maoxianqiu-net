@@ -267,6 +267,13 @@ function onOpenAdmit() {
   loadCages()
 }
 
+// P1(审计 25):未保存内容保护 - 入院表单有内容时视为 dirty
+const admitGuard = usePageUnsavedGuard('inpatient-admission')
+watch(admitForm, () => {
+  const f = admitForm
+  admitGuard.setDirty(!!f.customerId || !!f.petId || !!f.cageId || !!f.doctorId || !!f.admissionReason)
+}, { deep: true, immediate: true })
+
 // P0-06:切店后按新门店重载房间/笼位/住院记录
 useStoreScopedPage({
   load: async () => {

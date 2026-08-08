@@ -9,17 +9,14 @@
  *               (分母不含仅消费未就诊的客户;定义见文档与页面 Tooltip);
  *   - 客户消费分层 = 按客户本期净消费区间分桶;
  *   - 会员客户贡献 = 各会员层级客户的本期消费合计。
+ *
+ * 会员口径(S32-B 审计 #21):统一以 customer_memberships(当前有效会员关系,
+ * expires_at 为空或未过期)join membership_tiers 作为事实来源,
+ * 不再读取旧字段 customers.member_level。
  */
 import type { ServiceClient } from './common'
 import { toNum } from './common'
 import type { CustomerConsumptionTier, CustomerReport, CustomerTierRow, RevenueFilters } from './types'
-
-const MEMBER_TIER_LABELS: Record<string, string> = {
-  normal: '普通客户',
-  silver: '银卡会员',
-  gold: '金卡会员',
-  diamond: '钻石会员',
-}
 
 /** 消费分层桶(净消费,元) */
 const CONSUMPTION_BUCKETS: Array<{ key: string; label: string; min: number; max: number }> = [
@@ -37,9 +34,9 @@ export async function buildCustomerReport(
   service: ServiceClient,
   f: RevenueFilters,
 ): Promise<CustomerReport> {
-  const [custRes, encRes, invRes] = await Promise.all([
+  const [custRes, encRes, invRes, tierRes, membRes] = await Promise.all([
     service.from('customers')
-      .select('id, member_level, created_at')
+      .select('id, created_at')
       .eq('tenant_id', f.tenantId)
       .in('store_id', f.storeIds)
       .lte('created_at', f.period.endISO),
@@ -56,6 +53,14 @@ export async function buildCustomerReport(
       .in('status', ['confirmed', 'paid', 'partially_paid', 'refunded'])
       .gte('created_at', f.period.startISO)
       .lte('created_at', f.period.endISO),
+    // 会员层级定义(真实层级,审计 #21)
+    service.from('membership_tiers')
+      .select('id, code, name, is_active')
+      .eq('tenant_id', f.tenantId),
+    // 当前有效会员关系(customer_memberships 为事实来源)
+    service.from('customer_memberships')
+      .select('customer_id, tier_id, expires_at')
+      .eq('tenant_id', f.tenantId),
   ])
   if (custRes.error) {
     throw new Error(`客户资料查询失败: ${custRes.error.message}`)
@@ -66,10 +71,18 @@ export async function buildCustomerReport(
   if (invRes.error) {
     throw new Error(`消费记录查询失败: ${invRes.error.message}`)
   }
+  if (tierRes.error) {
+    throw new Error(`会员层级查询失败: ${tierRes.error.message}`)
+  }
+  if (membRes.error) {
+    throw new Error(`会员关系查询失败: ${membRes.error.message}`)
+  }
 
-  const customers = (custRes.data as Array<{ id: string; member_level: string | null; created_at: string }> | null) ?? []
+  const customers = (custRes.data as Array<{ id: string; created_at: string }> | null) ?? []
   const encounters = (encRes.data as Array<{ customer_id: string }> | null) ?? []
   const invoices = (invRes.data as Array<{ customer_id: string | null; total: number }> | null) ?? []
+  const tiers = (tierRes.data as Array<{ id: string; code: string; name: string; is_active: boolean }> | null) ?? []
+  const memberships = (membRes.data as Array<{ customer_id: string; tier_id: string | null; expires_at: string | null }> | null) ?? []
 
   // 新客户(周期内建档)
   const newCustomers = customers.filter(c => c.created_at >= f.period.startISO).length
@@ -97,34 +110,65 @@ export async function buildCustomerReport(
   const visitedCustomers = encCountByCustomer.size
   const repeatRate = visitedCustomers > 0 ? repeatCustomers / visitedCustomers : 0
 
-  // 会员层级贡献(用客户表 member_level)
-  const memberContributionByTier = new Map<string, number>()
-  const memberCountByTier = new Map<string, number>()
-  const memberLevelByCustomer = new Map<string, string>()
-  for (const c of customers) {
-    if (c.member_level && c.member_level !== 'normal') {
-      memberLevelByCustomer.set(c.id, c.member_level)
+  // 有效会员关系:customer <-> tier.code(仅本报表覆盖门店 + 未过期)
+  const activeTierById = new Map<string, { code: string; name: string }>()
+  for (const t of tiers) {
+    if (t.is_active) {
+      activeTierById.set(t.id, { code: t.code, name: t.name })
     }
   }
-  for (const [cid, spend] of spendByCustomer) {
-    const tier = memberLevelByCustomer.get(cid)
+  const customerIdSet = new Set(customers.map(c => c.id))
+  const nowISO = new Date().toISOString()
+  const tierCodeByCustomer = new Map<string, string>()
+  for (const m of memberships) {
+    if (!m.tier_id || !customerIdSet.has(m.customer_id)) {
+      continue
+    }
+    // 过期会员不计入当前有效关系
+    if (m.expires_at && m.expires_at <= nowISO) {
+      continue
+    }
+    const tier = activeTierById.get(m.tier_id)
     if (tier) {
-      memberContributionByTier.set(tier, (memberContributionByTier.get(tier) ?? 0) + spend)
-      memberCountByTier.set(tier, (memberCountByTier.get(tier) ?? 0) + 1)
+      tierCodeByCustomer.set(m.customer_id, tier.code)
+    }
+  }
+
+  // 会员层级贡献(按有效会员关系 tier.code)
+  const memberContributionByTier = new Map<string, number>()
+  for (const [cid, spend] of spendByCustomer) {
+    const code = tierCodeByCustomer.get(cid)
+    if (code) {
+      memberContributionByTier.set(code, (memberContributionByTier.get(code) ?? 0) + spend)
     }
   }
   const memberContribution = [...memberContributionByTier.values()].reduce((s, v) => s + v, 0)
 
-  // 会员层级明细(含 count=该层级客户总数,contribution=该层级本期消费)
-  const tierBreakdown: CustomerTierRow[] = (['normal', 'silver', 'gold', 'diamond'] as const).map((tier) => {
-    const tierCustomers = customers.filter(c => (c.member_level ?? 'normal') === tier)
-    const tierSpend = tierCustomers.reduce((s, c) => s + (spendByCustomer.get(c.id) ?? 0), 0)
-    return {
-      tier,
-      label: MEMBER_TIER_LABELS[tier] ?? tier,
-      count: tierCustomers.length,
-      contribution: Math.round(tierSpend * 100) / 100,
-    }
+  // 会员层级明细(真实层级 + 普通客户),count=该层级有效会员客户总数,contribution=该层级本期消费
+  const memberCustomerIds = new Set(tierCodeByCustomer.keys())
+  const tierBreakdown: CustomerTierRow[] = tiers
+    .filter(t => t.is_active)
+    .map((t) => {
+      const code = t.code
+      const ids = [...tierCodeByCustomer.entries()]
+        .filter(([, c]) => c === code)
+        .map(([cid]) => cid)
+      const contribution = ids.reduce((s, cid) => s + (spendByCustomer.get(cid) ?? 0), 0)
+      return {
+        tier: code,
+        label: t.name || code,
+        count: ids.length,
+        contribution: Math.round(contribution * 100) / 100,
+      }
+    })
+  // 普通客户(无有效会员关系)附加行
+  const normalCustomers = customers.filter(c => !memberCustomerIds.has(c.id))
+  const normalContribution = normalCustomers.reduce((s, c) => s + (spendByCustomer.get(c.id) ?? 0), 0)
+  tierBreakdown.push({
+    tier: 'normal',
+    label: '普通客户',
+    count: normalCustomers.length,
+    contribution: Math.round(normalContribution * 100) / 100,
   })
 
   // 客户消费分层
@@ -177,7 +221,7 @@ export async function buildCustomerReport(
         label: '会员贡献',
         value: Math.round(memberContribution * 100) / 100,
         format: 'money',
-        definition: '各会员层级客户(银卡/金卡/钻石)本期消费合计。',
+        definition: '有效会员关系(customer_memberships,未过期)客户本期消费合计。',
       },
     ],
     repeatRateDefinition: REPEAT_RATE_DEFINITION,
