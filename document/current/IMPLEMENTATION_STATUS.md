@@ -400,7 +400,7 @@ S3.1 Sprint 1（A 租户初始化 + B 日结对账 + C 医疗闭环） = code_co
 
 | 域 | 修复 | 状态 |
 | --- | --- | --- |
-| Secret Hygiene | 删除 9 个被 git 跟踪的 tmp 调试文件（e2e/tmp-*、e2e/tests/tmp-debug-*、scripts/_tmp_*，含明文测试密码/PGPASSWORD/DB URL）；.gitignore 加 `e2e/tmp-*` `e2e/tests/tmp-*` `scripts/_tmp_*`；e2e-setup.sh 改为 E2E_ACCOUNT_EMAIL / E2E_ACCOUNT_PASSWORD / DATABASE_URL 环境变量注入并启动校验，仓库无明文凭据残留 | ✅ 完成 |
+| Secret Hygiene | 删除 9 个被 git 跟踪的 tmp 调试文件（e2e/tmp-*、e2e/tests/tmp-debug-*、scripts/_tmp_*，含明文测试密码/PGPASSWORD/DB URL）；.gitignore 加 `e2e/tmp-*` `e2e/tests/tmp-*` `scripts/_tmp_*`；e2e-setup.sh 全环境变量化（E2E_USERNAME / E2E_PASSWORD / DATABASE_URL，统一 e2e 栈命名），`set -euo pipefail` + 环境变量/CLI/api/.env.local 强校验成功后才 db reset，移除把登录密码误当 PG 密码的 PGPASSWORD 前缀，仓库无明文凭据残留 | ✅ 完成 |
 | Messaging P0-A | migration 121：message_deliveries 补 `updated_at`(not null default now()) + touch_updated_at trigger（消除 Application Model ≠ DB Schema）；补 `sending_claimed_at`（claim 成功时刻，stale 判断优先） | ✅ 完成 |
 | Messaging P0-B | Initial Send 先 CAS claim queued/0 → sending/1（claimInitialSend），Provider 副作用期间不再处于 queued，杜绝 Retry 并发接管重复发送 | ✅ 完成 |
 | Messaging P0-C | 前端 MessagingStatus 补 `sending`；MESSAGING_STATUS_LABELS 显示「发送中/结果未知」；canRetry 收紧为仅 failed/retry；状态筛选/详情同步 | ✅ 完成 |
