@@ -172,7 +172,7 @@ const asyncRoutes: RouteRecordMainRaw[] = [
     meta: {
       title: '日结对账',
       shortTitle: '日结',
-      icon: 'i-carbon:financial',
+      icon: 'i-carbon:receipt',
     },
     children: [
       ...ClosingModule,

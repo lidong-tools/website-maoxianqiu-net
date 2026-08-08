@@ -302,13 +302,17 @@ export async function resolveScopedAccess(
         throw err.forbidden('门店不属于该租户')
       }
     }
-    // 平台管理员可访问目标租户下全部门店
-    const { data: tenantStores, error: tenantStoresError } = await service
-      .from('stores')
-      .select('id')
-      .eq('tenant_id', requirement.tenantId)
-    if (tenantStoresError) {
-      throw err.internal(`查询门店失败: ${tenantStoresError.message}`)
+    // 平台管理员可访问目标租户下全部门店(tenantId 为空时放行,系统级操作如自动计费)
+    let allowedStoreIds: string[] = []
+    if (requirement.tenantId) {
+      const { data: tenantStores, error: tenantStoresError } = await service
+        .from('stores')
+        .select('id')
+        .eq('tenant_id', requirement.tenantId)
+      if (tenantStoresError) {
+        throw err.internal(`查询门店失败: ${tenantStoresError.message}`)
+      }
+      allowedStoreIds = (tenantStores as { id: string }[] | null ?? []).map(s => s.id)
     }
     // 平台管理员不依赖租户员工档案,employeeId 可为空
     return {
@@ -316,7 +320,7 @@ export async function resolveScopedAccess(
       employeeId: '',
       tenantId: requirement.tenantId,
       storeId: requirement.storeId,
-      allowedStoreIds: (tenantStores as { id: string }[] | null ?? []).map(s => s.id),
+      allowedStoreIds,
       roleIds: adminRoleIds,
       permissions,
       isPlatformAdmin: true,

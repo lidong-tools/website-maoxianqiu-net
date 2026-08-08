@@ -9,7 +9,7 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/billing/closing/index.vue'),
     meta: {
       title: '每日日结',
-      icon: 'i-carbon:financial',
+      icon: 'i-carbon:receipt',
       auth: 'daily_closing.read',
     },
   },
