@@ -1,6 +1,6 @@
 import type { Router } from 'vue-router'
-import { cloneDeep } from 'es-toolkit'
 import { useNProgress } from '@vueuse/integrations/useNProgress'
+import { cloneDeep } from 'es-toolkit'
 import { warnKeepAliveComponentNameMissing } from 'virtual:fantastic-admin/turbo-console'
 import { asyncRoutes } from './routes'
 import '@/assets/styles/nprogress.css'

@@ -53,9 +53,11 @@ watch(() => appMenuStore.actived, (val, oldVal) => {
         }"
       />
       <Component :is="useSlots('sub-sidebar-after-logo')" />
-      <FaScrollArea :scrollbar="false" mask class="overscroll-contain flex-1" :class="{
-        'pt-3': appSettingsStore.mode === 'pc' && appSettingsStore.settings.menu.mode === 'side',
-      }">
+      <FaScrollArea
+        :scrollbar="false" mask class="overscroll-contain flex-1" :class="{
+          'pt-3': appSettingsStore.mode === 'pc' && appSettingsStore.settings.menu.mode === 'side',
+        }"
+      >
         <TransitionGroup :name="transitionName">
           <template v-for="(mainItem, mainIndex) in appMenuStore.allMenus" :key="mainIndex">
             <div v-show="mainIndex === appMenuStore.actived">

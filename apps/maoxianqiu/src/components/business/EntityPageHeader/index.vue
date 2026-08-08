@@ -13,15 +13,22 @@ withDefaults(defineProps<{
   statusMap?: Record<string, StatusDef>
   statusLabel?: string
   statusVariant?: StatusVariant
+  /** 高频工作台/列表页使用的紧凑标题栏(高度约 56-72px) */
+  compact?: boolean
 }>(), {
   showStatus: false,
+  compact: false,
 })
 </script>
 
 <template>
-  <FaPageHeader :title="title" :description="description">
+  <FaPageHeader
+    :title="title"
+    :description="description"
+    :class="compact ? 'px-4 py-2' : ''"
+  >
     <template #title>
-      <div class="flex flex-wrap gap-3 items-center">
+      <div class="flex flex-wrap gap-3 items-center" :class="compact ? 'text-lg' : ''">
         <span>{{ title }}</span>
         <EntityStatusTag
           v-if="showStatus"
