@@ -24,8 +24,24 @@ const router = useRouter()
 
 const appSettingsStore = useAppSettingsStore()
 const appAccountStore = useAppAccountStore()
+const appTenantStore = useAppTenantStore()
 
 const { generateTitle } = useAppMenu()
+
+// 当前门店·角色(用于账号下拉头部展示)
+const currentContextLabel = computed(() => {
+  const c = appTenantStore.context
+  if (!c) {
+    return ''
+  }
+  for (const t of c.tenants) {
+    const store = t.stores.find(s => s.id === appTenantStore.currentStoreId)
+    if (store) {
+      return `${store.name}${store.roles.length > 0 ? ` · ${store.roles.join('/')}` : ''}`
+    }
+  }
+  return ''
+})
 
 const profileModal = useFaModal().create({
   alignCenter: true,
@@ -33,7 +49,7 @@ const profileModal = useFaModal().create({
   footer: false,
   closeOnClickOverlay: false,
   closeOnPressEscape: false,
-  class: 'h-[500px] sm:max-w-xl overflow-hidden',
+  class: 'h-[560px] sm:max-w-3xl overflow-hidden',
   contentClass: 'min-h-full p-0 flex',
   content: () => h(Profile),
 })
@@ -64,13 +80,16 @@ const profileModal = useFaModal().create({
   >
     <template #header>
       <div class="flex-center-start gap-2">
-        <FaAvatar :src="appAccountStore.avatar" :fallback="appAccountStore.account.slice(0, 2)" shape="square" />
+        <FaAvatar :src="appAccountStore.avatar" :fallback="appAccountStore.displayName.slice(0, 2)" shape="square" />
         <div class="min-w-0 space-y-1">
           <div class="text-base lh-none truncate">
+            {{ appAccountStore.displayName }}
+          </div>
+          <div class="text-xs text-secondary-foreground/50 font-normal truncate">
             {{ appAccountStore.account }}
           </div>
-          <div class="text-xs text-secondary-foreground/50 font-normal">
-            [ xyz@xyz.com ]
+          <div v-if="currentContextLabel" class="text-xs text-secondary-foreground/60 font-normal truncate">
+            {{ currentContextLabel }}
           </div>
         </div>
       </div>
@@ -85,7 +104,7 @@ const profileModal = useFaModal().create({
       </FaAvatar>
       <div v-if="!onlyAvatar" class="flex-center-between flex-1 gap-2 min-w-0">
         <div class="text-start flex-1 truncate">
-          {{ appAccountStore.account }}
+          {{ appAccountStore.displayName }}
         </div>
         <FaIcon name="i-material-symbols:expand-all-rounded" />
       </div>

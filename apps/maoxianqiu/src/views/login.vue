@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { diffTwoObj } from '@fantastic-admin/settings'
 import Login from '@/components/AppAccountForm/login.vue'
-import Register from '@/components/AppAccountForm/register.vue'
 import ResetPassword from '@/components/AppAccountForm/reset-password.vue'
 import ColorScheme from '@/layouts/components/Topbar/Toolbar/ColorScheme/index.vue'
 import settingsDefault from '@/settings'
@@ -20,7 +19,7 @@ const redirect = ref(route.query.redirect?.toString() ?? appSettingsStore.settin
 const layoutAlign = ref<'left' | 'center' | 'right'>('center')
 // 表单相关
 const account = ref<string>()
-const formType = ref<'login' | 'register' | 'resetPassword'>('login')
+const formType = ref<'login' | 'resetPassword'>('login')
 
 function handleLogin() {
   const data = diffTwoObj(settingsDefault, appSettingsStore.settings)
@@ -58,7 +57,7 @@ function handleLogin() {
   <div class="login-box" :class="layoutAlign">
     <div class="login-banner">
       <img src="@/assets/images/logo.svg" class="rounded h-8 inset-s-4 inset-t-4 absolute">
-      <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=A%20warm%20and%20professional%20veterinary%20hospital%20scene%20with%20a%20soft%20teal%20and%20white%20color%20scheme%2C%20featuring%20a%20stethoscope%2C%20a%20cute%20cat%20and%20dog%20silhouette%2C%20medical%20cross%20icon%2C%20clean%20modern%20design%20suitable%20for%20a%20SaaS%20login%20page%20background%2C%20no%20text&image_size=portrait_16_9" class="banner">
+      <img src="@/assets/images/login-banner.png" class="banner">
       <AppCopyright v-if="appSettingsStore.mode === 'pc' && ['left', 'right'].includes(layoutAlign)" class="w-full bottom-0 absolute" />
     </div>
     <div class="login-form flex-col-center">
@@ -67,14 +66,7 @@ function handleLogin() {
           v-if="formType === 'login'"
           :account
           @on-login="handleLogin"
-          @on-register="(val) => { formType = 'register'; account = val }"
           @on-reset-password="(val) => { formType = 'resetPassword'; account = val }"
-        />
-        <Register
-          v-else-if="formType === 'register'"
-          :account
-          @on-register="(val) => { formType = 'login'; account = val }"
-          @on-login="formType = 'login'"
         />
         <ResetPassword
           v-else

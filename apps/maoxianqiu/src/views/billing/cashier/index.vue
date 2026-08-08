@@ -36,6 +36,10 @@ const submitting = ref(false)
 const catalogLoading = ref(false)
 const catalogList = ref<CatalogRow[]>([])
 const cart = ref<CartItem[]>([])
+const keyword = ref('')
+
+// 未保存保护:购物车/已选客户被视为 dirty(在 form 声明后 watch)
+const cashierGuard = useUnsavedChangesGuard().register('billing-cashier')
 
 const form = reactive({
   customerId: '',
@@ -44,8 +48,15 @@ const form = reactive({
   discountAmount: 0,
   discountReason: '',
   taxAmount: 0,
-  paymentMethod: 'cash' as PaymentMethod,
 })
+
+watch(
+  [cart, () => form.customerId, () => form.petId],
+  () => {
+    cashierGuard.setDirty(cart.value.length > 0 || !!form.customerId || !!form.petId)
+  },
+  { immediate: true },
+)
 
 const payment = reactive({
   amount: 0,
@@ -66,7 +77,6 @@ const cartColumns = computed<TableColumn<CartItem>[]>(() => [
   },
   { accessorKey: 'unitPrice', header: '单价', cell: info => formatMoney(info.getValue() as number) },
   { accessorKey: 'quantity', header: '数量' },
-  { accessorKey: 'discountAmount', header: '折扣', cell: info => formatMoney(info.getValue() as number) },
   { accessorKey: 'amount', header: '小计', cell: info => formatMoney(info.getValue() as number) },
   {
     id: 'operation',
@@ -76,7 +86,17 @@ const cartColumns = computed<TableColumn<CartItem>[]>(() => [
   },
 ])
 
-/** 金额格式化 */
+const filteredCatalog = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  if (!kw) {
+    return catalogList.value
+  }
+  return catalogList.value.filter(item =>
+    item.name.toLowerCase().includes(kw)
+    || (INVOICE_ITEM_CATEGORY_LABELS[item.billing_type as InvoiceItemCategory] ?? '').toLowerCase().includes(kw),
+  )
+})
+
 function formatMoney(v: number | null | undefined): string {
   if (v === null || v === undefined) {
     return '-'
@@ -84,7 +104,6 @@ function formatMoney(v: number | null | undefined): string {
   return `¥${Number(v).toFixed(2)}`
 }
 
-/** 加载门店目录(浏览器直连,RLS 兜底) */
 async function loadCatalog() {
   if (!tenantStore.currentStoreId) {
     return
@@ -125,7 +144,6 @@ async function loadCatalog() {
   }
 }
 
-/** 添加目录项到购物车 */
 function addToCart(row: CatalogRow) {
   const existing = cart.value.find(item => item.catalogItemId === row.id)
   if (existing) {
@@ -146,33 +164,27 @@ function addToCart(row: CatalogRow) {
   })
 }
 
-/** 重新计算单项金额 = unitPrice * quantity - discountAmount */
 function recalcItemAmount(item: CartItem): number {
   const amount = Number(item.unitPrice) * Number(item.quantity) - Number(item.discountAmount || 0)
   return Math.max(amount, 0)
 }
 
-/** 购物车数量/折扣变更时重算 */
 function onItemChange(row: CartItem) {
   row.amount = recalcItemAmount(row)
 }
 
-/** 移除购物车项 */
 function onRemoveItem(row: CartItem) {
   cart.value = cart.value.filter(item => item.key !== row.key)
 }
 
-/** 小计 = sum(items.amount) */
 const subtotal = computed(() => {
   return cart.value.reduce((sum, item) => sum + Number(item.amount), 0)
 })
 
-/** 应收总额 = subtotal - discount + tax */
 const total = computed(() => {
   return Math.max(subtotal.value - Number(form.discountAmount || 0) + Number(form.taxAmount || 0), 0)
 })
 
-/** 折扣比例(用于判断是否需要审批) */
 const discountPercent = computed(() => {
   if (subtotal.value <= 0) {
     return 0
@@ -180,10 +192,8 @@ const discountPercent = computed(() => {
   return (Number(form.discountAmount || 0) / subtotal.value) * 100
 })
 
-/** 折扣是否需要审批(>10%) */
 const needsApproval = computed(() => discountPercent.value > 10)
 
-/** 找零(现金支付时) */
 const change = computed(() => {
   if (payment.method !== 'cash') {
     return 0
@@ -191,7 +201,6 @@ const change = computed(() => {
   return Math.max(payment.amount - total.value, 0)
 })
 
-/** 提交创建发票 + 确认 + 支付(三步原子序列) */
 async function onSubmit() {
   if (!tenantStore.currentTenantId || !tenantStore.currentStoreId) {
     useFaToast().warning('请先选择租户与门店')
@@ -205,7 +214,6 @@ async function onSubmit() {
   submitting.value = true
   const createKey = generateIdempotencyKey()
   try {
-    // 1. 创建发票
     const createRes = await apiBilling.createInvoice({
       tenantId: tenantStore.currentTenantId,
       storeId: tenantStore.currentStoreId,
@@ -225,7 +233,7 @@ async function onSubmit() {
       discountAmount: form.discountAmount,
       discountReason: form.discountReason || undefined,
       taxAmount: form.taxAmount,
-      paymentMethod: form.paymentMethod,
+      paymentMethod: payment.method,
     }, createKey)
 
     const invoiceId = (createRes as any).data?.invoiceId
@@ -233,7 +241,6 @@ async function onSubmit() {
       throw new Error('创建发票失败')
     }
 
-    // 2. 确认发票(大额折扣可能审批拒绝)
     try {
       await apiBilling.confirmInvoice(invoiceId)
     }
@@ -243,7 +250,6 @@ async function onSubmit() {
       return
     }
 
-    // 3. 支付(若用户填了支付金额)
     if (payment.amount > 0) {
       const paymentKey = generateIdempotencyKey()
       await apiBilling.processPayment({
@@ -255,8 +261,6 @@ async function onSubmit() {
     }
 
     useFaToast().success('收银成功')
-
-    // 4. 生成小票预览
     await showReceipt(invoiceId)
     resetCart()
   }
@@ -268,7 +272,6 @@ async function onSubmit() {
   }
 }
 
-/** 显示小票 */
 async function showReceipt(invoiceId: string) {
   receiptLoading.value = true
   receiptVisible.value = true
@@ -284,7 +287,6 @@ async function showReceipt(invoiceId: string) {
   }
 }
 
-/** 重置购物车与表单 */
 function resetCart() {
   cart.value = []
   form.discountAmount = 0
@@ -292,69 +294,74 @@ function resetCart() {
   form.taxAmount = 0
   payment.amount = 0
   payment.transactionNo = ''
+  cashierGuard.setDirty(false)
 }
 
 onMounted(loadCatalog)
 </script>
 
 <template>
-  <div>
-    <FaPageHeader :show="false" title="收银工作台" class="mb-0">
-      <template #description>
-        选客户/宠物 → 选项目 → 计算金额 → 确认 → 支付;支付与退款走 Hono Command + RPC,幂等防重复
+  <div class="flex flex-col h-full">
+    <EntityPageHeader compact title="快速收银" description="选客户/宠物 → 选项目 → 结算支付(幂等防重复)">
+      <template #actions>
+        <FaButton size="sm" variant="outline" @click="resetCart">
+          <FaIcon name="i-lucide:rotate-ccw" />
+          清空
+        </FaButton>
       </template>
-    </FaPageHeader>
-    <FaPageMain>
-      <div class="gap-4 grid grid-cols-1 lg:grid-cols-2">
-        <!-- 左侧:目录选择 -->
-        <div class="p-4 border rounded-lg">
-          <div class="mb-3 flex gap-2 items-center">
-            <FaIcon name="i-ri:archive-line" />
-            <span class="text-lg font-bold">收费项目</span>
-          </div>
-          <div v-loading="catalogLoading" class="max-h-[480px] overflow-y-auto">
-            <div v-if="catalogList.length === 0 && !catalogLoading" class="text-secondary-foreground/60 py-8 text-center">
-              暂无可用收费项目,请先在「目录价目」中维护
-            </div>
-            <div
-              v-for="item in catalogList"
-              :key="item.id"
-              class="mb-2 p-3 border rounded flex cursor-pointer items-center justify-between hover:bg-secondary-foreground/5"
-              @click="addToCart(item)"
-            >
-              <div>
-                <div class="font-medium">
-                  {{ item.name }}
-                </div>
-                <div class="text-xs text-secondary-foreground/60">
-                  {{ INVOICE_ITEM_CATEGORY_LABELS[item.billing_type as InvoiceItemCategory] ?? item.billing_type }} · 单位 {{ item.unit || '-' }}
-                </div>
-              </div>
-              <div class="text-primary font-bold">
-                {{ formatMoney(item.default_price) }}
-              </div>
-            </div>
+    </EntityPageHeader>
+
+    <div class="p-4 flex flex-1 gap-4 min-h-0">
+      <!-- 左:收费项目 -->
+      <div class="border rounded-lg bg-card flex flex-[2] flex-col min-w-0">
+        <div class="px-4 py-2.5 border-b flex gap-2 items-center">
+          <span class="text-sm font-medium">收费项目</span>
+          <div class="ml-auto px-2 border rounded-md flex gap-2 w-56 items-center">
+            <FaIcon name="i-lucide:search" class="text-muted-foreground shrink-0 size-3.5" />
+            <FaInput v-model="keyword" placeholder="搜索项目名称/分类" class="border-0 w-full shadow-none" />
           </div>
         </div>
-
-        <!-- 右侧:购物车与结算 -->
-        <div class="p-4 border rounded-lg">
-          <div class="mb-3 flex gap-2 items-center">
-            <FaIcon name="i-ri:shopping-cart-line" />
-            <span class="text-lg font-bold">结算清单</span>
+        <div v-loading="catalogLoading" class="p-3 flex-1 min-h-0 overflow-auto">
+          <div
+            v-for="item in filteredCatalog"
+            :key="item.id"
+            class="mb-2 p-3 border rounded-md flex cursor-pointer transition items-center justify-between hover:bg-gray-50"
+            @click="addToCart(item)"
+          >
+            <div>
+              <div class="text-sm font-medium">
+                {{ item.name }}
+              </div>
+              <div class="text-xs text-muted-foreground">
+                {{ INVOICE_ITEM_CATEGORY_LABELS[item.billing_type as InvoiceItemCategory] ?? item.billing_type }} · 单位 {{ item.unit || '-' }}
+              </div>
+            </div>
+            <div class="text-sm text-primary font-bold">
+              {{ formatMoney(item.default_price) }}
+            </div>
           </div>
+          <EmptyState v-if="!catalogLoading && filteredCatalog.length === 0" compact title="暂无可用收费项目" description="请先在「目录价目」中维护" />
+        </div>
+      </div>
 
-          <!-- 客户信息 -->
+      <!-- 右:结算清单 -->
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-w-0 overflow-auto">
+        <div class="px-4 py-2.5 border-b flex items-center justify-between">
+          <span class="text-sm font-medium">结算清单({{ cart.length }} 项)</span>
+          <span v-if="needsApproval" class="text-xs text-amber-600">
+            折扣 {{ discountPercent.toFixed(2) }}% 超 10% 需审批
+          </span>
+        </div>
+        <div class="p-4 flex-1">
           <div class="mb-3 gap-x-4 gap-y-2 grid grid-cols-2">
-            <FaLabel label="客户" class="col-span-1">
+            <FaLabel label="客户">
               <BusinessCustomerPicker v-model="form.customerId" placeholder="搜索选择客户(可选)" />
             </FaLabel>
-            <FaLabel label="宠物" class="col-span-1">
+            <FaLabel label="宠物">
               <BusinessPetPicker v-model="form.petId" :customer-id="form.customerId || undefined" placeholder="搜索选择宠物(可选)" />
             </FaLabel>
           </div>
 
-          <!-- 购物车列表 -->
           <FaTable
             table-root-class="rounded-lg overflow-hidden"
             row-key="key"
@@ -368,214 +375,150 @@ onMounted(loadCatalog)
                 v-model="row.original.quantity"
                 :min="0.01"
                 :precision="2"
-                class="w-24"
-                @update:model-value="onItemChange(row.original)"
-              />
-            </template>
-            <template #cell-discountAmount="{ row }">
-              <FaInputNumber
-                v-model="row.original.discountAmount"
-                :min="0"
-                :precision="2"
-                class="w-24"
+                class="w-20"
                 @update:model-value="onItemChange(row.original)"
               />
             </template>
             <template #cell-operation="{ row }">
               <FaButton variant="outline" size="icon-sm" @click="onRemoveItem(row.original)">
-                <FaIcon name="i-ri:delete-bin-line" />
+                <FaIcon name="i-lucide:trash-2" />
               </FaButton>
             </template>
           </FaTable>
 
-          <!-- 折扣与税费 -->
           <div class="mt-3 gap-x-4 gap-y-2 grid grid-cols-2">
-            <FaLabel label="发票折扣" class="col-span-1">
-              <FaInputNumber
-                v-model="form.discountAmount"
-                :min="0"
-                :precision="2"
-                class="w-full"
-              />
+            <FaLabel label="发票折扣">
+              <FaInputNumber v-model="form.discountAmount" :min="0" :precision="2" class="w-full" />
             </FaLabel>
-            <FaLabel label="折扣原因" class="col-span-1">
-              <FaInput
-                v-model="form.discountReason"
-                placeholder="折扣理由(>10% 需审批)"
-                class="w-full"
-              />
+            <FaLabel label="折扣原因">
+              <FaInput v-model="form.discountReason" placeholder="折扣理由(>10% 需审批)" class="w-full" />
             </FaLabel>
-            <FaLabel label="税费" class="col-span-1">
-              <FaInputNumber
-                v-model="form.taxAmount"
-                :min="0"
-                :precision="2"
-                class="w-full"
-              />
+            <FaLabel label="税费">
+              <FaInputNumber v-model="form.taxAmount" :min="0" :precision="2" class="w-full" />
             </FaLabel>
-            <FaLabel label="支付方式" class="col-span-1">
-              <FaSelect
-                v-model="form.paymentMethod"
-                class="w-full"
-                :options="Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => ({ label, value }))"
-              />
+            <FaLabel label="实收金额">
+              <FaInputNumber v-model="payment.amount" :min="0" :precision="2" class="w-full" />
             </FaLabel>
-          </div>
-
-          <!-- 金额合计 -->
-          <div class="text-sm mt-4 p-3 rounded bg-secondary-foreground/5">
-            <div class="mb-1 flex justify-between">
-              <span>小计:</span>
-              <span>{{ formatMoney(subtotal) }}</span>
-            </div>
-            <div class="mb-1 flex justify-between">
-              <span>折扣:</span>
-              <span>-{{ formatMoney(form.discountAmount) }}</span>
-            </div>
-            <div v-if="needsApproval" class="text-warning text-xs mb-1">
-              折扣比例 {{ discountPercent.toFixed(2) }}% 超过 10%,提交后将创建审批记录,需 manager 审批通过后才能确认
-            </div>
-            <div class="mb-1 flex justify-between">
-              <span>税费:</span>
-              <span>+{{ formatMoney(form.taxAmount) }}</span>
-            </div>
-            <div class="text-lg font-bold pt-2 border-t border-dashed flex justify-between">
-              <span>应收:</span>
-              <span class="text-primary">{{ formatMoney(total) }}</span>
-            </div>
-          </div>
-
-          <!-- 支付信息 -->
-          <div class="mt-3 gap-x-4 gap-y-2 grid grid-cols-2">
-            <FaLabel label="支付金额" class="col-span-1">
-              <FaInputNumber
-                v-model="payment.amount"
-                :min="0"
-                :precision="2"
-                class="w-full"
-              />
-            </FaLabel>
-            <FaLabel label="支付方式" class="col-span-1">
+            <FaLabel label="支付方式">
               <FaSelect
                 v-model="payment.method"
                 class="w-full"
                 :options="Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => ({ label, value }))"
               />
             </FaLabel>
-            <FaLabel label="交易号" class="col-span-2">
-              <FaInput
-                v-model="payment.transactionNo"
-                placeholder="外部交易号(微信/支付宝等,可选)"
-                class="w-full"
-              />
+            <FaLabel label="交易号">
+              <FaInput v-model="payment.transactionNo" placeholder="外部交易号(可选)" class="w-full" />
             </FaLabel>
-          </div>
-
-          <div class="text-sm mt-2 p-2 rounded bg-secondary-foreground/5 flex justify-between">
-            <span>找零:</span>
-            <span class="font-bold">{{ formatMoney(change) }}</span>
-          </div>
-
-          <div class="mt-4 flex gap-2">
-            <FaButton variant="outline" @click="resetCart">
-              清空
-            </FaButton>
-            <FaButton type="primary" :loading="submitting" @click="onSubmit">
-              <FaIcon name="i-ri:bank-card-line" />
-              确认收银
-            </FaButton>
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- 小票预览弹窗 -->
-      <FaModal
-        v-model="receiptVisible"
-        title="小票预览"
-        :closable="true"
-        :show-cancel="false"
-        confirm-text="关闭"
-      >
-        <div v-loading="receiptLoading" class="text-sm mx-auto p-4 max-w-md">
-          <template v-if="receiptData">
-            <div class="mb-3 text-center">
-              <div class="text-base font-bold">
-                {{ receiptData.store.name }}
-              </div>
-              <div v-if="receiptData.store.address" class="text-xs text-secondary-foreground/60">
-                {{ receiptData.store.address }}
-              </div>
-              <div v-if="receiptData.store.phone" class="text-xs text-secondary-foreground/60">
-                电话:{{ receiptData.store.phone }}
-              </div>
+    <WorkflowFixedBar>
+      <template #left>
+        <span class="text-sm text-muted-foreground">件数 <span class="text-foreground font-semibold">{{ cart.length }}</span></span>
+        <span class="text-sm text-muted-foreground">应收 <span class="text-foreground font-semibold">{{ formatMoney(total) }}</span></span>
+        <span class="text-sm text-muted-foreground">实收 <span class="text-foreground font-semibold">{{ formatMoney(payment.amount) }}</span></span>
+        <span class="text-sm text-muted-foreground">找零 <span class="text-foreground font-semibold">{{ formatMoney(change) }}</span></span>
+      </template>
+      <template #right>
+        <FaButton size="sm" variant="outline" @click="resetCart">
+          清空
+        </FaButton>
+        <FaButton size="sm" :loading="submitting" @click="onSubmit">
+          <FaIcon name="i-lucide:banknote" />
+          结算
+        </FaButton>
+      </template>
+    </WorkflowFixedBar>
+
+    <!-- 小票预览弹窗 -->
+    <FaModal
+      v-model="receiptVisible"
+      title="小票预览"
+      :closable="true"
+      :show-cancel="false"
+      confirm-text="关闭"
+    >
+      <div v-loading="receiptLoading" class="text-sm mx-auto p-4 max-w-md">
+        <template v-if="receiptData">
+          <div class="mb-3 text-center">
+            <div class="text-base font-bold">
+              {{ receiptData.store.name }}
             </div>
-            <div class="pb-2 pt-2 border-t border-dashed">
-              <div>发票号:{{ receiptData.invoiceNo }}</div>
-              <div>创建时间:{{ receiptData.createdAt?.slice(0, 19).replace('T', ' ') }}</div>
+            <div v-if="receiptData.store.address" class="text-xs text-secondary-foreground/60">
+              {{ receiptData.store.address }}
             </div>
-            <div class="pb-2 pt-2 border-t border-dashed">
-              <div class="text-xs font-bold grid grid-cols-12">
-                <div class="col-span-6">
-                  项目
-                </div>
-                <div class="text-right col-span-2">
-                  数量
-                </div>
-                <div class="text-right col-span-4">
-                  金额
-                </div>
-              </div>
-              <div
-                v-for="item in receiptData.items"
-                :key="item.id"
-                class="text-xs py-1 grid grid-cols-12"
-              >
-                <div class="col-span-6 truncate">
-                  {{ item.name }}
-                </div>
-                <div class="text-right col-span-2">
-                  {{ item.quantity }}
-                </div>
-                <div class="text-right col-span-4">
-                  {{ formatMoney(item.amount) }}
-                </div>
-              </div>
+            <div v-if="receiptData.store.phone" class="text-xs text-secondary-foreground/60">
+              电话:{{ receiptData.store.phone }}
             </div>
-            <div class="text-xs pt-2 border-t border-dashed space-y-1">
-              <div class="flex justify-between">
-                <span>小计:</span>
-                <span>{{ formatMoney(receiptData.subtotal) }}</span>
-              </div>
-              <div class="flex justify-between">
-                <span>折扣:</span>
-                <span>-{{ formatMoney(receiptData.discountAmount) }}</span>
-              </div>
-              <div v-if="receiptData.taxAmount > 0" class="flex justify-between">
-                <span>税费:</span>
-                <span>+{{ formatMoney(receiptData.taxAmount) }}</span>
-              </div>
-              <div class="text-base font-bold flex justify-between">
-                <span>应收:</span>
-                <span>{{ formatMoney(receiptData.total) }}</span>
-              </div>
-              <div class="flex justify-between">
-                <span>已收:</span>
-                <span>{{ formatMoney(receiptData.paidAmount) }}</span>
-              </div>
-              <div v-if="receiptData.change > 0" class="flex justify-between">
-                <span>找零:</span>
-                <span>{{ formatMoney(receiptData.change) }}</span>
-              </div>
-            </div>
-            <div class="text-xs text-secondary-foreground/60 mt-2 pt-2 text-center border-t border-dashed">
-              感谢惠顾,欢迎下次光临!
-            </div>
-          </template>
-          <div v-else-if="!receiptLoading" class="text-secondary-foreground/60 py-8 text-center">
-            暂无小票数据
           </div>
+          <div class="pb-2 pt-2 border-t border-dashed">
+            <div>发票号:{{ receiptData.invoiceNo }}</div>
+            <div>创建时间:{{ receiptData.createdAt?.slice(0, 19).replace('T', ' ') }}</div>
+          </div>
+          <div class="pb-2 pt-2 border-t border-dashed">
+            <div class="text-xs font-bold grid grid-cols-12">
+              <div class="col-span-6">
+                项目
+              </div>
+              <div class="text-right col-span-2">
+                数量
+              </div>
+              <div class="text-right col-span-4">
+                金额
+              </div>
+            </div>
+            <div
+              v-for="item in receiptData.items"
+              :key="item.id"
+              class="text-xs py-1 grid grid-cols-12"
+            >
+              <div class="col-span-6 truncate">
+                {{ item.name }}
+              </div>
+              <div class="text-right col-span-2">
+                {{ item.quantity }}
+              </div>
+              <div class="text-right col-span-4">
+                {{ formatMoney(item.amount) }}
+              </div>
+            </div>
+          </div>
+          <div class="text-xs pt-2 border-t border-dashed space-y-1">
+            <div class="flex justify-between">
+              <span>小计:</span>
+              <span>{{ formatMoney(receiptData.subtotal) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>折扣:</span>
+              <span>-{{ formatMoney(receiptData.discountAmount) }}</span>
+            </div>
+            <div v-if="receiptData.taxAmount > 0" class="flex justify-between">
+              <span>税费:</span>
+              <span>+{{ formatMoney(receiptData.taxAmount) }}</span>
+            </div>
+            <div class="text-base font-bold flex justify-between">
+              <span>应收:</span>
+              <span>{{ formatMoney(receiptData.total) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>已收:</span>
+              <span>{{ formatMoney(receiptData.paidAmount) }}</span>
+            </div>
+            <div v-if="receiptData.change > 0" class="flex justify-between">
+              <span>找零:</span>
+              <span>{{ formatMoney(receiptData.change) }}</span>
+            </div>
+          </div>
+          <div class="text-xs text-secondary-foreground/60 mt-2 pt-2 text-center border-t border-dashed">
+            感谢惠顾,欢迎下次光临!
+          </div>
+        </template>
+        <div v-else-if="!receiptLoading" class="text-secondary-foreground/60 py-8 text-center">
+          暂无小票数据
         </div>
-      </FaModal>
-    </FaPageMain>
+      </div>
+    </FaModal>
   </div>
 </template>

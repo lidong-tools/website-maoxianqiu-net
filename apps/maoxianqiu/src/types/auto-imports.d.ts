@@ -93,6 +93,7 @@ declare global {
   const useRouter: typeof import('vue-router').useRouter
   const useSlots: typeof import('vue').useSlots
   const useTemplateRef: typeof import('vue').useTemplateRef
+  const useUnsavedChangesGuard: typeof import('../composables/business/useUnsavedChangesGuard').useUnsavedChangesGuard
   const watch: typeof import('vue').watch
   const watchEffect: typeof import('vue').watchEffect
   const watchPostEffect: typeof import('vue').watchPostEffect
@@ -103,4 +104,7 @@ declare global {
   // @ts-ignore
   export type { Component, Slot, Slots, ComponentPublicInstance, ComputedRef, DirectiveBinding, ExtractDefaultPropTypes, ExtractPropTypes, ExtractPublicPropTypes, InjectionKey, PropType, Ref, ShallowRef, MaybeRef, MaybeRefOrGetter, VNode, WritableComputedRef } from 'vue'
   import('vue')
+  // @ts-ignore
+  export type { ContextStore, ContextTenant, TenantContext } from '../store/modules/app/tenant'
+  import('../store/modules/app/tenant')
 }

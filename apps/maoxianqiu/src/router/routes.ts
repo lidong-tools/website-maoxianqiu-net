@@ -26,6 +26,15 @@ const constantRoutes: RouteRecordRaw[] = [
     },
   },
   {
+    // 找回密码回调页:邮件链接回跳后在此设置新密码
+    path: '/auth/reset-password',
+    name: 'authResetPassword',
+    component: () => import('@/views/auth/reset-password.vue'),
+    meta: {
+      title: '重置密码',
+    },
+  },
+  {
     path: '/:all(.*)*',
     name: 'notFound',
     component: () => import('@/views/[...all].vue'),

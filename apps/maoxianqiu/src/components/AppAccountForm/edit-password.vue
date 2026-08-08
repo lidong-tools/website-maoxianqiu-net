@@ -36,8 +36,12 @@ const validationSchema = toTypedSchema(
 function onSubmit(values: EditPasswordModel) {
   loading.value = true
   appAccountStore.editPassword(values).then(async () => {
-    useFaToast().success('模拟修改成功，请重新登录')
+    useFaToast().success('密码已修改，请重新登录')
     appAccountStore.logout()
+  }).catch((error: Error) => {
+    useFaToast().error('修改失败', {
+      description: error.message,
+    })
   }).finally(() => {
     loading.value = false
   })

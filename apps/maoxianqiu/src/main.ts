@@ -37,6 +37,11 @@ if (icons.isOfflineUse) {
 
 // 挂载前恢复 Supabase 会话,保证路由守卫能判断登录状态
 void (async () => {
-  await useAppAccountStore(pinia).initSession()
+  const appAccountStore = useAppAccountStore(pinia)
+  await appAccountStore.initSession()
+  // 已登录用户初始化工作上下文(租户/门店)
+  if (appAccountStore.isLogin) {
+    await useAppTenantStore(pinia).initContext()
+  }
   app.mount('#app')
 })()
