@@ -82,6 +82,17 @@ const routes: RouteRecordRaw[] = [
       auth: 'settlement.view',
     },
   },
+  {
+    // 寄养(S3.1 Agent-06)
+    path: '/inpatient/boarding',
+    name: 'inpatientBoarding',
+    component: () => import('@/views/inpatient/boarding/index.vue'),
+    meta: {
+      title: '寄养管理',
+      icon: 'i-ri:paw-print-line',
+      auth: 'boarding.view',
+    },
+  },
 ]
 
 export default routes

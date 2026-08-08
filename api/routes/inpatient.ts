@@ -63,6 +63,30 @@ function mapRpcError(error: { message: string }) {
   if (msg.includes('INVALID_SHIFT_TYPE')) {
     return err.badRequest('班次类型无效')
   }
+  if (msg.includes('BOARDING_STAY_NOT_FOUND')) {
+    return err.notFound('寄养记录不存在')
+  }
+  if (msg.includes('BOARDING_INPUT_REQUIRED')) {
+    return err.badRequest('缺少必要入参')
+  }
+  if (msg.includes('BOARDING_NOT_CHECK_INABLE')) {
+    return err.conflict('当前状态不可办理入住')
+  }
+  if (msg.includes('BOARDING_NOT_CANCELLABLE')) {
+    return err.conflict('仅预约状态可取消')
+  }
+  if (msg.includes('BOARDING_NOT_CHANGEABLE')) {
+    return err.conflict('当前状态不可换笼位')
+  }
+  if (msg.includes('BOARDING_NOT_CHECKOUT_ABLE')) {
+    return err.conflict('当前状态不可办理离店')
+  }
+  if (msg.includes('BOARDING_NOT_ACTIVE')) {
+    return err.conflict('寄养单不在服务中')
+  }
+  if (msg.includes('BOARDING_QUANTITY_INVALID')) {
+    return err.badRequest('数量必须大于 0')
+  }
   return err.internal(`住院操作失败: ${msg}`)
 }
 
@@ -755,6 +779,595 @@ inpatientRoutes.post('/admissions/:id/settlement/finalize', async (c) => {
     }
     throw err.internal(`完成结算失败: ${error.message}`)
   }
+
+  return ok(c, data)
+})
+
+// ============================================================
+// S3.1-寄养(Boarding)(migration 70~73)
+//   状态机:planned → checked_in → in_service → checkout_pending → checked_out
+//           planned → cancelled
+//   安全:
+//   - 入住/换笼位/离店走 Hono Command + PostgreSQL RPC,SELECT FOR UPDATE 防笼位冲突
+//   - 住院与寄养共用 cages 占用事实来源,禁止双占(cages_single_occupancy_check)
+//   - 权限:boarding.view / manage / care / checkout,与医疗住院权限完全分离
+//   - 幂等:check-in / change-cage / checkout 须带 idempotency-key
+// ============================================================
+
+const boardingListSchema = z.object({
+  storeId: z.string().uuid().optional(),
+  status: z
+    .enum(['planned', 'checked_in', 'in_service', 'checkout_pending', 'checked_out', 'cancelled'])
+    .optional(),
+})
+
+/**
+ * 寄养记录列表
+ * - 权限:boarding.view
+ */
+inpatientRoutes.get('/boarding', async (c) => {
+  const input = boardingListSchema.parse(c.req.query())
+  const tenantId = c.req.query('tenantId') ?? getContext(c).memberships[0]?.tenant_id
+  if (!tenantId) {
+    throw err.forbidden('无法确定租户作用域')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'boarding.view',
+    tenantId,
+    storeId: input.storeId,
+  })
+
+  const service = createServiceClient()
+  let query = service.from('boarding_stays').select('*').eq('tenant_id', scope.tenantId)
+  if (input.storeId) {
+    query = query.eq('store_id', input.storeId)
+  }
+  if (input.status) {
+    query = query.eq('status', input.status)
+  }
+  const { data, error } = await query.order('created_at', { ascending: false })
+  if (error) {
+    throw err.internal(`查询寄养记录失败: ${error.message}`)
+  }
+
+  return ok(c, { list: data ?? [] })
+})
+
+/**
+ * 寄养房态看板(boarding_cage_status 视图)
+ * - 权限:boarding.view
+ */
+inpatientRoutes.get('/boarding/cages/status', async (c) => {
+  const tenantId = c.req.query('tenantId') ?? getContext(c).memberships[0]?.tenant_id
+  const storeId = c.req.query('storeId')
+  const scope = await requireScopedPermission(c, {
+    code: 'boarding.view',
+    tenantId: tenantId ?? '',
+    storeId: storeId ?? undefined,
+  })
+
+  const service = createServiceClient()
+  let query = service.from('boarding_cage_status').select('*').eq('tenant_id', scope.tenantId)
+  if (storeId) {
+    query = query.eq('store_id', storeId)
+  }
+  const { data, error } = await query.order('room_name', { ascending: true }).order('cage_code', { ascending: true })
+  if (error) {
+    throw err.internal(`查询寄养房态失败: ${error.message}`)
+  }
+
+  return ok(c, { list: data ?? [] })
+})
+
+/**
+ * 寄养记录详情
+ * - 权限:boarding.view
+ */
+inpatientRoutes.get('/boarding/:id', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: stay, error: stayErr } = await service
+    .from('boarding_stays')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+  if (stayErr || !stay) {
+    throw err.notFound('寄养记录不存在')
+  }
+  await requireScopedPermission(c, { code: 'boarding.view', tenantId: stay.tenant_id, storeId: stay.store_id ?? undefined })
+
+  return ok(c, stay)
+})
+
+/**
+ * 寄养每日照护记录
+ * - 权限:boarding.view
+ */
+inpatientRoutes.get('/boarding/:id/daily-records', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: stay, error: stayErr } = await service
+    .from('boarding_stays')
+    .select('tenant_id, store_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (stayErr || !stay) {
+    throw err.notFound('寄养记录不存在')
+  }
+  await requireScopedPermission(c, { code: 'boarding.view', tenantId: stay.tenant_id, storeId: stay.store_id ?? undefined })
+
+  const { data, error } = await service
+    .from('boarding_daily_records')
+    .select('*')
+    .eq('boarding_stay_id', id)
+    .order('record_date', { ascending: true })
+  if (error) {
+    throw err.internal(`查询每日照护记录失败: ${error.message}`)
+  }
+
+  return ok(c, { list: data ?? [] })
+})
+
+/**
+ * 寄养额外服务费
+ * - 权限:boarding.view
+ */
+inpatientRoutes.get('/boarding/:id/service-charges', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: stay, error: stayErr } = await service
+    .from('boarding_stays')
+    .select('tenant_id, store_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (stayErr || !stay) {
+    throw err.notFound('寄养记录不存在')
+  }
+  await requireScopedPermission(c, { code: 'boarding.view', tenantId: stay.tenant_id, storeId: stay.store_id ?? undefined })
+
+  const { data, error } = await service
+    .from('boarding_service_charges')
+    .select('*')
+    .eq('boarding_stay_id', id)
+    .order('charge_date', { ascending: true })
+  if (error) {
+    throw err.internal(`查询额外服务费失败: ${error.message}`)
+  }
+
+  return ok(c, { list: data ?? [] })
+})
+
+const boardingBookSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid('门店 id 格式错误'),
+  customerId: z.string().uuid('客户 id 格式错误'),
+  petId: z.string().uuid('宠物 id 格式错误'),
+  cageId: z.string().uuid('笼位 id 格式错误'),
+  expectedCheckOutAt: z.string().optional(),
+  checkInAt: z.string().optional(),
+  dietNotes: z.string().max(2000).optional(),
+  walkingNotes: z.string().max(2000).optional(),
+  medicationNotes: z.string().max(2000).optional(),
+  vaccineVerified: z.boolean().optional(),
+  riskAcknowledged: z.boolean().optional(),
+  emergencyContact: z.record(z.string(), z.unknown()).optional(),
+})
+
+/**
+ * 预约寄养入住
+ * - 权限:boarding.manage
+ * - 行为:boarding_book_stay RPC 创建 planned 寄养单(不锁笼位)
+ */
+inpatientRoutes.post('/boarding/book', async (c) => {
+  const input = await parseJsonBody(c, boardingBookSchema)
+  const scope = await requireScopedPermission(c, {
+    code: 'boarding.manage',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
+
+  const service = createServiceClient()
+  const user = c.get('user')
+  const { data, error } = await service.rpc('boarding_book_stay', {
+    p_tenant_id: scope.tenantId,
+    p_store_id: scope.storeId ?? null,
+    p_customer_id: input.customerId,
+    p_pet_id: input.petId,
+    p_cage_id: input.cageId,
+    p_expected_check_out_at: input.expectedCheckOutAt ?? null,
+    p_check_in_at: input.checkInAt ?? null,
+    p_diet_notes: input.dietNotes ?? null,
+    p_walking_notes: input.walkingNotes ?? null,
+    p_medication_notes: input.medicationNotes ?? null,
+    p_vaccine_verified: input.vaccineVerified ?? false,
+    p_risk_acknowledged: input.riskAcknowledged ?? false,
+    p_emergency_contact: input.emergencyContact ?? {},
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'boarding.book',
+    entityType: 'boarding_stay',
+    entityId: (data as { stayId?: string })?.stayId,
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+    metadata: {
+      customerId: input.customerId,
+      petId: input.petId,
+      cageId: input.cageId,
+      expectedCheckOutAt: input.expectedCheckOutAt,
+    },
+  })
+
+  return ok(c, data)
+})
+
+const boardingCheckInSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid('门店 id 格式错误'),
+  customerId: z.string().uuid('客户 id 格式错误').optional(),
+  petId: z.string().uuid('宠物 id 格式错误').optional(),
+  cageId: z.string().uuid('笼位 id 格式错误').optional(),
+  expectedCheckOutAt: z.string().optional(),
+  dietNotes: z.string().max(2000).optional(),
+  walkingNotes: z.string().max(2000).optional(),
+  medicationNotes: z.string().max(2000).optional(),
+  vaccineVerified: z.boolean().optional(),
+  riskAcknowledged: z.boolean().optional(),
+  emergencyContact: z.record(z.string(), z.unknown()).optional(),
+  stayId: z.string().uuid('寄养 id 格式错误').optional(),
+  idempotencyKey: z.string().max(200).optional(),
+})
+
+/**
+ * 办理寄养入住(锁笼位)
+ * - 权限:boarding.manage
+ * - 行为:boarding_check_in RPC,SELECT FOR UPDATE 锁笼位 + 创建/确认寄养单
+ * - 支持:直接入住(传 customerId/petId/cageId)或确认预约(stayId)
+ */
+inpatientRoutes.post('/boarding/check-in', async (c) => {
+  const input = await parseJsonBody(c, boardingCheckInSchema)
+  const scope = await requireScopedPermission(c, {
+    code: 'boarding.manage',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
+
+  const service = createServiceClient()
+  const user = c.get('user')
+  const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
+
+  const { data, error } = await service.rpc('boarding_check_in', {
+    p_tenant_id: scope.tenantId,
+    p_store_id: scope.storeId ?? null,
+    p_customer_id: input.customerId ?? null,
+    p_pet_id: input.petId ?? null,
+    p_cage_id: input.cageId ?? null,
+    p_expected_check_out_at: input.expectedCheckOutAt ?? null,
+    p_diet_notes: input.dietNotes ?? null,
+    p_walking_notes: input.walkingNotes ?? null,
+    p_medication_notes: input.medicationNotes ?? null,
+    p_vaccine_verified: input.vaccineVerified ?? false,
+    p_risk_acknowledged: input.riskAcknowledged ?? false,
+    p_emergency_contact: input.emergencyContact ?? {},
+    p_stay_id: input.stayId ?? null,
+    p_operator_id: user.id,
+    p_idempotency_key: idempotencyKey,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'boarding.checkIn',
+    entityType: 'boarding_stay',
+    entityId: (data as { stayId?: string })?.stayId,
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+    metadata: {
+      stayId: input.stayId,
+      customerId: input.customerId,
+      petId: input.petId,
+      cageId: input.cageId,
+      idempotencyKey,
+    },
+  })
+
+  return ok(c, data)
+})
+
+/**
+ * 取消预约(仅 planned)
+ * - 权限:boarding.manage
+ */
+inpatientRoutes.post('/boarding/:id/cancel', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: stay, error: stayErr } = await service
+    .from('boarding_stays')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (stayErr || !stay) {
+    throw err.notFound('寄养记录不存在')
+  }
+  await requireScopedPermission(c, { code: 'boarding.manage', tenantId: stay.tenant_id, storeId: stay.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('boarding_cancel', {
+    p_stay_id: id,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'boarding.cancel',
+    entityType: 'boarding_stay',
+    entityId: id,
+    tenantId: stay.tenant_id,
+    storeId: stay.store_id,
+  })
+
+  return ok(c, data)
+})
+
+const boardingChangeCageSchema = z.object({
+  newCageId: z.string().uuid('新笼位 id 格式错误'),
+  reason: z.string().max(500).optional(),
+  idempotencyKey: z.string().max(200).optional(),
+})
+
+/**
+ * 换笼位
+ * - 权限:boarding.manage
+ */
+inpatientRoutes.post('/boarding/:id/change-cage', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, boardingChangeCageSchema)
+  const service = createServiceClient()
+
+  const { data: stay, error: stayErr } = await service
+    .from('boarding_stays')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (stayErr || !stay) {
+    throw err.notFound('寄养记录不存在')
+  }
+  await requireScopedPermission(c, { code: 'boarding.manage', tenantId: stay.tenant_id, storeId: stay.store_id ?? undefined })
+
+  const user = c.get('user')
+  const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
+  const { data, error } = await service.rpc('boarding_change_cage', {
+    p_stay_id: id,
+    p_new_cage_id: input.newCageId,
+    p_reason: input.reason ?? null,
+    p_operator_id: user.id,
+    p_idempotency_key: idempotencyKey,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'boarding.changeCage',
+    entityType: 'boarding_stay',
+    entityId: id,
+    tenantId: stay.tenant_id,
+    storeId: stay.store_id,
+    metadata: { newCageId: input.newCageId, reason: input.reason, idempotencyKey },
+  })
+
+  return ok(c, data)
+})
+
+const boardingRecordDailySchema = z.object({
+  recordDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式应为 YYYY-MM-DD').optional(),
+  feeding: z.string().max(2000).optional(),
+  walking: z.string().max(2000).optional(),
+  medication: z.string().max(2000).optional(),
+  condition: z.string().max(2000).optional(),
+  note: z.string().max(2000).optional(),
+})
+
+/**
+ * 记录每日照护(饮食/遛宠/用药/状态)
+ * - 权限:boarding.care
+ */
+inpatientRoutes.post('/boarding/:id/daily-records', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, boardingRecordDailySchema)
+  const service = createServiceClient()
+
+  const { data: stay, error: stayErr } = await service
+    .from('boarding_stays')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (stayErr || !stay) {
+    throw err.notFound('寄养记录不存在')
+  }
+  await requireScopedPermission(c, { code: 'boarding.care', tenantId: stay.tenant_id, storeId: stay.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('boarding_record_daily', {
+    p_stay_id: id,
+    p_record_date: input.recordDate ?? new Date().toISOString().slice(0, 10),
+    p_feeding: input.feeding ?? null,
+    p_walking: input.walking ?? null,
+    p_medication: input.medication ?? null,
+    p_condition: input.condition ?? null,
+    p_note: input.note ?? null,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'boarding.recordDaily',
+    entityType: 'boarding_daily_record',
+    entityId: (data as { recordId?: string })?.recordId,
+    tenantId: stay.tenant_id,
+    storeId: stay.store_id,
+    metadata: { recordDate: input.recordDate },
+  })
+
+  return ok(c, data)
+})
+
+const boardingAddChargeSchema = z.object({
+  catalogItemId: z.string().uuid().optional(),
+  description: z.string().max(500).optional(),
+  quantity: z.number().positive('数量必须大于 0').default(1),
+  unitPrice: z.number().nonnegative('单价不能为负').default(0),
+  chargeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式应为 YYYY-MM-DD').optional(),
+})
+
+/**
+ * 追加额外服务费
+ * - 权限:boarding.manage
+ */
+inpatientRoutes.post('/boarding/:id/service-charges', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, boardingAddChargeSchema)
+  const service = createServiceClient()
+
+  const { data: stay, error: stayErr } = await service
+    .from('boarding_stays')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (stayErr || !stay) {
+    throw err.notFound('寄养记录不存在')
+  }
+  await requireScopedPermission(c, { code: 'boarding.manage', tenantId: stay.tenant_id, storeId: stay.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('boarding_add_charge', {
+    p_stay_id: id,
+    p_catalog_item_id: input.catalogItemId ?? null,
+    p_description: input.description ?? null,
+    p_quantity: input.quantity,
+    p_unit_price: input.unitPrice,
+    p_charge_date: input.chargeDate ?? new Date().toISOString().slice(0, 10),
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'boarding.addCharge',
+    entityType: 'boarding_service_charge',
+    entityId: (data as { chargeId?: string })?.chargeId,
+    tenantId: stay.tenant_id,
+    storeId: stay.store_id,
+    metadata: {
+      catalogItemId: input.catalogItemId,
+      description: input.description,
+      quantity: input.quantity,
+      unitPrice: input.unitPrice,
+    },
+  })
+
+  return ok(c, data)
+})
+
+/**
+ * 准备离店(计算应收,状态 → checkout_pending)
+ * - 权限:boarding.checkout
+ */
+inpatientRoutes.post('/boarding/:id/checkout/prepare', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: stay, error: stayErr } = await service
+    .from('boarding_stays')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (stayErr || !stay) {
+    throw err.notFound('寄养记录不存在')
+  }
+  await requireScopedPermission(c, { code: 'boarding.checkout', tenantId: stay.tenant_id, storeId: stay.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('boarding_prepare_checkout', {
+    p_stay_id: id,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'boarding.prepareCheckout',
+    entityType: 'boarding_stay',
+    entityId: id,
+    tenantId: stay.tenant_id,
+    storeId: stay.store_id,
+    metadata: { totalCharge: (data as { totalCharge?: number })?.totalCharge },
+  })
+
+  return ok(c, data)
+})
+
+const boardingCheckoutSchema = z.object({
+  idempotencyKey: z.string().max(200).optional(),
+})
+
+/**
+ * 完成离店(释放笼位)
+ * - 权限:boarding.checkout
+ * - 集成点:Agent-07 在此处接入 Billing Invoice(见 AGENT-06-HANDOFF)
+ */
+inpatientRoutes.post('/boarding/:id/checkout', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, boardingCheckoutSchema)
+  const service = createServiceClient()
+
+  const { data: stay, error: stayErr } = await service
+    .from('boarding_stays')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (stayErr || !stay) {
+    throw err.notFound('寄养记录不存在')
+  }
+  await requireScopedPermission(c, { code: 'boarding.checkout', tenantId: stay.tenant_id, storeId: stay.store_id ?? undefined })
+
+  const user = c.get('user')
+  const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
+  const { data, error } = await service.rpc('boarding_checkout', {
+    p_stay_id: id,
+    p_operator_id: user.id,
+    p_idempotency_key: idempotencyKey,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'boarding.checkout',
+    entityType: 'boarding_stay',
+    entityId: id,
+    tenantId: stay.tenant_id,
+    storeId: stay.store_id,
+    metadata: {
+      totalCharge: (data as { totalCharge?: number })?.totalCharge,
+      idempotencyKey,
+    },
+  })
 
   return ok(c, data)
 })

@@ -66,6 +66,16 @@ export const SERVICE_ROLE_ONLY_RPC: readonly string[] = [
   'discharge_patient',
   'create_handover',
   'generate_daily_charges',
+  // ---- boarding(寄养,S3.1 Agent-06,migration 71~73) ----
+  'boarding_generate_no',
+  'boarding_book_stay',
+  'boarding_check_in',
+  'boarding_cancel',
+  'boarding_change_cage',
+  'boarding_prepare_checkout',
+  'boarding_checkout',
+  'boarding_record_daily',
+  'boarding_add_charge',
   // ---- inventory ----
   'post_goods_receipt',
   'post_stock_count',
@@ -111,6 +121,9 @@ export const SERVICE_ROLE_ONLY_RPC: readonly string[] = [
   // ---- tenant init(S3.1-A 租户初始化) ----
   'initialize_tenant',
   'get_tenant_initialization',
+  // ---- platform tenant mgmt(S3.1-PARALLEL-A 平台租户停用/恢复) ----
+  'suspend_tenant',
+  'resume_tenant',
   // ---- medical loop(S3.1-并发任务C 医疗闭环增强:migration 44~49) ----
   'create_medical_order',
   'complete_nurse_task',
