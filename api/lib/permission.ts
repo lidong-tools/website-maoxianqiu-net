@@ -176,13 +176,13 @@ export async function assertStoreTenant(
  * 从角色 id 列表聚合权限码(role_permissions 关联表 + roles.permissions 旧模型兼容)
  * @param service supabase service client
  * @param roleIds 目标角色 id 列表
- * @param roles 已加载的角色行(用于旧模型数组权限)
+ * @param roles 已加载的角色行(仅使用 id 与旧模型 permissions 数组)
  * @returns 去重后的权限码集合
  */
-async function collectRolePermissions(
+export async function collectRolePermissions(
   service: ReturnType<typeof createServiceClient>,
   roleIds: string[],
-  roles: RoleRow[],
+  roles: Array<{ id: string, permissions: string[] | null }>,
 ): Promise<string[]> {
   if (roleIds.length === 0) {
     return []
@@ -207,6 +207,47 @@ async function collectRolePermissions(
     .filter(r => roleIdSet.has(r.id))
     .flatMap(r => r.permissions ?? [])
   return [...new Set([...rpPerms, ...legacyPerms])]
+}
+
+export interface PlatformAdminPermissions {
+  isPlatformAdmin: boolean
+  roleIds: string[]
+  permissions: string[]
+}
+
+/**
+ * 平台管理员权限模板(S30-F01)
+ * 判定来源 = platform_user_roles(独立平台级授权,与 SQL is_system_admin() 一致);
+ * 权限模板 = roles.code = system_admin 且 is_system = true 的角色权限(新模型关联表 + 旧模型数组)。
+ * resolveScopedAccess 与 /api/me/context 共用,避免两套实现分叉。
+ */
+export async function loadPlatformAdminPermissions(
+  service: ReturnType<typeof createServiceClient>,
+  userId: string,
+): Promise<PlatformAdminPermissions> {
+  const { data: platformRows, error: purError } = await service
+    .from('platform_user_roles')
+    .select('role')
+    .eq('user_id', userId)
+  if (purError) {
+    throw err.internal(`查询平台授权失败: ${purError.message}`)
+  }
+  const isPlatformAdmin = ((platformRows as { role: string }[] | null) ?? []).some(r => r.role === 'platform_admin')
+  if (!isPlatformAdmin) {
+    return { isPlatformAdmin: false, roleIds: [], permissions: [] }
+  }
+  const { data: adminRoles, error: adminRolesError } = await service
+    .from('roles')
+    .select('id, permissions')
+    .eq('code', PLATFORM_ADMIN_ROLE)
+    .eq('is_system', true)
+  if (adminRolesError) {
+    throw err.internal(`查询角色失败: ${adminRolesError.message}`)
+  }
+  const adminRoleRows = (adminRoles as { id: string, permissions: string[] | null }[] | null) ?? []
+  const adminRoleIds = adminRoleRows.map(r => r.id)
+  const permissions = await collectRolePermissions(service, adminRoleIds, adminRoleRows)
+  return { isPlatformAdmin: true, roleIds: adminRoleIds, permissions }
 }
 
 export interface ScopedRequirement {
@@ -248,43 +289,10 @@ export async function resolveScopedAccess(
   // ===== 1) 平台管理员独立分支(S30-F01) =====
   // 判定来源 = platform_user_roles(独立平台级授权,与 SQL is_system_admin() 一致);
   // 不再从 employee_role_assignments / store_members 推导平台管理员。
-  const { data: platformRows, error: purError } = await service
-    .from('platform_user_roles')
-    .select('role')
-    .eq('user_id', user.id)
-  if (purError) {
-    throw err.internal(`查询平台授权失败: ${purError.message}`)
-  }
-  const isPlatformAdmin = ((platformRows as { role: string }[] | null) ?? []).some(r => r.role === 'platform_admin')
-  if (isPlatformAdmin) {
-    // 平台管理员权限模板:roles.code = system_admin 且 is_system = true 的角色权限(新模型关联表 + 旧模型数组)
-    const { data: adminRoles, error: adminRolesError } = await service
-      .from('roles')
-      .select('id, permissions')
-      .eq('code', PLATFORM_ADMIN_ROLE)
-      .eq('is_system', true)
-    if (adminRolesError) {
-      throw err.internal(`查询角色失败: ${adminRolesError.message}`)
-    }
-    const adminRoleRows = (adminRoles as { id: string, permissions: string[] | null }[] | null) ?? []
-    const adminRoleIds = adminRoleRows.map(r => r.id)
-    const { data: adminRp, error: adminRpError } = await service
-      .from('role_permissions')
-      .select('permission_id, permissions(code)')
-      .in('role_id', adminRoleIds)
-    if (adminRpError) {
-      throw err.internal(`查询角色权限失败: ${adminRpError.message}`)
-    }
-    const adminPerms = ((adminRp as RolePermissionRow[] | null) ?? []).flatMap((row) => {
-      if (!row.permissions) {
-        return []
-      }
-      return Array.isArray(row.permissions)
-        ? row.permissions.map(p => p.code)
-        : [row.permissions.code]
-    })
-    const legacyAdminPerms = adminRoleRows.flatMap(r => r.permissions ?? [])
-    const permissions = [...new Set([...adminPerms, ...legacyAdminPerms])]
+  const platformAdmin = await loadPlatformAdminPermissions(service, user.id)
+  if (platformAdmin.isPlatformAdmin) {
+    const adminRoleIds = platformAdmin.roleIds
+    const permissions = platformAdmin.permissions
     if (!permissions.includes(requirement.code)) {
       throw err.forbidden(`缺少权限: ${requirement.code}`)
     }
@@ -328,6 +336,23 @@ export async function resolveScopedAccess(
   }
 
   // ===== 2) 普通租户作用域 =====
+  // 2a-0) 停用租户拦截(S3.1-A):平台管理员已在分支 1 提前放行(可执行停用/恢复管理),
+  //       普通租户员工在目标租户停用后,所有 Command 一律无法继续。
+  const { data: tenantRow, error: tenantStatusErr } = await service
+    .from('tenants')
+    .select('status')
+    .eq('id', requirement.tenantId)
+    .maybeSingle()
+  if (tenantStatusErr) {
+    throw err.internal(`查询租户状态失败: ${tenantStatusErr.message}`)
+  }
+  if (!tenantRow) {
+    throw err.forbidden('无权访问该租户的数据')
+  }
+  if (tenantRow.status === 'suspended') {
+    throw err.forbidden('该租户已停用,无法继续操作')
+  }
+
   // 2a) 查目标租户下 active employee
   const { data: employees, error: empError } = await service
     .from('employees')
@@ -478,7 +503,7 @@ export async function resolveScopedAccess(
     allowedStoreIds,
     roleIds,
     permissions,
-    isPlatformAdmin,
+    isPlatformAdmin: platformAdmin.isPlatformAdmin,
   }
 }
 

@@ -12,6 +12,8 @@ export const useAppAccountStore = defineStore('appAccount', () => {
   const account = ref(localStorage.getItem('account') ?? '')
   const avatar = ref(localStorage.getItem('avatar') ?? '')
   const realName = ref(localStorage.getItem('realName') ?? '')
+  // P0-17:当前登录用户 id(用于判断"自己发起的审批"等)
+  const userId = ref(localStorage.getItem('userId') ?? '')
 
   // 权限信息
   const permissions = ref<string[]>([])
@@ -37,17 +39,20 @@ export const useAppAccountStore = defineStore('appAccount', () => {
     account.value = user?.email ?? ''
     avatar.value = user?.user_metadata?.avatar ?? ''
     realName.value = user?.user_metadata?.real_name ?? ''
+    userId.value = user?.id ?? ''
     if (accessToken) {
       localStorage.setItem('token', accessToken)
       localStorage.setItem('account', account.value)
       localStorage.setItem('avatar', avatar.value)
       localStorage.setItem('realName', realName.value)
+      localStorage.setItem('userId', userId.value)
     }
     else {
       localStorage.removeItem('token')
       localStorage.removeItem('account')
       localStorage.removeItem('avatar')
       localStorage.removeItem('realName')
+      localStorage.removeItem('userId')
     }
   }
 
@@ -88,6 +93,8 @@ export const useAppAccountStore = defineStore('appAccount', () => {
     syncFromSession(res.session)
     await loadProfile()
     await useAppTenantStore().initContext()
+    // P0-01:登录后同步上下文权限,避免导航前 UI 使用过期权限
+    await getPermissions()
   }
 
   // 注册(浏览器直连 Supabase)
@@ -177,10 +184,12 @@ export const useAppAccountStore = defineStore('appAccount', () => {
     localStorage.removeItem('account')
     localStorage.removeItem('avatar')
     localStorage.removeItem('realName')
+    localStorage.removeItem('userId')
     token.value = ''
     account.value = ''
     avatar.value = ''
     realName.value = ''
+    userId.value = ''
     permissions.value = []
     useAppTenantStore().clear()
     appSettingsStore.updateSettings({}, true)
@@ -189,31 +198,13 @@ export const useAppAccountStore = defineStore('appAccount', () => {
     appMenuStore.setActived(0)
   }
 
-  // 获取权限(聚合成员关系对应角色的权限并集)
+  // 获取权限(P0-01:唯一事实来源 = /api/me/context,不再浏览器直查 store_members/roles)
   async function getPermissions() {
-    const { data: userData } = await supabase.auth.getUser()
-    const userId = userData.user?.id
-    if (!userId) {
-      permissions.value = []
-      return
+    const appTenantStore = useAppTenantStore()
+    if (!appTenantStore.isReady) {
+      await appTenantStore.initContext()
     }
-    const { data: memberships } = await supabase
-      .from('store_members')
-      .select('role_id, status')
-      .eq('user_id', userId)
-    const activeRoleIds = [...new Set((memberships ?? [])
-      .filter((item: any) => item.status === 'active')
-      .map((item: any) => item.role_id))]
-    let permissionList: string[] = []
-    if (activeRoleIds.length > 0) {
-      const { data: roles } = await supabase
-        .from('roles')
-        .select('permissions')
-        .in('id', activeRoleIds)
-      permissionList = [...new Set((roles ?? [])
-        .flatMap((role: any) => role.permissions ?? []))]
-    }
-    permissions.value = permissionList
+    permissions.value = appTenantStore.permissions
   }
 
   // 初始化会话(应用启动时同步已登录状态)
@@ -237,6 +228,7 @@ export const useAppAccountStore = defineStore('appAccount', () => {
     account,
     avatar,
     realName,
+    userId,
     displayName,
     permissions,
     isLogin,

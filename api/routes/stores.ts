@@ -169,4 +169,141 @@ storeRoutes.patch('/:id/settings', async (c) => {
   return ok(c, { isSuccess: true })
 })
 
+// ============================================================
+// 门店详情(S3.1 并发任务 A:门店详情页 概览/人员)
+// ============================================================
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * 门店详情(概览)
+ * - 权限:store:view
+ * - 返回门店基础信息 + 归属租户名称
+ */
+storeRoutes.get('/:id', async (c) => {
+  const id = c.req.param('id')
+  if (!UUID_RE.test(id)) {
+    throw err.badRequest('门店参数无效')
+  }
+  const service = createServiceClient()
+
+  const { data: store } = await service
+    .from('stores')
+    .select('*, tenant:tenants(name)')
+    .eq('id', id)
+    .maybeSingle()
+  if (!store) {
+    throw err.notFound('门店不存在')
+  }
+  const scope = await requireScopedPermission(c, { code: 'store:view', tenantId: store.tenant_id, storeId: id })
+
+  return ok(c, {
+    ...store,
+    tenantName: Array.isArray(store.tenant) ? store.tenant[0]?.name : store.tenant?.name,
+    tenantId: scope.tenantId,
+  })
+})
+
+/**
+ * 门店人员列表(详情页 人员 Tab)
+ * - 权限:store:view
+ * - 返回该门店已分配员工 + 角色码
+ */
+storeRoutes.get('/:id/employees', async (c) => {
+  const id = c.req.param('id')
+  if (!UUID_RE.test(id)) {
+    throw err.badRequest('门店参数无效')
+  }
+  const service = createServiceClient()
+
+  const { data: store } = await service
+    .from('stores')
+    .select('tenant_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (!store) {
+    throw err.notFound('门店不存在')
+  }
+  await requireScopedPermission(c, { code: 'store:view', tenantId: store.tenant_id, storeId: id })
+
+  const { data: assignRows, error: assignErr } = await service
+    .from('employee_store_assignments')
+    .select('employee_id, is_primary, employees(id, employee_no, name, phone, email, title, status, created_at)')
+    .eq('tenant_id', store.tenant_id)
+    .eq('store_id', id)
+  if (assignErr) {
+    throw err.internal(`查询门店人员失败: ${assignErr.message}`)
+  }
+
+  const assignments = (assignRows ?? []) as Array<{
+    employee_id: string
+    is_primary: boolean
+    employees: {
+      id: string
+      employee_no: string
+      name: string
+      phone: string | null
+      email: string | null
+      title: string | null
+      status: string
+      created_at: string
+    } | {
+      id: string
+      employee_no: string
+      name: string
+      phone: string | null
+      email: string | null
+      title: string | null
+      status: string
+      created_at: string
+    }[] | null
+  }>
+
+  const empIds = [...new Set(assignments.map(a => a.employee_id))]
+  let roleMap = new Map<string, string[]>()
+  if (empIds.length > 0) {
+    const { data: roleRows, error: roleErr } = await service
+      .from('employee_role_assignments')
+      .select('employee_id, store_id, roles(code)')
+      .eq('tenant_id', store.tenant_id)
+      .in('employee_id', empIds)
+    if (roleErr) {
+      throw err.internal(`查询门店人员角色失败: ${roleErr.message}`)
+    }
+    for (const r of (roleRows ?? []) as Array<{
+      employee_id: string
+      roles: { code: string } | { code: string }[] | null
+    }>) {
+      if (!r.roles) {
+        continue
+      }
+      const codes = Array.isArray(r.roles) ? r.roles.map(x => x.code) : [r.roles.code]
+      const arr = roleMap.get(r.employee_id) ?? []
+      arr.push(...codes)
+      roleMap.set(r.employee_id, [...new Set(arr)])
+    }
+  }
+
+  const list = assignments.map((a) => {
+    const emp = Array.isArray(a.employees) ? a.employees[0] : a.employees
+    if (!emp) {
+      return null
+    }
+    return {
+      id: emp.id,
+      employeeNo: emp.employee_no,
+      name: emp.name,
+      phone: emp.phone,
+      email: emp.email,
+      title: emp.title,
+      status: emp.status,
+      createdAt: emp.created_at,
+      isPrimary: !!a.is_primary,
+      roles: roleMap.get(emp.id) ?? [],
+    }
+  }).filter((x): x is NonNullable<typeof x> => x !== null)
+
+  return ok(c, { list })
+})
+
 export default storeRoutes

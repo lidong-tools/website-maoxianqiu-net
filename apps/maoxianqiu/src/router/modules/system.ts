@@ -54,6 +54,39 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    // S3.1-A:平台租户管理(仅平台管理员)
+    path: '/system/tenants',
+    name: 'systemTenants',
+    component: () => import('@/views/system/tenants/index.vue'),
+    meta: {
+      title: '平台租户',
+      icon: 'i-ic:round-corporate-fare',
+      auth: 'platform.tenant.list',
+    },
+  },
+  {
+    // S3.1-A:租户详情(平台管理员,隐藏菜单)
+    path: '/system/tenants/:id',
+    name: 'systemTenantDetail',
+    component: () => import('@/views/system/tenants/detail.vue'),
+    meta: {
+      title: '租户详情',
+      auth: 'platform.tenant.read',
+      menu: false,
+    },
+  },
+  {
+    // S3.1-A:门店详情(概览/人员,隐藏菜单)
+    path: '/system/store/:id',
+    name: 'systemStoreDetail',
+    component: () => import('@/views/system/store/detail.vue'),
+    meta: {
+      title: '门店详情',
+      auth: 'store:view',
+      menu: false,
+    },
+  },
+  {
     // CORE-04:审计与安全(审计日志 + 安全事件)
     path: '/system/audit',
     name: 'systemAudit',

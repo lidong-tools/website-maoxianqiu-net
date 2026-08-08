@@ -108,4 +108,16 @@ export default {
    * 走 Hono Command + restore_store RPC
    */
   restore: (id: string) => api.post(`stores/${id}/restore`, {}),
+
+  /**
+   * 门店详情(S3.1-A 门店详情页 概览)
+   * 走 Hono Command,返回门店基础信息 + 归属租户名称
+   */
+  detail: (id: string) => api.get(`stores/${id}`),
+
+  /**
+   * 门店人员列表(S3.1-A 门店详情页 人员 Tab)
+   * 返回该门店已分配员工 + 角色码
+   */
+  employees: (id: string) => api.get(`stores/${id}/employees`),
 }

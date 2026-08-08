@@ -1,9 +1,12 @@
 import { defineStore } from 'pinia'
 import { supabase } from '@/lib/supabase'
+import apiMe from '@/api/modules/me'
 
 /**
  * 当前租户/门店上下文(仅 UI 偏好与工作上下文,不是权限依据)。
  * 权限与数据边界由服务端 RLS / API 独立判断(见 v0.4 文档 02 §5.2)。
+ * P0-01..P0-05:上下文与权限的唯一事实来源 = GET /api/me/context,
+ * 浏览器不再维护第二套权限/上下文算法。
  *
  * 存储策略:localStorage key 按用户隔离(mxq:{userId}:tenant/store),
  * 避免同一台电脑不同账号登录时残留他人门店上下文。
@@ -12,19 +15,25 @@ import { supabase } from '@/lib/supabase'
 export interface ContextStore {
   id: string
   name: string
+  code?: string
   isPrimary: boolean
   roles: string[]
+  permissions: string[]
 }
 
 export interface ContextTenant {
   id: string
   name: string
+  roles: string[]
+  primaryStoreId?: string
   stores: ContextStore[]
 }
 
 export interface TenantContext {
   tenants: ContextTenant[]
 }
+
+export type ContextMode = 'platform' | 'tenant' | 'none'
 
 const LEGACY_TENANT_KEY = 'currentTenantId'
 const LEGACY_STORE_KEY = 'currentStoreId'
@@ -36,6 +45,13 @@ export const useAppTenantStore = defineStore('appTenant', () => {
   // 用户可访问的租户/门店树(登录成功后加载)
   const context = ref<TenantContext | null>(null)
   const isReady = ref(false)
+
+  /** P0-05:上下文模式,platform = 平台管理员(跨租户,不强制默认门店) */
+  const mode = ref<ContextMode>('none')
+  /** P0-05:平台角色(platform_user_roles) */
+  const platformRoles = ref<string[]>([])
+  /** P0-01:当前用户聚合权限码(供 account.getPermissions 桥接,useAppAuth 消费) */
+  const permissions = ref<string[]>([])
 
   // 当前登录用户 id(用于 per-user localStorage key)
   let cachedUserId = ''
@@ -83,15 +99,19 @@ export const useAppTenantStore = defineStore('appTenant', () => {
   }
 
   /**
-   * 登录后初始化用户可访问的租户/门店上下文。
-   * 优先新模型 employee_role_assignments,无数据时回退旧模型 store_members。
-   * 校验本地持久化的上下文仍合法,非法则选第一个有效门店。
+   * 登录后初始化用户可访问的租户/门店上下文与权限。
+   * 数据来源 = /api/me/context(服务端 resolveScopedAccess 同一套模型)。
+   * 选择策略:已保存且有效的 Store → Primary Store → 第一个有效 Store;
+   * 平台管理员(mode='platform')不强制默认门店。
    */
   async function initContext() {
     isReady.value = false
     const userId = await getUserId()
     if (!userId) {
       context.value = null
+      mode.value = 'none'
+      platformRoles.value = []
+      permissions.value = []
       isReady.value = true
       return
     }
@@ -101,85 +121,48 @@ export const useAppTenantStore = defineStore('appTenant', () => {
     const persistedTenantId = localStorage.getItem(keys.tenant) ?? localStorage.getItem(LEGACY_TENANT_KEY)
     const persistedStoreId = localStorage.getItem(keys.store) ?? localStorage.getItem(LEGACY_STORE_KEY)
 
-    const tenantMap = new Map<string, ContextTenant>()
-    const tenantScopedRoles: string[] = []
-
-    // 新模型:employee_role_assignments
-    const { data: era } = await supabase
-      .from('employee_role_assignments')
-      .select('tenant_id, store_id, role_code:roles(code), tenant:tenants(name), store:stores(name)')
-      .eq('employee.user_id', userId)
-
-    if (era && era.length > 0) {
-      for (const row of era as any[]) {
-        const tid = row.tenant_id
-        if (!tid) {
-          continue
-        }
-        if (!tenantMap.has(tid)) {
-          tenantMap.set(tid, { id: tid, name: row.tenant?.name ?? '', stores: [] })
-        }
-        const tenant = tenantMap.get(tid)!
-        const roleCode = row.role_code?.code
-        if (row.store_id) {
-          let store = tenant.stores.find(s => s.id === row.store_id)
-          if (!store) {
-            store = { id: row.store_id, name: row.store?.name ?? '', isPrimary: false, roles: [] }
-            tenant.stores.push(store)
-          }
-          if (roleCode && !store.roles.includes(roleCode)) {
-            store.roles.push(roleCode)
-          }
-        }
-        else if (roleCode && !tenantScopedRoles.includes(roleCode)) {
-          tenantScopedRoles.push(roleCode)
-        }
-      }
+    let ctx: any
+    try {
+      ctx = await apiMe.getContext()
     }
-
-    // 回退旧模型:store_members
-    if (tenantMap.size === 0) {
-      const { data: sm } = await supabase
-        .from('store_members')
-        .select('store_id, status, store:stores(id, name, tenant_id), role:roles(code)')
-        .eq('user_id', userId)
-      for (const row of (sm ?? []) as any[]) {
-        if (row.status !== 'active' || !row.store) {
-          continue
-        }
-        const tid = row.store.tenant_id
-        if (!tid) {
-          continue
-        }
-        if (!tenantMap.has(tid)) {
-          tenantMap.set(tid, { id: tid, name: '', stores: [] })
-        }
-        const tenant = tenantMap.get(tid)!
-        let store = tenant.stores.find(s => s.id === row.store_id)
-        if (!store) {
-          store = { id: row.store_id, name: row.store.name, isPrimary: false, roles: [] }
-          tenant.stores.push(store)
-        }
-        const roleCode = row.role?.code
-        if (roleCode && !store.roles.includes(roleCode)) {
-          store.roles.push(roleCode)
-        }
-      }
+    catch {
+      context.value = null
+      mode.value = 'none'
+      platformRoles.value = []
+      permissions.value = []
+      isReady.value = true
+      return
     }
-
-    // 租户级角色附加到该租户所有门店
-    for (const tenant of tenantMap.values()) {
-      for (const store of tenant.stores) {
-        for (const role of tenantScopedRoles) {
-          if (!store.roles.includes(role)) {
-            store.roles.push(role)
-          }
-        }
-      }
-    }
-
-    context.value = { tenants: [...tenantMap.values()] }
     cachedUserId = userId
+
+    if (!ctx) {
+      context.value = null
+      mode.value = 'none'
+      platformRoles.value = []
+      permissions.value = []
+      isReady.value = true
+      return
+    }
+
+    mode.value = ctx.mode ?? 'none'
+    platformRoles.value = ctx.platformRoles ?? []
+    permissions.value = ctx.permissions ?? []
+    context.value = {
+      tenants: (ctx.tenants ?? []).map((t: any) => ({
+        id: t.id,
+        name: t.name ?? '',
+        roles: t.roles ?? [],
+        primaryStoreId: t.primaryStoreId,
+        stores: (t.stores ?? []).map((s: any) => ({
+          id: s.id,
+          name: s.name ?? '',
+          code: s.code,
+          isPrimary: !!s.isPrimary,
+          roles: s.roles ?? [],
+          permissions: s.permissions ?? [],
+        })),
+      })),
+    }
 
     // 校验持久化上下文
     const valid = context.value.tenants.some(t =>
@@ -189,13 +172,19 @@ export const useAppTenantStore = defineStore('appTenant', () => {
       setTenant(persistedTenantId)
       setStore(persistedStoreId)
     }
+    else if (ctx.mode === 'platform') {
+      // P0-05:平台管理员进入平台上下文,不强行伪装成普通医院员工
+      setTenant('')
+      setStore('')
+    }
     else {
-      // 无 primary 时选第一个有效门店
-      const firstTenant = context.value.tenants[0]
-      const firstStore = firstTenant?.stores[0]
-      if (firstTenant && firstStore) {
-        setTenant(firstTenant.id)
-        setStore(firstStore.id)
+      // 无 primary 时选第一个有效门店;优先 primary 门店
+      const primaryTenant = context.value.tenants.find(t => t.primaryStoreId) ?? context.value.tenants[0]
+      const primaryStoreId = primaryTenant?.primaryStoreId
+      const firstStoreId = primaryTenant?.stores[0]?.id
+      if (primaryTenant && (primaryStoreId ?? firstStoreId)) {
+        setTenant(primaryTenant.id)
+        setStore(primaryStoreId ?? firstStoreId!)
       }
       else {
         setTenant('')
@@ -216,6 +205,9 @@ export const useAppTenantStore = defineStore('appTenant', () => {
 
   function clear() {
     context.value = null
+    mode.value = 'none'
+    platformRoles.value = []
+    permissions.value = []
     isReady.value = false
     if (cachedUserId) {
       localStorage.removeItem(storageKeys(cachedUserId).tenant)
@@ -230,6 +222,9 @@ export const useAppTenantStore = defineStore('appTenant', () => {
     currentStoreId,
     context,
     isReady,
+    mode,
+    platformRoles,
+    permissions,
     setTenant,
     setStore,
     switchStore,

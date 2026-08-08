@@ -44,6 +44,56 @@ export default {
   },
 
   /**
+   * 平台租户列表(仅平台管理员)
+   * 返回租户 + 门店数/员工数 + 试用信息,含已停用租户
+   */
+  listPlatform() {
+    return api.get('tenants')
+  },
+
+  /**
+   * 平台租户概览(详情页)
+   * @param tenantId 租户 id
+   */
+  platformOverview(tenantId: string) {
+    return api.get(`tenants/${tenantId}/overview`)
+  },
+
+  /**
+   * 平台租户下门店列表
+   * @param tenantId 租户 id
+   */
+  platformStores(tenantId: string) {
+    return api.get(`tenants/${tenantId}/stores`)
+  },
+
+  /**
+   * 平台租户下人员列表(含角色码与归属门店)
+   * @param tenantId 租户 id
+   */
+  platformEmployees(tenantId: string) {
+    return api.get(`tenants/${tenantId}/employees`)
+  },
+
+  /**
+   * 停用租户(仅平台管理员,必须带原因)
+   * @param tenantId 租户 id
+   * @param reason 停用原因
+   */
+  suspend(tenantId: string, reason: string) {
+    return api.post(`tenants/${tenantId}/suspend`, { reason })
+  },
+
+  /**
+   * 恢复租户(仅平台管理员,必须带原因)
+   * @param tenantId 租户 id
+   * @param reason 恢复原因
+   */
+  resume(tenantId: string, reason: string) {
+    return api.post(`tenants/${tenantId}/resume`, { reason })
+  },
+
+  /**
    * 我的租户列表(浏览器直连,聚合员工档案租户;平台管理员/租户成员均可见)
    */
   async listMyTenants() {

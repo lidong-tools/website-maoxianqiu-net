@@ -7,6 +7,8 @@ defineOptions({
   name: 'SystemStore',
 })
 
+const router = useRouter()
+
 interface StoreItem {
   id: string
   name: string
@@ -106,6 +108,11 @@ function onEdit(row: StoreItem) {
   openModal()
 }
 
+/** S3.1-A:门店详情页(概览/人员) */
+function goDetail(row: StoreItem) {
+  router.push({ name: 'systemStoreDetail', params: { id: row.id } })
+}
+
 /**
  * MXQ-3008:归档门店(替代物理删除)
  * 走 Hono Command + archive_store RPC
@@ -190,7 +197,10 @@ function onRestore(row: StoreItem) {
         </template>
         <template #cell-operation="{ row }">
           <div class="flex-center gap-2">
-            <FaButton variant="outline" size="icon-sm" @click="onEdit(row.original)">
+            <FaButton variant="outline" size="icon-sm" title="详情" @click="goDetail(row.original)">
+              <FaIcon name="i-ri:eye-line" />
+            </FaButton>
+            <FaButton variant="outline" size="icon-sm" title="编辑" @click="onEdit(row.original)">
               <FaIcon name="i-ri:edit-line" />
             </FaButton>
             <FaDropdown
