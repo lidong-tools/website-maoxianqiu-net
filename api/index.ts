@@ -6,6 +6,8 @@ import { Hono } from 'hono'
 import { handle } from 'hono/vercel'
 import { fail, failError, ok } from './lib/result'
 import { requestIdMiddleware } from './middlewares/request-id'
+import approvalsRoutes from './routes/approvals'
+import auditRoutes from './routes/audit'
 import billingRoutes from './routes/billing'
 import catalogRoutes from './routes/catalog'
 import clinicalRoutes from './routes/clinical'
@@ -22,6 +24,7 @@ import petsRoutes from './routes/pets'
 import regulatoryRoutes from './routes/regulatory'
 import reportDataRoutes from './routes/report-data'
 import roleRoutes from './routes/roles'
+import settingsRoutes from './routes/settings'
 import storeRoutes from './routes/stores'
 import tenantRoutes from './routes/tenants'
 import userRoutes from './routes/user'
@@ -75,6 +78,12 @@ app.get('/health', (c) => {
 
 // 仅保留无法浏览器直连的服务端操作
 // P0-03:旧 /api/upload(Vercel 中转)与旧 /api/files/delete(r2_files) 已下线,统一走新私有 files 模型
+// CORE-04:审计日志查询(仅 service role 可写,查询走 Hono 权限收敛)
+app.route('/audit', auditRoutes)
+// CORE-05:审批中心聚合查询(决定动作仍走各业务域)
+app.route('/approvals', approvalsRoutes)
+// CORE-06:系统设置(配置继承:门店覆盖 → 租户默认 → 系统默认)
+app.route('/settings', settingsRoutes)
 app.route('/user', userRoutes)
 // MXQ-4003~4006:文件上传意图/完成/下载 URL/归档/物理删除(Hono Command + RPC)
 app.route('/files', fileCommandRoutes)

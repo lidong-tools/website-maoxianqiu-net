@@ -1,11 +1,13 @@
 import type { AppEnv } from '../lib/types'
 import { Hono } from 'hono'
+import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
 import { requireScopedPermission } from '../lib/permission'
 import { loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
+import { parseJsonBody } from '../lib/validation'
 import { authMiddleware, loadCaller } from '../middlewares/auth'
 
 /**
@@ -115,6 +117,56 @@ storeRoutes.post('/:id/restore', async (c) => {
   })
 
   return ok(c, data)
+})
+
+const updateStoreSettingsSchema = z.object({
+  timezone: z.string().max(64).optional(),
+  businessHours: z.record(z.string(), z.unknown()).optional(),
+})
+
+/**
+ * 更新门店营业设置(时区/营业时间,系统设置用)
+ * - 权限:settings.store.manage(限定该门店)
+ * - timezone 为空 → 恢复继承租户时区
+ */
+storeRoutes.patch('/:id/settings', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, updateStoreSettingsSchema)
+  const service = createServiceClient()
+
+  const { data: store } = await service
+    .from('stores')
+    .select('tenant_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (!store) {
+    throw err.notFound('门店不存在')
+  }
+  const scope = await requireScopedPermission(c, { code: 'settings.store.manage', tenantId: store.tenant_id, storeId: id })
+
+  const patch: Record<string, unknown> = {}
+  if (input.timezone !== undefined) {
+    patch.timezone = input.timezone || null
+  }
+  if (input.businessHours !== undefined) {
+    patch.business_hours = input.businessHours
+  }
+
+  const { error } = await service.from('stores').update(patch).eq('id', id)
+  if (error) {
+    throw err.internal(`更新门店设置失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'store.settings.update',
+    entityType: 'store',
+    entityId: id,
+    tenantId: scope.tenantId,
+    storeId: id,
+    metadata: { changed: Object.keys(patch) },
+  })
+
+  return ok(c, { isSuccess: true })
 })
 
 export default storeRoutes

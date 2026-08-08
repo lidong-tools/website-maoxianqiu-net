@@ -129,6 +129,90 @@ tenantRoutes.post('/initialize', async (c) => {
   return ok(c, data)
 })
 
+const updateTenantSchema = z.object({
+  name: z.string().min(1, '医院名称不能为空').max(100).optional(),
+  shortName: z.string().max(50).optional(),
+  timezone: z.string().max(64).optional(),
+  currency: z.string().max(16).optional(),
+  locale: z.string().max(16).optional(),
+})
+
+/**
+ * 查询租户(医院信息,系统设置用)
+ * - 权限:settings.tenant.read
+ */
+tenantRoutes.get('/:id', async (c) => {
+  const id = c.req.param('id')
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    throw err.badRequest('租户参数无效')
+  }
+  const service = createServiceClient()
+  const { data: tenant } = await service
+    .from('tenants')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+  if (!tenant) {
+    throw err.notFound('租户不存在')
+  }
+  await requireScopedPermission(c, { code: 'settings.tenant.read', tenantId: id })
+  return ok(c, tenant)
+})
+
+/**
+ * 更新租户(医院信息,系统设置用)
+ * - 权限:settings.tenant.manage
+ */
+tenantRoutes.patch('/:id', async (c) => {
+  const id = c.req.param('id')
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    throw err.badRequest('租户参数无效')
+  }
+  const input = await parseJsonBody(c, updateTenantSchema)
+  const service = createServiceClient()
+  const { data: tenant } = await service
+    .from('tenants')
+    .select('id')
+    .eq('id', id)
+    .maybeSingle()
+  if (!tenant) {
+    throw err.notFound('租户不存在')
+  }
+  const scope = await requireScopedPermission(c, { code: 'settings.tenant.manage', tenantId: id })
+
+  const patch: Record<string, string | null> = {}
+  if (input.name !== undefined) {
+    patch.name = input.name
+  }
+  if (input.shortName !== undefined) {
+    patch.short_name = input.shortName || null
+  }
+  if (input.timezone !== undefined) {
+    patch.timezone = input.timezone
+  }
+  if (input.currency !== undefined) {
+    patch.currency = input.currency
+  }
+  if (input.locale !== undefined) {
+    patch.locale = input.locale
+  }
+
+  const { error } = await service.from('tenants').update(patch).eq('id', id)
+  if (error) {
+    throw err.internal(`更新租户失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'tenant.settings.update',
+    entityType: 'tenant',
+    entityId: id,
+    tenantId: scope.tenantId,
+    metadata: patch,
+  })
+
+  return ok(c, { isSuccess: true })
+})
+
 /**
  * 查询租户初始化状态(S3.1-A)
  * - 权限:tenant.initialization.read
