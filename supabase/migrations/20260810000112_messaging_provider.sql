@@ -12,6 +12,9 @@ alter table public.message_deliveries
   add column if not exists scene text,
   add column if not exists subject_snapshot text,
   add column if not exists variables_snapshot jsonb;
+-- 门店作用域(下方索引引用 store_id;基表未含该列,补列保证索引可建)
+alter table public.message_deliveries
+  add column if not exists store_id uuid references public.stores(id) on delete set null;
 
 -- 状态机统一:queued → sent / delivered / failed(S32-D §14)
 -- 手工重建约束以纳入 delivered,保留原值(兼容既有行)。
