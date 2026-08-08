@@ -56,6 +56,8 @@ export const SERVICE_ROLE_ONLY_RPC: readonly string[] = [
   'review_lab_results',
   'issue_vaccine_certificate',
   'scan_diag_reminders',
+  // ---- imaging(影像,Agent-03 集成修复,migration 61/90) ----
+  'publish_imaging_report',
   // ---- files ----
   'create_upload_intent',
   'complete_upload',
@@ -82,6 +84,14 @@ export const SERVICE_ROLE_ONLY_RPC: readonly string[] = [
   'transfer_inventory',
   'reserve_inventory',
   'release_expired_reservations',
+  // ---- purchasing(采购,Agent-05 集成修复,migration 67~69/90) ----
+  'create_purchase_order',
+  'update_purchase_order_draft',
+  'submit_purchase_order',
+  'approve_purchase_order',
+  'cancel_purchase_order',
+  'receive_purchase_order',
+  'post_purchase_order',
   // ---- operations ----
   'adjust_points',
   'scan_reminders',
@@ -89,6 +99,8 @@ export const SERVICE_ROLE_ONLY_RPC: readonly string[] = [
   'create_import_task',
   'create_print_job',
   'generate_report_snapshot',
+  // ---- membership(会员定价预览,Agent-02 集成修复,migration 57/90) ----
+  'preview_membership_discount',
   // ---- pets ----
   'create_pet',
   'update_pet',

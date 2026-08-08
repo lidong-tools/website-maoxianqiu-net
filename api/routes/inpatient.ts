@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
+import { autoCreateFollowup } from '../lib/followup'
 import { getRequestIdempotencyKey } from '../lib/idempotency'
 import { requireScopedPermission } from '../lib/permission'
 import { getContext, loadContext } from '../lib/request-context'
@@ -277,7 +278,7 @@ inpatientRoutes.post('/discharge', async (c) => {
   // 查住院记录获取 store_id 做权限校验
   const { data: admission, error: admErr } = await service
     .from('admissions')
-    .select('id, tenant_id, store_id, status')
+    .select('id, tenant_id, store_id, status, customer_id, pet_id')
     .eq('id', input.admissionId)
     .maybeSingle()
   if (admErr || !admission) {
@@ -320,6 +321,26 @@ inpatientRoutes.post('/discharge', async (c) => {
       idempotencyKey,
     },
   })
+
+  // 跨域 Hook(S3.1 Agent-07):出院 → 自动生成 post_discharge 回访(去重,失败不阻断出院)
+  if (admission.customer_id) {
+    try {
+      await autoCreateFollowup({
+        tenantId: admission.tenant_id,
+        storeId: admission.store_id,
+        customerId: admission.customer_id,
+        petId: admission.pet_id,
+        sourceType: 'discharge',
+        sourceId: input.admissionId,
+        taskType: 'post_discharge',
+        scheduledAt: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
+        createdBy: user.id,
+      })
+    }
+    catch (e) {
+      console.warn('[followup] 出院自动生成回访失败(不阻断)', e)
+    }
+  }
 
   return ok(c, data)
 })

@@ -38,6 +38,10 @@ export const PERMISSIONS = [
   { code: 'pet.view', label: '查看宠物' },
   { code: 'pet.create', label: '创建宠物' },
   { code: 'pet.update', label: '编辑宠物' },
+  // ===== S3.1-PARALLEL-04:CRM 回访任务权限 =====
+  { code: 'followup.view', label: '查看回访' },
+  { code: 'followup.manage', label: '管理回访' },
+  { code: 'followup.complete', label: '完成回访' },
   // ===== MXQ-6001~6010:Catalog 领域(统一目录)权限 =====
   { code: 'catalog.view', label: '查看目录' },
   { code: 'catalog.manage', label: '管理目录' },
@@ -71,6 +75,15 @@ export const PERMISSIONS = [
   { code: 'inventory.count', label: '盘点' },
   { code: 'inventory.transfer', label: '调拨' },
   { code: 'inventory.manage', label: '仓库管理' },
+  // ===== S3.1-PARALLEL-05:供应商与采购权限 =====
+  { code: 'supplier.view', label: '查看供应商' },
+  { code: 'supplier.manage', label: '管理供应商' },
+  { code: 'purchase.view', label: '查看采购单' },
+  { code: 'purchase.create', label: '创建采购单' },
+  { code: 'purchase.submit', label: '提交采购单' },
+  { code: 'purchase.approve', label: '审核采购单' },
+  { code: 'purchase.receive', label: '采购收货' },
+  { code: 'purchase.post', label: '采购过账' },
   // ===== MXQ-10001~10011:Diagnostics 领域(疫苗/驱虫/检验/提醒)权限 =====
   { code: 'vaccine.view', label: '查看疫苗' },
   { code: 'vaccine.manage', label: '管理疫苗' },
@@ -84,6 +97,13 @@ export const PERMISSIONS = [
   { code: 'lab.result.review', label: '审核结果' },
   { code: 'lab.critical.acknowledge', label: '确认危急值' },
   { code: 'diag_reminder.view', label: '查看提醒' },
+  // ===== S3.1-PARALLEL-03:影像工作流权限 =====
+  { code: 'imaging.view', label: '查看影像' },
+  { code: 'imaging.order', label: '申请影像' },
+  { code: 'imaging.perform', label: '执行影像' },
+  { code: 'imaging.report', label: '编写影像报告' },
+  { code: 'imaging.review', label: '审核影像报告' },
+  { code: 'imaging.publish', label: '发布影像报告' },
   // ===== MXQ-11001~11009:Inpatient 领域(住院管理)权限 =====
   { code: 'inpatient.view', label: '查看住院' },
   { code: 'inpatient.admit', label: '办理入院' },
@@ -92,9 +112,15 @@ export const PERMISSIONS = [
   { code: 'nursing.view', label: '查看护理' },
   { code: 'nursing.manage', label: '管理护理' },
   { code: 'handover.manage', label: '交接班' },
+  // ===== S3.1-PARALLEL-06:寄养权限 =====
+  { code: 'boarding.view', label: '查看寄养' },
+  { code: 'boarding.manage', label: '管理寄养' },
+  { code: 'boarding.care', label: '寄养照护' },
+  { code: 'boarding.checkout', label: '寄养离店' },
   // ===== MXQ-12001~12009:Operations 领域(运营管理)权限 =====
   { code: 'membership.view', label: '查看会员等级' },
   { code: 'membership.manage', label: '管理会员等级' },
+  { code: 'points.view', label: '查看积分流水' },
   { code: 'points.adjust', label: '调整积分' },
   { code: 'message.manage', label: '管理消息模板' },
   { code: 'reminder.manage', label: '管理提醒' },
@@ -135,4 +161,9 @@ export const PERMISSIONS = [
   { code: 'settings.tenant.manage', label: '管理医院设置' },
   { code: 'settings.store.read', label: '查看门店设置' },
   { code: 'settings.store.manage', label: '管理门店设置' },
+  // ===== S3.1-PARALLEL-A:平台租户管理权限(仅 system_admin) =====
+  { code: 'platform.tenant.list', label: '平台租户列表' },
+  { code: 'platform.tenant.read', label: '查看租户详情' },
+  { code: 'platform.tenant.suspend', label: '停用租户' },
+  { code: 'platform.tenant.resume', label: '恢复租户' },
 ] as const

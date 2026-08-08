@@ -37,6 +37,10 @@
 | S3.1 新闭环 E2E 缺失 | E2E 仅有闭环 A/B/C，无 Loop D（tenant init）/ Loop E（billing→closing→reconciliation）/ Loop F（admission→settlement→discharge）；真实执行依赖 staging | S31-INTEGRATION-D |
 | seed.sql 角色权限数组缺口 | `tenant_owner` 角色 `permissions` 数组缺 S3.1-A（tenant.initialize 等）与 S31-C 医疗权限（lab_sample / lab_critical / progress / settlement / nurse_task）；运行时依赖 role_permissions 关联表路径（migration 37/49 已兜底），但数组路径缺失；seed 无 `nurse` 角色（db reset 时 roles 被 seed 覆盖，依赖 migration 21/22 重建） | S31-A / S31-C / S31-INTEGRATION-D |
 | progress_notes update RLS 未排除已签署行 | 病程记录签署后仍可通过 update RLS 策略修改（有 RPC 状态机兜底拒签后修改，但 RLS 层未排除 signed 状态） | S31-C / S31-INTEGRATION-D |
+| S3.1 并行新模块迁移未 staging | migration 54~73 + 90/91 未在真实 DB 演练（空库/旧库升级）；寄养→计费原子集成、租户停用拦截、回访自动生成均仅静态检查 | S3.1-PARALLEL |
+| 寄养离店 → 发票运行时未验证 | `boarding_checkout` 内嵌 `create_invoice` 同事务；发票失败回滚、幂等重试、金额一致性需 staging 实测 | S3.1-PARALLEL |
+| 自动回访生成未验证 | 病历随访日期 / 出院 → `autoCreateFollowup`（去重、best-effort）未运行时验证 | S3.1-PARALLEL |
+| seed.sql 角色权限数组缺口扩展 | `tenant_owner`/`nurse` 数组缺本批新权限（boarding/purchase/imaging/followup/platform.tenant）；运行时依赖 role_permissions 关联表兜底 | S3.1-PARALLEL |
 
 ## 已关闭缺口
 

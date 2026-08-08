@@ -24,6 +24,7 @@
 | S3.0-F | S30-F01~F04 复审收口 | ✅ code_complete / ⏳ integration_pending（待 staging 验证） | 平台管理员独立模型 + RPC 默认拒绝（全量 revoke + manifest CI 规则）+ rpc_security.sql 独立可执行 + 文档证据（明细见下文「S3.0 复审（S30-F01~F04）」） |
 | S31-MERGE-FINAL | 合并批次最终收尾 | ✅ code_complete / ⏳ runtime integration_pending | FINAL-01~04 全部落地（明细见下文「S31-MERGE-FINAL 合并收尾」） |
 | S31-A/B/C/D | S3.1 并发任务集成收尾 | ✅ code_complete / ⏳ runtime integration_pending | A（租户初始化 35~38）+ B（日结对账 39~43）+ C（医疗闭环 44~49）已合并入主线；D 收尾：RPC manifest / lint / typecheck / build 全绿（明细见下文「S3.1 并发集成收尾（Integration Owner D）」） |
+| S3.1-PARALLEL | S3.1 并发加速开发（Agent-01~07） | ✅ code_complete / ⏳ runtime integration_pending | 平台租户 + 会员产品化 + 影像 + 回访 + 采购 + 寄养六个新模块收口；Integrator 修复 RPC manifest（迁移 90）+ 寄养→计费原子集成（迁移 91）+ 病历/出院→自动回访 + 前端权限清单补齐；build/typecheck/manifest 全绿（明细见下文「S3.1 并发加速开发（Agent-01~07）」） |
 
 ## 已交付任务明细
 
@@ -360,6 +361,34 @@ S3.1 Sprint 1（A 租户初始化 + B 日结对账 + C 医疗闭环） = code_co
 - 本文件 + KNOWN_GAPS + RELEASE_CHECKLIST 同步更新；状态保持 `code_complete / runtime integration_pending`（无 staging，不得写 verified）。
 - 本轮不扩展 Customer 360 / Membership / Marketing / C-end / AI 范围。
 
+## S3.1 并发加速开发（Agent-01~07）
+
+> 六个新模块并发开发 + 最终 Integrator 收口。完整审计见 `document/parallel-final/01~07`。
+
+### 新增模块（migration 54~73 + 90/91）
+
+- **平台租户管理（Agent-01）**：`/system/tenants` 列表/详情 + `POST /tenants/:id/suspend|resume`（带原因 + 审计）；停用后 `resolveScopedAccess` 全局拦截 + RLS helper 对非 active 租户返回 false；`/api/me/context` 为唯一权限事实来源。
+- **会员产品化（Agent-02）**：等级/客户会员/积分流水/折扣规则 + `create_invoice` 服务端权威会员折扣快照（历史发票不受规则修改影响）。
+- **影像工作流（Agent-03）**：申请/排程/执行/报告/审核/发布 + 附件；已发布报告不可直改（版本化）。
+- **回访任务（Agent-04）**：`/crm/followups` 全生命周期 + Customer 360 + 全局搜索（P0-29）。
+- **采购闭环（Agent-05）**：供应商 + 采购单 draft→submit→approve→receive→post；过账复用 `post_goods_receipt`。
+- **寄养 Boarding（Agent-06）**：房位/预约/入住/每日记录/服务费/离店；`cages_single_occupancy_check` 防双占。
+
+### Integrator 修复（Agent-07，migration 90/91）
+
+- **RPC 权限一致性**：Agent-02/03/05 新 RPC 用旧 grant-authenticated 且未登记 manifest → `migration 90` 统一 service_role-only + manifest 补 9 个 → `check:rpc-manifest` PASS（115 处 / 116 个 / missing 0）。
+- **寄养离店 → Billing Invoice（原子）**：`migration 91` 在 `boarding_checkout` 同一事务内调 `create_invoice`，发票失败整体回滚（寄养不标 checked_out、笼位不释放、无孤儿发票），返回体带 invoiceId。
+- **病历随访日期 → 自动回访**：`clinical.ts` 填 followUpDate 时经 `api/lib/followup.ts` 生成 post_visit（去重、best-effort）。
+- **出院 → 自动回访**：`inpatient.ts` discharge 成功后生成 post_discharge（去重、best-effort）。
+- **前端权限清单补齐**：`permissions.ts` 补 imaging/followup/boarding/supplier/purchase/points.view 6 组码（服务端已有、前端角色配置缺失）。
+
+### Build Gate（实际运行）
+
+- `npx tsc --noEmit -p api/tsconfig.json` → PASS
+- `npx vue-tsc -b`（apps/maoxianqiu）→ PASS
+- `npx tsx api/scripts/check-rpc-manifest.ts` → PASS（115 / 116 / missing 0）
+- `npx vite build`（apps/maoxianqiu）→ PASS（✓ built in 1m 24s,exit 0）
+
 ## 基线 / 验证说明
 
 - API 目录 `api/`：`tsc --noEmit` 通过。
@@ -373,7 +402,7 @@ S3.1 Sprint 1（A 租户初始化 + B 日结对账 + C 医疗闭环） = code_co
 
 | 日期 | 更新内容 |
 | --- | --- |
-| 2026-08-08 | S3.1 并发集成收尾（Integration Owner D）：确认 A/B/C 三个开发分支已合并（migration 35~49 全量存在、编号唯一）；check:rpc-manifest PASS（96 处/96 个/missing 0）+ 前端 direct RPC=0；Permission/Router/Menu/Migration/SQL 测试静态检查通过；Build Gate 全绿（lint 0 errors、api/e2e/frontend typecheck PASS、vite build 35.46s PASS；修复 14 个文件 30+ TS/ESLint 错误、api 2 处类型/import、清理 src 下 276 个 .js 编译产物）；记录缺口（medical_loop_s3_1.sql 缺失、E2E 无 Loop D/E/F、seed tenant_owner 数组与 nurse 角色缺口、progress_notes 签署后仍可 update）；状态 code_complete / runtime integration_pending |
+| 2026-08-08 | S3.1 并发加速开发（Agent-01~07）收口：六新模块（平台租户 54 / 会员 56-57 / 影像 59-61 / 回访 62-63 / 采购 65-69 / 寄养 70-73）合并；Integrator 修复 RPC manifest（迁移 90，9 个 RPC 收紧 service_role + 补登记 → check:rpc-manifest PASS 115/116/missing 0）、寄养→计费原子集成（迁移 91）、病历/出院→自动回访（followup.ts）、前端权限清单补齐 6 组码；build/typecheck 全绿（api tsc PASS、vue-tsc PASS、vite build 1m24s PASS）；审计文档 parallel-final/01~07；状态 code_complete / runtime integration_pending |
 | 2026-08-08 | S31-MERGE-FINAL 审计复核（定向审计报告 FINAL-X01/X02）：migration 34 `save_epidemic_event.p_suspected_disease` 补 `default null`（migration 32/34 三个函数签名最终完全一致）；KNOWN_GAPS / RELEASE_CHECKLIST 旧 RPC 数字（59/52/55）标注 **historical S3.0 baseline**，当前口径 72/67/72/missing 0 不变；状态保持 code_complete / runtime integration_pending |
 | 2026-08-08 | S31-MERGE-FINAL 合并收尾：FINAL-01 修 migration 32/34 函数签名（3 个 DEFAULT 后无默认参数补 default null）；FINAL-02 generate_regulatory_report 兽医数补门店+时间边界（valid_from/valid_until/starts_at/ends_at）；FINAL-03 can_access_store 补 store↔tenant 自校验（跨租户/不存在一律 false）+ 3 条回归断言；FINAL-04 统一 current docs + 重跑 check:rpc-manifest（PASS 72/72/missing 0）/ lint / typecheck / build（✓ 31.07s）；同步 KNOWN_GAPS / RELEASE_CHECKLIST |
 | 2026-08-08 | S30-FINAL 收口：修复 rpc_security.sql P5 legacy fixture（先建 auth.users ...00bb 再插 store_members，可独立执行）；统一 RPC 数量口径（59 处 / 52 个 / 55 个 / 3 个 / 55 个函数名，不再写 58）；S3.0 状态标注 code_complete（runtime = integration_pending），待 staging 验证后方可 verified |

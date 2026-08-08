@@ -19,11 +19,13 @@ import employeeRoutes from './routes/employees'
 import fileCommandRoutes from './routes/files-v2'
 import inpatientRoutes from './routes/inpatient'
 import inventoryRoutes from './routes/inventory'
+import meRoutes from './routes/me'
 import operationsRoutes from './routes/operations'
 import petsRoutes from './routes/pets'
 import regulatoryRoutes from './routes/regulatory'
 import reportDataRoutes from './routes/report-data'
 import roleRoutes from './routes/roles'
+import searchRoutes from './routes/search'
 import settingsRoutes from './routes/settings'
 import storeRoutes from './routes/stores'
 import tenantRoutes from './routes/tenants'
@@ -85,6 +87,10 @@ app.route('/approvals', approvalsRoutes)
 // CORE-06:系统设置(配置继承:门店覆盖 → 租户默认 → 系统默认)
 app.route('/settings', settingsRoutes)
 app.route('/user', userRoutes)
+// P0-01..P0-05:当前用户工作上下文(浏览器不再维护第二套权限/上下文算法)
+app.route('/me', meRoutes)
+// P0-29:全局业务搜索(服务端聚合 + 作用域过滤)
+app.route('/search', searchRoutes)
 // MXQ-4003~4006:文件上传意图/完成/下载 URL/归档/物理删除(Hono Command + RPC)
 app.route('/files', fileCommandRoutes)
 // MXQ-3008/3009/3010:门店归档/恢复、员工邀请/启停/分配/改角色、角色权限替换

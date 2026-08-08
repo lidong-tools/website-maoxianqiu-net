@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
+import { autoCreateFollowup } from '../lib/followup'
 import { requireScopedPermission } from '../lib/permission'
 import { getContext, loadContext } from '../lib/request-context'
 import { ok } from '../lib/result'
@@ -537,7 +538,7 @@ clinicalRoutes.patch('/encounters/:id', async (c) => {
   const service = createServiceClient()
   const { data: existing, error: fetchError } = await service
     .from('encounters')
-    .select('id, tenant_id, store_id, status, version')
+    .select('id, tenant_id, store_id, status, version, customer_id, pet_id')
     .eq('id', id)
     .maybeSingle()
 
@@ -617,6 +618,26 @@ clinicalRoutes.patch('/encounters/:id', async (c) => {
     storeId: existing.store_id ?? undefined,
     metadata: patch,
   })
+
+  // 跨域 Hook(S3.1 Agent-07):填写随访日期 → 自动生成 post_visit 回访(去重,失败不阻断病历保存)
+  if (input.followUpDate && existing.customer_id) {
+    try {
+      await autoCreateFollowup({
+        tenantId: existing.tenant_id,
+        storeId: existing.store_id,
+        customerId: existing.customer_id,
+        petId: existing.pet_id,
+        sourceType: 'encounter',
+        sourceId: id,
+        taskType: 'post_visit',
+        scheduledAt: `${input.followUpDate}T09:00:00+08:00`,
+        createdBy: c.get('user')?.id,
+      })
+    }
+    catch (e) {
+      console.warn('[followup] 病历随访日期自动生成回访失败(不阻断)', e)
+    }
+  }
 
   return ok(c, data)
 })
