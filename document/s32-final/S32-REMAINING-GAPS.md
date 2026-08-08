@@ -8,6 +8,9 @@
 > 这些 Gap 不影响 S3.2 四个模块的独立可用性，但需要在最终 Mainline Integration 或后续迭代处理。
 > 涉及 S3.1 文件归属的项，S32-E 未擅自修改，统一交给 Mainline Integrator。
 
+> **状态更新（2026-08-08）**：S3.1 已合并（`27590d84`）。S32-E 集成在合并后整树 **API typecheck + 前端 typecheck + `vite build` 全部通过**。
+> 跨域 Hook（§2）仍未接入——S3.1 合并后**未提供**所需的 Inventory RPC / IAM 消费者 / Clinical 触发接线，因此仍为 gap，且**不应由 S3.2 单独实现 IAM/Inventory 核心**（规格 §6）。
+
 ---
 
 ## 1. Messaging（S32-D）
@@ -31,17 +34,20 @@
 
 ---
 
-## 2. Import（S32-A）跨域 Hook（等 S3.1）
+## 2. Import（S32-A）跨域 Hook（S3.1 已合并，仍未接入）
+
+> S3.1 已合并，但**未提供**消费者/RPC。按规格 §6，S3.2 不单独实现 IAM/Inventory 核心，故以下仍为 gap，需 S3.1 域负责人提供能力后由 Mainline 接入。
 
 ### 2.1 Opening Stock → Inventory Command
 - S32-A 已写命令队列 `opening_stock_import_requests`（status='pending'），**未直改库存**。
-- **待接**：由 Inventory Command 消费 pending → 建 `inventory_batches` + 更新 `inventory_balances` → `applied/skipped/failed`。
-- **依赖**：S3.1 库存核心稳定后接入。建议接口 `apply_opening_stock(tenant_id, store_id, request_id, operator_id)`。
+- **阻塞**：仓库**无** `apply_opening_stock` RPC，也无任何 Inventory 侧消费逻辑（S3.1 未提供）。
+- **待接**：Inventory 提供 RPC（建议 `apply_opening_stock(tenant_id, store_id, request_id, operator_id)`）→ 消费 pending → 建 `inventory_batches` + 更新 `inventory_balances` → `applied/skipped/failed`。
 
 ### 2.2 Employee Invite → IAM 邀请
 - S32-A 已写 `employee_invite_imports`（status='pending'），**未创建 auth 用户**。
-- **待接**：由 IAM/Employee 邀请 API 消费 pending → 按 role_code + store_codes 走既有邀请流程 → `sent/duplicate/failed`。
-- **依赖**：S3.1 IAM 稳定后接入。
+- **能力已存在**：S3.1 有 `POST /employees/invite` + RPC `invite_employee`（migration `iam_completion.sql`）。
+- **缺消费者**：无人消费 `employee_invite_imports` pending 记录 → 按 role_code + store_codes 调 `invite_employee` → `sent/duplicate/failed`。
+- **归属**：该消费者属 IAM 域集成逻辑，建议由 S3.1 Employee/IA 侧实现，或由 Mainline Integrator 新增 S32-E 集成胶水（需先确认归属）。
 
 ---
 
@@ -63,20 +69,21 @@
 
 ---
 
-## 5. 历史 Migration 修改（S3.1 在途，S32-E 未触碰）
+## 5. 历史 Migration 修改（S3.1 已提交，S32-E 未触碰）
 
-- ⚠️ `supabase/migrations/20260806000021_inpatient.sql` 被修改（笼位释放逻辑：改用 `v_admission.cage_id` 直放，不依赖 `v_cage` 快照变量）。**属 S3.1 Fix 在途改动**。
+- ⚠️ `supabase/migrations/20260806000021_inpatient.sql` 被修改（笼位释放逻辑：改用 `v_admission.cage_id` 直放，不依赖 `v_cage` 快照变量）。**已随 S3.1 提交**。
 - S32-E 规格禁止 S3.2 编辑历史 migration，因此未触碰。
-- **风险提示**：修改已执行过的 migration 文件会导致已有数据库与文件不一致；S3.1 主线合并时需确认其迁移回放策略（如是修复历史 bug 的补丁，应评估是否应新增 forward migration 而非改历史文件）。
+- **风险提示**：修改已执行过的 migration 文件会导致已有数据库与文件不一致；Mainline 需确认其迁移回放策略（如是修复历史 bug 的补丁，应评估是否应新增 forward migration 而非改历史文件）。
 
 ---
 
-## 6. 验证未完成项（runtime）
+## 6. 验证状态（S3.1 合并后）
 
-- Build（`vite build`）按用户指示跳过。
-- 无 Runtime / E2E 冒烟。
-- 需要主线合并后补：
-  - `vite build`
+- ✅ **API typecheck**（`npx tsc --noEmit`）通过。
+- ✅ **前端 typecheck**（`vue-tsc -b`）通过。
+- ✅ **`vite build`** 通过（`✓ built in 1m 9s`）。
+- ⏳ **Runtime / E2E 冒烟**：仍未执行（S3.2 无独立 E2E；依赖 Mainline 后补）。
+- 需要补：
   - 权限冒烟：`imports.view/create/execute/cancel`、`analytics.view.store/tenant/export`、`documents.view/print/template.manage`、`message.manage`
   - 导入闭环（模板下载→上传→映射→校验→执行→错误明细）
   - 文档预览/渲染/打印 + 医疗文档权限门

@@ -8,15 +8,16 @@
 ## 1. 现状
 
 - S3.2 四个模块（Import V2 / Analytics / Documents V2 / Messaging）已由 S32-E 完成集成（路由 + 菜单 + 权限 manifest + 安全核查）。
-- 状态：`code_complete` + `integration_complete` + `runtime_verification_pending`。
-- 与 S3.1 Fix Pipeline 并行；S3.1 仍有在途未提交改动（permission/me-context/account/tenant/e2e/migrations 92-97 + inpatient.sql 历史修改）。
+- **S3.1 已合并**（`27590d84` 最终收口）；S3.1 与 S3.2 已在同一条 main 历史上。
+- 合并后整树验证：**API typecheck + 前端 typecheck + `vite build` 全部通过**（S32-E 2026-08-08 复核）。
+- 状态：`code_complete` + `integration_complete` + `runtime_verification_pending`（缺 Runtime/E2E 冒烟）。
 
-## 2. 合并顺序（必须）
+## 2. 合并顺序（已基本完成）
 
 ```text
-先 S3.1 Integrated
-再 S3.2 Integrated
-→ Mainline Integration
+先 S3.1 Integrated ✓（27590d84）
+再 S3.2 Integrated ✓（f94b67e6 等）
+→ Mainline Integration（进行中：剩跨域 Hook 接入 + Runtime 冒烟）
 ```
 
 **理由**：S3.1 修的是系统地基（IAM/Permission/Context/Billing/Clinical/Inventory 安全边界），S3.2 依赖这些地基。先合 S3.1 可确保权限/上下文语义稳定后再叠加 S3.2。
@@ -42,10 +43,10 @@ document/s32-final/S32-MAINLINE-HANDOFF.md
 
 ## 5. Mainline Integrator 待办
 
-### 5.1 接入跨域 Hook（S3.1 稳定后）
-- [ ] **Opening Stock**：消费 `opening_stock_import_requests(pending)` → Inventory Command 建批次/更新余额 → `applied/skipped/failed`。
-- [ ] **Employee Invite**：消费 `employee_invite_imports(pending)` → IAM 邀请流程 → `sent/duplicate/failed`。
-- [ ] **Messaging 业务 Trigger**：appointment_reminder / vaccine_reminder / revisit_reminder / lab_report → 调 `POST /api/messaging/send`（先接稳定 domain）。
+### 5.1 接入跨域 Hook（S3.1 已合并，但未提供下游能力 → 需补齐）
+- [ ] **Opening Stock**：⚠️ **阻塞**——Inventory 侧无 `apply_opening_stock` RPC（S3.1 未提供）。需先补 RPC，再消费 `opening_stock_import_requests(pending)` → 建批次/更新余额 → `applied/skipped/failed`。
+- [ ] **Employee Invite**：能力已存在（`POST /employees/invite` + `invite_employee` RPC），缺消费者——消费 `employee_invite_imports(pending)` → 按 role_code/store_codes 调邀请 → `sent/duplicate/failed`。归属需确认（IAM 域 vs S32-E 集成胶水）。
+- [ ] **Messaging 业务 Trigger**：appointment_reminder / vaccine_reminder / revisit_reminder / lab_report → 调 `POST /api/messaging/send`。需在 S3.1 临床/诊断域接线（未做）。
 
 ### 5.2 Messaging 增强（可选）
 - [ ] Webhook `POST /api/messaging/provider/:provider/webhook`（签名校验 + 防重放 + 幂等）→ `delivered` 回执。
