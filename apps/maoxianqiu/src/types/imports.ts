@@ -98,6 +98,14 @@ export interface ImportErrorRow {
 
 export const IMPORT_TYPES: ImportJobType[] = ['customer', 'pet', 'catalog-item', 'employee', 'opening-stock']
 
+/**
+ * 对用户开放的导入类型(审计 Full12 §7:Pilot 前临时隐藏):
+ * employee / opening-stock 的终态为 awaiting_domain_apply("待领域应用"),
+ * 对应 Consumer(IAM 邀请 / 库存期初)尚未实现,为避免用户误用暂不提供新建入口;
+ * 存量任务的查看/详情/历史不受影响。
+ */
+export const IMPORT_TYPES_ENABLED: ImportJobType[] = ['customer', 'pet', 'catalog-item']
+
 export const IMPORT_TYPE_LABELS: Record<ImportJobType, string> = {
   customer: '客户',
   pet: '宠物',

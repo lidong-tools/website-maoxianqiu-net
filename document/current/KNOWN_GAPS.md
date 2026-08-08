@@ -16,6 +16,14 @@
 - example 路由未注册，方向正确；但演示代码仍与应用同仓。
 - 建议：将演示代码移动到独立 app，或 production build 排除，避免业务 Agent 搜索时误用演示页面。
 
+### P1-06 Pilot 前待决项（Full12 审计确认，均非阻断）
+- **Messaging stale「结果未知」语义**：`sending` 超时后由扫描器置 `failed/retry`（依据 `sending_claimed_at ?? updated_at` 判定），但「超过阈值仍无法判定结果」时是否应进入人工确认队列，需产品决策（当前未实现人工确认 UI）。
+- **Import Consumer 未实现**：employee/opening-stock 的 `awaiting_domain_apply` 终态对应 Consumer（IAM 邀请 / 库存期初）尚未实现，入口已隐藏；若 Pilot 需要该能力，须先完成 Consumer 再放开入口。
+- **Analytics 时区（DST）**：revenue/inventory 报表按 `created_at` 日期分组（Asia/Shanghai 基准），DST 切换期与会计月度边界未做显式处理，Pilot 前可选优化。
+
+### P1-07 Secret 凭据轮换风险提示（Full12 审计 §3/§4）
+- 历史上曾入库的测试账号密码 / PGPASSWORD / DB URL 若曾用于共享环境，即使已从仓库清除（grep 0 匹配），仍建议在 staging 上线前轮换相关凭据（Supabase 项目密码、测试账号密码、服务账号），避免历史泄露面。参见 RELEASE_CHECKLIST。
+
 ## P2 — 优化项
 
 - **E2E 本地降级**：Playwright Chromium 官方源在本机网络不可达，需使用 npmmirror 镜像安装（见 `e2e/README.md`）。
@@ -38,6 +46,7 @@
 | 寄养离店 → 发票运行时未验证 | `boarding_checkout` 内嵌 `create_invoice` 同事务；发票失败回滚、幂等重试、金额一致性需 staging 实测 | S3.1-PARALLEL |
 | 自动回访生成未验证 | 病历随访日期 / 出院 → `autoCreateFollowup`（去重、best-effort）未运行时验证 | S3.1-PARALLEL |
 | DB 类型生成未执行 | `db:gen-types` 依赖在线 Supabase 项目，未在本地执行；前端 supabase client 未使用生成类型（动态查询），无编译影响 | S3.1 P1 |
+| Messaging 交付新链路未运行时验证 | migration 121（updated_at/sending_claimed_at + touch trigger）未在真实 DB 演练；CAS claim / 晚到丢弃 / 前端 sending 状态展示依赖 staging 实测 | S3.2-FINAL / Full12 §5~§9 |
 
 ## 已关闭缺口
 
@@ -70,3 +79,13 @@
 | seed.sql 角色权限数组缺口 | ✅ 已关闭 | S3.1 审计收口：`supabase/seed.sql` 角色权限数组与 permissions 目录表全量同步前端 `views/system/permissions.ts`（补齐 store_manager/doctor/nurse/tenant_owner 及 system_admin 新增域权限）；`nurse` 角色本就存在于 seed，缺口的"无 nurse 角色"描述为过时结论 |
 | progress_notes update RLS 未排除已签署行 | ✅ 已关闭 | S3.1 审计 P0-02：migration 115 重建 RLS（update/delete 要求 status='draft'）+ 触发器 `prevent_signed_progress_note_update/delete`（`app.allow_signed_note_update/delete` 显式放行），signed 病程不可变；ML9 测试覆盖 authenticated 0 行 / superuser 抛 `SIGNED_PROGRESS_NOTE_IMMUTABLE` / set_config 放行 |
 | seed.sql 角色权限数组缺口扩展 | ✅ 已关闭 | S3.1 审计收口：`supabase/seed.sql` 同步补齐 boarding/purchase/imaging/followup/analytics/documents/audit/approval/settings/platform.tenant 等新域权限码到对应角色数组与 permissions 目录表 |
+| 仓库 Secret Hygiene（tmp 测试文件含明文凭据） | ✅ 已关闭 | Full12 审计 §3/§4：删除 9 个被跟踪 tmp 文件（e2e/tmp-*、e2e/tests/tmp-debug-*、scripts/_tmp_*）；`.gitignore` 新增 `e2e/tmp-*`/`e2e/tests/tmp-*`/`scripts/_tmp_*` 规则；`scripts/e2e-setup.sh` 全环境变量化（E2E_ACCOUNT_EMAIL/E2E_ACCOUNT_PASSWORD/DATABASE_URL 用 `:?` 强校验）；grep 验证 `Support@|maoxianqiu-app|supabase.co|postgres@` 0 匹配 |
+| message_deliveries 缺 updated_at 列（应用层用但 DB 无） | ✅ 已关闭 | Full12 §5：migration 121 补 `updated_at timestamptz not null default now()` + 复用 `touch_updated_at()` 触发器 + `sending_claimed_at` 列 + 存量 sending 行回填 |
+| Initial Send 未 CAS claim（重复发送风险） | ✅ 已关闭 | Full12 §6：`claimInitialSend()` CAS `queued/attempts=0 → sending/attempts=1` 唯一返回行才允许执行 Provider 副作用，claim 时写 `sending_claimed_at` |
+| recordAttempt 晚到覆盖（旧结果覆盖新结果） | ✅ 已关闭 | Full12 §8：UPDATE 加 `AND attempts=attemptNo AND status='sending'`，0 行则静默丢弃（console.warn），不再覆盖 |
+| 前端缺 sending 状态 / canRetry 过宽 | ✅ 已关闭 | Full12 §9：MessagingStatus 补 `sending`（发送中/结果未知）；canRetry 收紧为 `failed/retry && attempts<3` |
+| Refund many-to-one 被当数组处理 | ✅ 已关闭 | Full12 §11：revenue.ts refunds→invoices/payments 改为对象关系访问 + `as unknown as` 桥接过 tsc |
+| Catalog 收入对账缺口（明细→总账不一致） | ✅ 已关闭 | Full12 §12（用户确认方案 A）：`invoice.total` 与小计差异按各分类权重分摊进 gross，无明细发票归 unassigned |
+| Doctor 未归因边界（无 encounter 明细仍产出 gross） | ✅ 已关闭 | Full12 §13：未归因 gross 构造移出 `if (encounterIds.length>0)` 块，无明细时也稳定归入 unassigned |
+| Import 暴露未完成 Consumer 的入口（employee/opening-stock） | ✅ 已关闭 | Full12 §7（用户确认方案）：`IMPORT_TYPES_ENABLED` 隐藏 employee/opening-stock 新建入口，存量任务查看/历史不受影响 |
+| src 目录 .js 产物导致 vite build MISSING_EXPORT（复发） | ✅ 已关闭 | Full12 门禁：再次清理 `apps/maoxianqiu/src` + `packages/components/src` 下与 .ts/.tsx 同名的 .js 产物（254 个），`vite build` 1m41s PASS |

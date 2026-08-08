@@ -36,8 +36,10 @@ const STALE_SENDING_MS = 10 * 60 * 1000
 
 /** 判断 sending 是否为"陈旧"(claim 已超过时间窗,可被回收重试) */
 function isStaleSending(delivery: DeliveryRow): boolean {
+  // 优先 sending_claimed_at(migration 121,claim 成功时刻);存量行回退 updated_at
+  const claimAt = delivery.sending_claimed_at ?? delivery.updated_at
   return delivery.status === 'sending'
-    && Date.now() - new Date(delivery.updated_at).getTime() > STALE_SENDING_MS
+    && Date.now() - new Date(claimAt).getTime() > STALE_SENDING_MS
 }
 
 /**
@@ -108,6 +110,8 @@ interface DeliveryRow {
   idempotency_key: string | null
   created_at: string
   updated_at: string
+  /** claim sending 成功时刻(migration 121);stale sending 判断优先使用 */
+  sending_claimed_at: string | null
 }
 
 export interface DeliveryWithAttempt {
@@ -236,6 +240,35 @@ export async function createDeliveryRecord(
   return { delivery: data as DeliveryRow, created: true }
 }
 
+/**
+ * Initial Send 的 CAS claim(审计 Full12 §6/§7):
+ * 刚创建的 delivery(queued/0)在 Provider 副作用执行前必须先原子 claim 为
+ * sending/1,只有 claim 成功的请求才允许调用 Provider,防止
+ * "Initial Send 进行中 ↔ 另一请求 Retry claim queued" 产生重复外部发送。
+ * claim 成功同时写入 sending_claimed_at(migration 121),供 stale 判断。
+ */
+async function claimInitialSend(
+  service: ReturnType<typeof createServiceClient>,
+  deliveryId: string,
+): Promise<DeliveryRow> {
+  const { data, error } = await service
+    .from('message_deliveries')
+    .update({ status: 'sending', attempts: 1, sending_claimed_at: new Date().toISOString() })
+    .eq('id', deliveryId)
+    .eq('status', 'queued')
+    .eq('attempts', 0)
+    .select('*')
+    .maybeSingle()
+  if (error) {
+    throw err.internal(`抢占初始发送失败: ${error.message}`)
+  }
+  if (!data) {
+    // 并发者(如 Retry)已接管该 delivery,禁止本请求再执行 Provider 副作用
+    throw err.conflict('该投递正在发送中,请勿重复操作')
+  }
+  return data as DeliveryRow
+}
+
 /** 落一条 attempt + 更新 delivery 状态 */
 async function recordAttempt(
   service: ReturnType<typeof createServiceClient>,
@@ -280,12 +313,22 @@ async function recordAttempt(
   else {
     patch.error = errorInfo.error_message
   }
-  const { error: updateError } = await service
+  // 防晚到覆盖(审计 Full12 §9):仅当 delivery 仍处于本次 claim 的
+  // sending/attempts 状态时才允许写结果;若已被后续重试接管(0 行),
+  // 说明本次结果已过期,静默丢弃避免旧结果覆盖新状态。
+  const { data: updated, error: updateError } = await service
     .from('message_deliveries')
     .update(patch)
     .eq('id', delivery.id)
+    .eq('attempts', attemptNo)
+    .eq('status', 'sending')
+    .select('id')
+    .maybeSingle()
   if (updateError) {
     throw err.internal(`更新投递状态失败: ${updateError.message}`)
+  }
+  if (!updated) {
+    console.warn(`[messaging] 晚到 attempt #${attemptNo} 已被更新接管,丢弃旧结果: delivery=${delivery.id}`)
   }
 }
 
@@ -380,9 +423,13 @@ export async function sendMessage(req: SendRequest): Promise<DeliveryWithAttempt
     return { delivery, attempt, provider: 'idempotent-replay', result }
   }
 
+  // Initial Send 先 CAS claim queued/0 → sending/1(审计 Full12 §6/§7),
+  // 保证 Provider 副作用期间 delivery 不再处于 queued,Retry 无法并发接管。
+  const claimed = await claimInitialSend(service, delivery.id)
+
   const { result, provider } = await dispatchAndRecord(
     service,
-    delivery,
+    claimed,
     1,
     subject,
     body,
@@ -426,7 +473,7 @@ export async function retryDelivery(deliveryId: string): Promise<DeliveryWithAtt
   const staleCutoff = new Date(Date.now() - STALE_SENDING_MS).toISOString()
   const { data: claimed, error: claimErr } = await service
     .from('message_deliveries')
-    .update({ status: 'sending', attempts: existing.attempts + 1 })
+    .update({ status: 'sending', attempts: existing.attempts + 1, sending_claimed_at: new Date().toISOString() })
     .eq('id', deliveryId)
     .eq('attempts', existing.attempts)
     .or(`status.in.(queued,failed,retry),and(status.eq.sending,updated_at.lt.${staleCutoff})`)

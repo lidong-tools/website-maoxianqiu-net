@@ -13,7 +13,7 @@ import {
   DUPLICATE_STRATEGY_LABELS,
   IMPORT_TYPE_LABELS,
   IMPORT_TYPE_META,
-  IMPORT_TYPES,
+  IMPORT_TYPES_ENABLED,
 } from '@/types/imports'
 import apiImports from '@/api/modules/imports'
 import ImportResultSummary from './ImportResultSummary.vue'
@@ -237,7 +237,7 @@ function resetAndClose() {
           <h3 class="mb-2 font-medium">1. 选择数据类型</h3>
           <div class="grid grid-cols-2 gap-3 md:grid-cols-5">
             <button
-              v-for="t in IMPORT_TYPES"
+              v-for="t in IMPORT_TYPES_ENABLED"
               :key="t"
               type="button"
               class="rounded-lg border p-3 text-left transition-colors"

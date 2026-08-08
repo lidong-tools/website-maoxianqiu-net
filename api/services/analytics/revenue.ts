@@ -116,9 +116,12 @@ async function fetchRefunds(
     if (error) {
       throw new Error(`退款数据查询失败: ${error.message}`)
     }
-    const rows = (data as Array<{ amount: number; created_at: string; invoice_id: string | null; invoices?: { store_id: string | null }[] }> | null) ?? []
+    // 审计 Full12 §11/§13:refunds→invoices 为 many-to-one 嵌套关系,
+    // PostgREST 对 Embedded Relation 返回对象而非数组;client 泛型仍按数组推断,
+    // 经 unknown 桥接修正真实形状。
+    const rows = (data as unknown as Array<{ amount: number; created_at: string; invoice_id: string | null; invoices?: { store_id: string | null } | null }> | null) ?? []
     for (const r of rows) {
-      out.push({ amount: toNum(r.amount), created_at: r.created_at, store_id: r.invoices?.[0]?.store_id ?? null, invoice_id: r.invoice_id ?? null })
+      out.push({ amount: toNum(r.amount), created_at: r.created_at, store_id: r.invoices?.store_id ?? null, invoice_id: r.invoice_id ?? null })
     }
     if (rows.length < PAGE_SIZE) {
       break
@@ -326,9 +329,12 @@ async function buildPaymentChannelDimension(
     if (error) {
       throw new Error(`退款渠道归属查询失败: ${error.message}`)
     }
-    const rows = (data as Array<{ amount: number; invoices?: { store_id: string | null }[]; payments?: { method: string | null }[] }> | null) ?? []
+    // 审计 Full12 §11/§13:refunds→invoices / refunds→payments 均为 many-to-one
+    // 嵌套关系,PostgREST 对 Embedded Relation 返回对象而非数组;client 泛型仍
+    // 按数组推断,经 unknown 桥接修正真实形状。
+    const rows = (data as unknown as Array<{ amount: number; invoices?: { store_id: string | null } | null; payments?: { method: string | null } | null }> | null) ?? []
     for (const r of rows) {
-      const ch = r.payments?.[0]?.method ?? 'other'
+      const ch = r.payments?.method ?? 'other'
       refundByChannel.set(ch, (refundByChannel.get(ch) ?? 0) + toNum(r.amount))
     }
     if (rows.length < PAGE_SIZE) {
@@ -368,6 +374,8 @@ async function buildCatalogDimension(
   const invoiceByCat = new Map<string, Set<string>>()
   // 发票 → 明细金额合计(供退款分摊比例)
   const invoiceTotalByItem = new Map<string, Map<string, number>>()
+  // 发票 → 明细小计总额(供发票级 discount/tax 按权重分配,审计 Full12 §14 方案 A)
+  const invoiceSubtotal = new Map<string, number>()
   // 大 IN 分批(审计 v3 §11 + v4 §4 + v5 §5):invoiceIds 量级可能很大,按 UUID_CHUNK_SIZE 分批
   for (const chunkIds of chunk(invoiceIds, UUID_CHUNK_SIZE)) {
     for (let from = 0; ; from += PAGE_SIZE) {
@@ -389,10 +397,32 @@ async function buildCatalogDimension(
         const byInvoice = invoiceTotalByItem.get(it.invoice_id) ?? new Map<string, number>()
         byInvoice.set(it.category, (byInvoice.get(it.category) ?? 0) + toNum(it.amount))
         invoiceTotalByItem.set(it.invoice_id, byInvoice)
+        invoiceSubtotal.set(it.invoice_id, (invoiceSubtotal.get(it.invoice_id) ?? 0) + toNum(it.amount))
       }
       if (items.length < PAGE_SIZE) {
         break
       }
+    }
+  }
+  // 发票级 discount/tax 按各分类小计权重分配(审计 Full12 §14/§15 方案 A):
+  // invoice.total = 小计 − discount + tax;diff = total − 小计 即折扣与税的净效果,
+  // 按各分类小计占比分摊,使 Catalog Gross 合计与 Overall Gross 对账。
+  for (const inv of invoices) {
+    const invTotal = toNum(inv.total)
+    const sub = invoiceSubtotal.get(inv.id) ?? 0
+    const diff = invTotal - sub
+    if (diff === 0) {
+      continue
+    }
+    if (sub > 0) {
+      const byInvoice = invoiceTotalByItem.get(inv.id) ?? new Map<string, number>()
+      for (const [cat, amount] of byInvoice) {
+        grossByCat.set(cat, (grossByCat.get(cat) ?? 0) + diff * (amount / sub))
+      }
+    }
+    else if (invTotal !== 0) {
+      // 无明细但发票有金额(如纯折扣/手工调整):归"未归因"承载,保证维度合计可对账
+      grossByCat.set('unassigned', (grossByCat.get('unassigned') ?? 0) + invTotal)
     }
   }
   // 退款分摊:按退款发票的明细金额占比计入各目录类型;无明细的退款归"未归因"
@@ -415,7 +445,7 @@ async function buildCatalogDimension(
   }
   const rows = new Map<string, DimensionAcc>([...grossByCat.entries()].map(([k, gross]) => [
     k,
-    { key: k, label: CATEGORY_LABELS[k] ?? k, gross, refund: refundByCat.get(k) ?? 0, count: invoiceByCat.get(k)?.size ?? 0 },
+    { key: k, label: k === 'unassigned' ? '未归因' : (CATEGORY_LABELS[k] ?? k), gross, refund: refundByCat.get(k) ?? 0, count: invoiceByCat.get(k)?.size ?? 0 },
   ]))
   if (unassignedRefund > 0) {
     const acc = rows.get('unassigned') ?? { key: 'unassigned', label: '未归因', gross: 0, refund: 0, count: 0 }
@@ -487,14 +517,15 @@ async function buildDoctorDimension(
       acc.count += 1
       group.set(key, acc)
     }
-    // 无 encounter 关联的发票归到"未归因"
-    const unassignedGross = invoices.filter(i => !i.encounter_id).reduce((s, i) => s + toNum(i.total), 0)
-    if (unassignedGross > 0) {
-      const acc = group.get('unassigned') ?? { key: 'unassigned', label: '未归因', gross: 0, refund: 0, count: 0 }
-      acc.gross += unassignedGross
-      acc.count += 1
-      group.set('unassigned', acc)
-    }
+  }
+  // 无 encounter 关联的发票归到"未归因"(审计 Full12 §16:构造移出
+  // if (encounterIds.length > 0),避免查询周期内所有发票均无 encounter 时丢失未归因金额)
+  const unassignedGross = invoices.filter(i => !i.encounter_id).reduce((s, i) => s + toNum(i.total), 0)
+  if (unassignedGross > 0) {
+    const acc = group.get('unassigned') ?? { key: 'unassigned', label: '未归因', gross: 0, refund: 0, count: 0 }
+    acc.gross += unassignedGross
+    acc.count += 1
+    group.set('unassigned', acc)
   }
   // 退款归属:经发票 encounter 归到医生
   const refundByDoctor = new Map<string, number>()

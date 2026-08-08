@@ -25,6 +25,7 @@
 | S31-MERGE-FINAL | 合并批次最终收尾 | ✅ code_complete / ⏳ runtime integration_pending | FINAL-01~04 全部落地（明细见下文「S31-MERGE-FINAL 合并收尾」） |
 | S31-A/B/C/D | S3.1 并发任务集成收尾 | ✅ code_complete / ⏳ runtime integration_pending | A（租户初始化 35~38）+ B（日结对账 39~43）+ C（医疗闭环 44~49）已合并入主线；D 收尾：RPC manifest / lint / typecheck / build 全绿（明细见下文「S3.1 并发集成收尾（Integration Owner D）」） |
 | S3.1-PARALLEL | S3.1 并发加速开发（Agent-01~07） | ✅ code_complete / ⏳ runtime integration_pending | 平台租户 + 会员产品化 + 影像 + 回访 + 采购 + 寄养六个新模块收口；Integrator 修复 RPC manifest（迁移 90）+ 寄养→计费原子集成（迁移 91）+ 病历/出院→自动回访 + 前端权限清单补齐；build/typecheck/manifest 全绿（明细见下文「S3.1 并发加速开发（Agent-01~07）」） |
+| S3.2-FINAL | Full12 全量包审计收口 | ✅ Source PASS / ⏳ runtime integration_pending | Secret 清理 + Messaging（Schema/Initial Claim/前端 sending/晚到保护）+ Analytics（Refund 形状/Catalog 对账方案 A/Doctor 未归因）+ Import 隐藏 employee/opening-stock 入口；真实门禁 tsc/vue-tsc/vite build 三绿（明细见下文「S3.2 Final Source Fix（Full12）」） |
 
 ## 已交付任务明细
 
@@ -390,6 +391,49 @@ S3.1 Sprint 1（A 租户初始化 + B 日结对账 + C 医疗闭环） = code_co
 - `npx tsx api/scripts/check-rpc-manifest.ts` → PASS（115 / 116 / missing 0）
 - `npx vite build`（apps/maoxianqiu）→ PASS（✓ built in 1m 24s,exit 0）
 
+## S3.2 Final Source Fix（Full12 全量包审计收口）
+
+> 依据：`document/stage-03/subagent-3-2/S3.1-Final-Source-Audit-Full12.md` / `S3.2-Final-Source-Audit-Full12.md` / `Stage-03-Mainline-Final-Source-Audit-Full12.md`。
+> 本轮修复 Full12 审计暴露的三类 blocker：Repository Secret Hygiene / Messaging / Analytics，并落实 Import Pilot 决策（隐藏 employee / opening-stock 新建入口）。runtime 未在 staging 执行，一律标注 integration_pending。
+
+### 修复清单
+
+| 域 | 修复 | 状态 |
+| --- | --- | --- |
+| Secret Hygiene | 删除 9 个被 git 跟踪的 tmp 调试文件（e2e/tmp-*、e2e/tests/tmp-debug-*、scripts/_tmp_*，含明文测试密码/PGPASSWORD/DB URL）；.gitignore 加 `e2e/tmp-*` `e2e/tests/tmp-*` `scripts/_tmp_*`；e2e-setup.sh 改为 E2E_ACCOUNT_EMAIL / E2E_ACCOUNT_PASSWORD / DATABASE_URL 环境变量注入并启动校验，仓库无明文凭据残留 | ✅ 完成 |
+| Messaging P0-A | migration 121：message_deliveries 补 `updated_at`(not null default now()) + touch_updated_at trigger（消除 Application Model ≠ DB Schema）；补 `sending_claimed_at`（claim 成功时刻，stale 判断优先） | ✅ 完成 |
+| Messaging P0-B | Initial Send 先 CAS claim queued/0 → sending/1（claimInitialSend），Provider 副作用期间不再处于 queued，杜绝 Retry 并发接管重复发送 | ✅ 完成 |
+| Messaging P0-C | 前端 MessagingStatus 补 `sending`；MESSAGING_STATUS_LABELS 显示「发送中/结果未知」；canRetry 收紧为仅 failed/retry；状态筛选/详情同步 | ✅ 完成 |
+| Messaging P1 | recordAttempt 更新加 `AND attempts=attemptNo AND status='sending'`，晚到 attempt（0 行）静默丢弃，避免旧结果覆盖新状态 | ✅ 完成 |
+| Analytics P0 | refunds→invoices / refunds→payments 为 many-to-one 嵌套关系，改为对象读取（r.invoices?.store_id / r.payments?.method），消除退款门店/支付渠道静默错归因 | ✅ 完成 |
+| Analytics P0 | Catalog 维度（方案 A）：发票级 discount/tax 净差按各分类小计权重分摊进 gross，无明细发票归「未归因」，Catalog 合计可与 Overall 对账 | ✅ 完成 |
+| Analytics P1 | Doctor 未归因构造移出 `if (encounterIds.length > 0)`，无 encounter 发票金额不丢失 | ✅ 完成 |
+| Import 决策 | Pilot 前隐藏 employee / opening-stock 新建入口（IMPORT_TYPES_ENABLED = customer/pet/catalog-item；Consumer 待后续按产品节奏实现），存量任务查看/历史不受影响 | ✅ 完成 |
+
+### Build Gate（实际运行，保留原始输出）
+
+- API：`npx tsc --noEmit -p api/tsconfig.json` → **exit 0**（修复 revenue.ts 两处 many-to-one cast 需经 unknown 桥接）
+- Frontend typecheck：`npx vue-tsc -b`（apps/maoxianqiu）→ **exit 0**
+- Build：`npx vite build`（apps/maoxianqiu）→ **✓ built in 1m 41s, exit 0**
+- 顺带修复：删除 `apps/maoxianqiu/src` 与 `packages/components/src` 下 254 个 .js 编译产物（vite 解析 `@/types/imports` 优先命中旧 .js 导致 MISSING_EXPORT；产物被根 `.gitignore` `**/*.js` 忽略，非仓库内容）
+- 日志：`gate-api-tsc.log` / `gate-vue-tsc.log` / `gate-vite-build.log`
+
+### 状态
+
+```text
+S3.1 Source Gate        PASS（Full12）
+S3.2 Documents          PASS（Full12）
+S3.2 Import Core        PASS（Full12，employee/opening-stock 入口已隐藏）
+S3.2 Messaging          PASS（本轮修复后）
+S3.2 Analytics          PASS（本轮修复后）
+Migration Tree          PASS（97 唯一，新增 121）
+Repository Secret       PASS（本轮清理后，无明文凭据）
+FINAL SOURCE GATE       PASS
+Runtime DB Gate         HOLD（待 staging：migration 01→latest / RLS / RPC ACL / medical_loop / E2E）
+```
+
+> 凭据轮换提示：曾入库的测试账号密码 / PGPASSWORD / Supabase keys 已从仓库删除；若这些值曾在真实环境有效，建议轮换。
+
 ## 基线 / 验证说明
 
 - API 目录 `api/`：`tsc --noEmit` 通过。
@@ -403,6 +447,7 @@ S3.1 Sprint 1（A 租户初始化 + B 日结对账 + C 医疗闭环） = code_co
 
 | 日期 | 更新内容 |
 | --- | --- |
+| 2026-08-08 | S3.2 Final Source Fix（Full12）：Secret 清理（删 9 个被跟踪 tmp 调试文件 + gitignore `e2e/tmp-*`/`e2e/tests/tmp-*`/`scripts/_tmp_*` + e2e-setup.sh 环境变量化）；Messaging（migration 121 updated_at/sending_claimed_at + Initial Send CAS claim + recordAttempt 防晚到覆盖 + 前端 sending/canRetry 收紧）；Analytics（Refund many-to-one 形状 + Catalog discount/tax 权重分摊方案 A + Doctor 未归因移出 if）；Import 隐藏 employee/opening-stock 新建入口；门禁三绿（api tsc / vue-tsc / vite build 1m41s）；同步 KNOWN_GAPS / RELEASE_CHECKLIST |
 | 2026-08-08 | S3.1 并发加速开发（Agent-01~07）收口：六新模块（平台租户 54 / 会员 56-57 / 影像 59-61 / 回访 62-63 / 采购 65-69 / 寄养 70-73）合并；Integrator 修复 RPC manifest（迁移 90，9 个 RPC 收紧 service_role + 补登记 → check:rpc-manifest PASS 115/116/missing 0）、寄养→计费原子集成（迁移 91）、病历/出院→自动回访（followup.ts）、前端权限清单补齐 6 组码；build/typecheck 全绿（api tsc PASS、vue-tsc PASS、vite build 1m24s PASS）；审计文档 parallel-final/01~07；状态 code_complete / runtime integration_pending |
 | 2026-08-08 | S31-MERGE-FINAL 审计复核（定向审计报告 FINAL-X01/X02）：migration 34 `save_epidemic_event.p_suspected_disease` 补 `default null`（migration 32/34 三个函数签名最终完全一致）；KNOWN_GAPS / RELEASE_CHECKLIST 旧 RPC 数字（59/52/55）标注 **historical S3.0 baseline**，当前口径 72/67/72/missing 0 不变；状态保持 code_complete / runtime integration_pending |
 | 2026-08-08 | S31-MERGE-FINAL 合并收尾：FINAL-01 修 migration 32/34 函数签名（3 个 DEFAULT 后无默认参数补 default null）；FINAL-02 generate_regulatory_report 兽医数补门店+时间边界（valid_from/valid_until/starts_at/ends_at）；FINAL-03 can_access_store 补 store↔tenant 自校验（跨租户/不存在一律 false）+ 3 条回归断言；FINAL-04 统一 current docs + 重跑 check:rpc-manifest（PASS 72/72/missing 0）/ lint / typecheck / build（✓ 31.07s）；同步 KNOWN_GAPS / RELEASE_CHECKLIST |

@@ -10,6 +10,11 @@ e2e/test-results
 e2e/playwright-report
 e2e/blob-report
 
+# E2E 临时调试文件(可能含测试凭据,禁止入库;审计 Full12 §3/§4)
+e2e/tmp-*
+e2e/tests/tmp-*
+scripts/_tmp_*
+
 # TypeScript 编译产物（tsc 输出，与 .ts/.vue 源码同名，可再生）
 **/*.js
 

@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 echo "=== 1. 重置 staging 库(migration + seed) ==="
 supabase db reset --linked --yes
 
-echo "=== 2. 重建 E2E 账号 support@maoxianqiu.app ==="
+echo "=== 2. 重建 E2E 账号 ${E2E_ACCOUNT_EMAIL} ==="
 SR=$(grep -oE "SUPABASE_SERVICE_ROLE_KEY=.*" api/.env.local | cut -d= -f2- | tr -d ' "')
 PROJ_URL=$(grep -oE "SUPABASE_URL=.*" api/.env.local | cut -d= -f2- | tr -d ' "')
 AUTH_URL="${PROJ_URL%/}/auth/v1"
@@ -15,11 +15,11 @@ AUTH_URL="${PROJ_URL%/}/auth/v1"
 # 2a. admin API 创建(GoTrue 兼容哈希 + 确认邮箱)
 curl -s -X POST "$AUTH_URL/admin/users" \
   -H "apikey: $SR" -H "Authorization: Bearer $SR" -H "Content-Type: application/json" \
-  -d '{"email":"support@maoxianqiu.app","password":"Support@20001223","email_confirm":true}' \
+  -d "{\"email\":\"${E2E_ACCOUNT_EMAIL}\",\"password\":\"${E2E_ACCOUNT_PASSWORD}\",\"email_confirm\":true}" \
   | python -c "import sys,json; d=json.load(sys.stdin); print('user id:', d.get('id','(exists)'))" || true
 
 # 2b. 用 admin API 列表确认存在
-USER_ID=$(curl -s "$AUTH_URL/admin/users?email=support@maoxianqiu.app" -H "apikey: $SR" -H "Authorization: Bearer $SR" \
+USER_ID=$(curl -s "$AUTH_URL/admin/users?email=${E2E_ACCOUNT_EMAIL}" -H "apikey: $SR" -H "Authorization: Bearer $SR" \
   | python -c "import sys,json; d=json.load(sys.stdin); u=d.get('users',[]); print(u[0]['id'] if u else '')")
 echo "user id: $USER_ID"
 
@@ -27,7 +27,7 @@ echo "user id: $USER_ID"
 cat > /tmp/e2e-setup.sql <<SQL
 -- 平台管理员(后端绕过作用域)
 insert into platform_user_roles (user_id, role)
-select id, 'platform_admin' from auth.users where email = 'support@maoxianqiu.app'
+select id, 'platform_admin' from auth.users where email = '${E2E_ACCOUNT_EMAIL}'
 on conflict (user_id, role) do nothing;
 
 -- 系统门店(store_members 需要 store_id)
@@ -42,7 +42,7 @@ select u.id, s.id, r.id, 'active'
 from auth.users u
 cross join public.stores s
 join roles r on r.code = 'system_admin' and r.is_system = true
-where u.email = 'support@maoxianqiu.app' and s.code = 'SYS'
+where u.email = '${E2E_ACCOUNT_EMAIL}' and s.code = 'SYS'
 on conflict (user_id, store_id) do update set role_id = excluded.role_id, status = 'active';
 
 -- 租户员工权限(新模型 me-context/RLS 的唯一事实来源,db reset 后必须重建,否则 E2E 账号退化为纯平台模式)
@@ -50,14 +50,14 @@ on conflict (user_id, store_id) do update set role_id = excluded.role_id, status
 insert into tenant_memberships (tenant_id, user_id, status)
 select t.id, u.id, 'active'
 from auth.users u, tenants t
-where u.email = 'support@maoxianqiu.app' and t.id = (select id from tenants limit 1)
+where u.email = '${E2E_ACCOUNT_EMAIL}' and t.id = (select id from tenants limit 1)
 on conflict (tenant_id, user_id) do update set status = 'active';
 
 -- 2. employees:员工档案(employee_no 租户内唯一)
 insert into employees (tenant_id, user_id, employee_no, name, status)
 select t.id, u.id, 'E2E-ADMIN', 'E2E管理员', 'active'
 from auth.users u, tenants t
-where u.email = 'support@maoxianqiu.app' and t.id = (select id from tenants limit 1)
+where u.email = '${E2E_ACCOUNT_EMAIL}' and t.id = (select id from tenants limit 1)
 on conflict (tenant_id, user_id) do nothing;
 
 -- 3. employee_role_assignments:租户级角色(tenant_owner,store_id 为空 → tenant-wide)
@@ -126,7 +126,7 @@ from tenants t, stores s where s.code = 'SYS' and t.id = s.tenant_id
 where not exists (select 1 from cages where tenant_id = t.id and code = 'CAGE-E2E-B');
 SQL
 
-PGPASSWORD=maoxianqiu-app psql "postgresql://postgres@db.bxhvtbhwuktrpxxygikj.supabase.co:5432/postgres" -f /tmp/e2e-setup.sql 2>&1 | tail -5 || {
+PGPASSWORD="$E2E_ACCOUNT_PASSWORD" psql "$DATABASE_URL" -f /tmp/e2e-setup.sql 2>&1 | tail -5 || {
   echo "psql 不可用,尝试 node 执行..."
   NODE_PATH=$(node -e "console.log(require('child_process').execSync('npm root -g').toString().trim())") node -e "
     const { Client } = require('pg')

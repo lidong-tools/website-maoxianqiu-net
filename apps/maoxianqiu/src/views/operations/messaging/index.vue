@@ -42,6 +42,7 @@ const channelOptions = [
 const statusOptions = [
   { label: '全部状态', value: '' },
   { label: '排队中', value: 'queued' },
+  { label: '发送中/结果未知', value: 'sending' },
   { label: '已发送', value: 'sent' },
   { label: '已送达', value: 'delivered' },
   { label: '发送失败', value: 'failed' },
@@ -430,7 +431,9 @@ async function onRetry(row: MessagingDelivery) {
 }
 
 function canRetry(row: MessagingDelivery): boolean {
-  return row.status !== 'sent' && row.status !== 'delivered' && row.attempts < 3
+  // 审计 Full12 §8:Retry 仅限 failed/retry;sending(含 stale)单独显示
+  // "发送结果未知",不作为普通 Retry 状态,避免并发重复外部发送。
+  return (row.status === 'failed' || row.status === 'retry') && row.attempts < 3
 }
 
 // ===== 详情 =====
@@ -624,7 +627,7 @@ async function openDetail(row: MessagingDelivery) {
               <FaButton variant="outline" size="icon-sm" @click="openDetail(row.original)">
                 <FaIcon name="i-ri:file-list-3-line" />
               </FaButton>
-              <FaTooltip v-if="!canRetry(row.original)" content="已成功或已达最大重试次数">
+              <FaTooltip v-if="!canRetry(row.original)" content="不可重试(仅 failed/retry 可重试,或已达最大次数)">
                 <FaButton variant="outline" size="icon-sm" disabled>
                   <FaIcon name="i-ri:refresh-line" />
                 </FaButton>

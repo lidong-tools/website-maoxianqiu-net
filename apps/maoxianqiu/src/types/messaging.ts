@@ -6,8 +6,8 @@
 /** 消息渠道 */
 export type MessagingChannel = 'sms' | 'email' | 'wechat' | 'work_wechat'
 
-/** 投递状态:queued → sent/delivered / failed */
-export type MessagingStatus = 'queued' | 'sent' | 'delivered' | 'failed' | 'retry'
+/** 投递状态:queued → sending(已抢占) → sent/delivered / failed/retry */
+export type MessagingStatus = 'queued' | 'sending' | 'sent' | 'delivered' | 'failed' | 'retry'
 
 /** 消息模板(message_templates) */
 export interface MessagingTemplate {
@@ -116,6 +116,7 @@ export const MESSAGING_CHANNEL_LABELS: Record<MessagingChannel, string> = {
 
 export const MESSAGING_STATUS_LABELS: Record<MessagingStatus, string> = {
   queued: '排队中',
+  sending: '发送中/结果未知',
   sent: '已发送',
   delivered: '已送达',
   failed: '发送失败',

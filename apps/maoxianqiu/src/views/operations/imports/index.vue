@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
 import type { ImportErrorRow, ImportJob, ImportJobStatus, ImportJobType } from '@/types/imports'
-import { IMPORT_JOB_STATUS_LABELS, IMPORT_TYPE_LABELS, IMPORT_TYPES } from '@/types/imports'
+import { IMPORT_JOB_STATUS_LABELS, IMPORT_TYPE_LABELS, IMPORT_TYPES_ENABLED } from '@/types/imports'
 import apiImports from '@/api/modules/imports'
 import apiStore from '@/api/modules/store'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
@@ -272,7 +272,7 @@ useStoreScopedPage({
                   v-model="search.type"
                   :options="[
                     { label: '全部', value: '' },
-                    ...IMPORT_TYPES.map(t => ({ label: IMPORT_TYPE_LABELS[t], value: t })),
+                    ...IMPORT_TYPES_ENABLED.map(t => ({ label: IMPORT_TYPE_LABELS[t], value: t })),
                   ]"
                   class="w-full"
                   @change="onSearch"

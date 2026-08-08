@@ -1,0 +1,1275 @@
+﻿node.exe : [33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned t
+o become the default in a future major version of Vite:
+At line:1 char:1
++ & "F:\MyProgramFiles\nodejs/node.exe" "F:\MyProgramFiles\nodejs/node_ ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([33m(!) Your V...ersion of Vite::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  - `__dirname` (vite.config.js:62:35). Use `import.meta.dirname` instead
+  - JSON import "./package.json" without import attributes (vite.config.js:7:17). Add `with { type: 'json' }`
+  - import "./vite/plugins" without a file extension (vite.config.js:8:31). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.0 [32mbuilding client environment for production...[36m[39m
+[vite-plugin-svg-spritemap] Using SVGO for SVG optimization on spritemap.
+[2K
+transforming...✓ 9718 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/assets/useToast-Bc61ZLuX.js.br                                        0.06 kB
+dist/assets/login-banner-Bd40XH_F.js.br                                    0.08 kB
+dist/assets/JsxComp-DFKLFjk5.css.br                                        0.08 kB
+dist/assets/jsx_example-D8_yWl5M.css.br                                    0.08 kB
+dist/assets/JsxComp-DFKLFjk5.css.gz                                        0.09 kB
+dist/assets/__vite-optional-peer-dep_jspdf_vue-data-ui-t5dhqR-O.js.br      0.09 kB
+dist/assets/rolldown-runtime-Dy4uBu1J-DK3Fl9T5.js.br                       0.11 kB
+dist/assets/vClickOutside-DUrZWttG-BxNzkY17.js.br                          0.11 kB
+dist/assets/useNestedProp-BYfiWVP8-DbrxFlsg.js.br                          0.12 kB
+dist/assets/jsx_example-D8_yWl5M.css.gz                                    0.13 kB
+dist/assets/templates-ytH5dd8o.css.br                                      0.14 kB
+dist/assets/rolldown-runtime-Dy4uBu1J-DK3Fl9T5.js.gz                       0.15 kB
+dist/assets/useNestedProp-BYfiWVP8-DbrxFlsg.js.gz                          0.15 kB
+dist/assets/vClickOutside-DUrZWttG-BxNzkY17.js.gz                          0.16 kB
+dist/assets/page-BUqke0gz.js.br                                            0.16 kB
+dist/assets/compliance-DRodjTHl.js.br                                      0.17 kB
+dist/assets/reload-B_QpKrgO.js.br                                          0.18 kB
+dist/assets/useMountedDelay-BAjrhRJb-rXAUqYir.js.br                        0.18 kB
+dist/assets/templates-ytH5dd8o.css.gz                                      0.20 kB
+dist/assets/usePrefersMotion-BC-CsqR1-Ctsp4D2U.js.br                       0.20 kB
+dist/assets/reset-password-EI_m74QD.css.br                                 0.20 kB
+dist/assets/compliance-DRodjTHl.js.gz                                      0.20 kB
+dist/assets/useStoreScopedPage-CZXdmWlV.js.br                              0.20 kB
+dist/assets/page-BUqke0gz.js.gz                                            0.21 kB
+dist/assets/deliveries-prSkdZNG.css.br                                     0.21 kB
+dist/assets/reload-B_QpKrgO.js.gz                                          0.21 kB
+dist/assets/format-BSGF2yep.js.br                                          0.21 kB
+dist/assets/useUserOptionState-DK-_1ddE-CLVfeEV1.js.br                     0.21 kB
+dist/assets/useMountedDelay-BAjrhRJb-rXAUqYir.js.gz                        0.21 kB
+dist/assets/ui_example-BU5E-mpr.css.br                                     0.22 kB
+dist/assets/useStoreScopedPage-CZXdmWlV.js.gz                              0.23 kB
+dist/assets/useChartAccessibility-DYqac8yF-BvIqBMvy.js.br                  0.23 kB
+dist/assets/format-BSGF2yep.js.gz                                          0.23 kB
+dist/assets/catalog-1SmqwIyv.js.br                                         0.24 kB
+dist/assets/page-Cqe43NP3.js.br                                            0.24 kB
+dist/assets/page-CSYEowNf.js.br                                            0.24 kB
+dist/assets/page2-BCh2yHc8.js.br                                           0.24 kB
+dist/assets/usePrefersMotion-BC-CsqR1-Ctsp4D2U.js.gz                       0.24 kB
+dist/assets/page1-D0-DHgmb.js.br                                           0.24 kB
+dist/assets/PackageVersion-BUmadjVO-D-GRfJH2.js.br                         0.25 kB
+dist/assets/billing-B_lniC46.js.br                                         0.25 kB
+dist/assets/useUserOptionState-DK-_1ddE-CLVfeEV1.js.gz                     0.25 kB
+dist/assets/reset-password-EI_m74QD.css.gz                                 0.25 kB
+dist/assets/pagination-DFThDuGL.js.br                                      0.26 kB
+dist/assets/useThemeCheck-C43Tcqmk-BefFDA_f.js.br                          0.26 kB
+dist/assets/test-BEg6ear7.js.br                                            0.27 kB
+dist/assets/useTableResponsive-BAqJPR68-D3CWNa3A.js.br                     0.27 kB
+dist/assets/ui_example-BU5E-mpr.css.gz                                     0.27 kB
+dist/assets/detail1-COZZ8k6k.js.br                                         0.27 kB
+dist/assets/detail2-COZZ8k6k.js.br                                         0.27 kB
+dist/assets/useChartAccessibility-DYqac8yF-BvIqBMvy.js.gz                  0.28 kB
+dist/assets/deliveries-prSkdZNG.css.gz                                     0.28 kB
+dist/assets/KbdGroup-DRk6rVz8.js.br                                        0.29 kB
+dist/assets/operations-B_YNhQ4U.js.br                                      0.29 kB
+dist/assets/page-Cqe43NP3.js.gz                                            0.29 kB
+dist/assets/PackageVersion-BUmadjVO-D-GRfJH2.js.gz                         0.29 kB
+dist/assets/page-CSYEowNf.js.gz                                            0.29 kB
+dist/assets/page1-D0-DHgmb.js.gz                                           0.29 kB
+dist/assets/page2-BCh2yHc8.js.gz                                           0.29 kB
+dist/assets/labelUtils-DYdYmN_Q-BaGiRQtY.js.br                             0.29 kB
+dist/assets/catalog-1SmqwIyv.js.gz                                         0.30 kB
+dist/assets/pagination-DFThDuGL.js.gz                                      0.30 kB
+dist/assets/useTableResponsive-BAqJPR68-D3CWNa3A.js.gz                     0.31 kB
+dist/assets/labelUtils-DYdYmN_Q-BaGiRQtY.js.gz                             0.31 kB
+dist/assets/useThemeCheck-C43Tcqmk-BefFDA_f.js.gz                          0.32 kB
+dist/assets/JsxComp-C-dz4tgO.js.br                                         0.32 kB
+dist/assets/auth-BqKVJW9b.css.br                                           0.32 kB
+dist/assets/detail1-COZZ8k6k.js.gz                                         0.32 kB
+dist/assets/detail2-COZZ8k6k.js.gz                                         0.32 kB
+dist/assets/KbdGroup-DRk6rVz8.js.gz                                        0.33 kB
+dist/assets/defineProperty-BbfpZ9Tg.js.br                                  0.33 kB
+dist/assets/billing-B_lniC46.js.gz                                         0.33 kB
+dist/assets/list1-Ch_Ehge0.js.br                                           0.33 kB
+dist/assets/list2-CGLaXXJU.js.br                                           0.33 kB
+dist/assets/test-BEg6ear7.js.gz                                            0.34 kB
+dist/assets/WorkflowFixedBar-BCwxtJmw.js.br                                0.34 kB
+dist/assets/JsxComp-C-dz4tgO.js.gz                                         0.34 kB
+dist/assets/inventory-Bi5jFUE3.js.br                                       0.34 kB
+dist/assets/alert-Bg7FtdBR.js.br                                           0.34 kB
+dist/assets/label-Bdo4M8pu.js.br                                           0.34 kB
+dist/assets/tag-Blqnsy-i.js.br                                             0.34 kB
+dist/assets/tooltip-Coqmhvtc.js.br                                         0.35 kB
+dist/assets/descriptions-BNJGdiDd.js.br                                    0.35 kB
+dist/assets/file_upload-BA1RiBtV.js.br                                     0.35 kB
+dist/assets/image_upload-CH3_lE61.js.br                                    0.35 kB
+dist/assets/messaging-PxVKbG9J.css.br                                      0.35 kB
+dist/assets/search_bar-BmGEWB-v.js.br                                      0.35 kB
+dist/assets/input-DOadEDoJ.js.br                                           0.36 kB
+dist/assets/switch-B1lUETlm.js.br                                          0.36 kB
+dist/assets/tabs-CPHJlzJs.js.br                                            0.36 kB
+dist/assets/pagination-d_prmFsb.js.br                                      0.36 kB
+dist/assets/toast-BNhp4AU3.js.br                                           0.36 kB
+dist/assets/card-Ch0vPZd6.js.br                                            0.36 kB
+dist/assets/textarea-DFmb0672.js.br                                        0.36 kB
+dist/assets/drawer-D-c8Xl0M.js.br                                          0.36 kB
+dist/assets/table-BKDe_8xa.js.br                                           0.36 kB
+dist/assets/icon-CuadjC0R.js.br                                            0.36 kB
+dist/assets/page_main-q4L7Cia7.js.br                                       0.36 kB
+dist/assets/alert-BkIJvsLP.js.br                                           0.36 kB
+dist/assets/modal-DIdfQt78.js.br                                           0.36 kB
+dist/assets/popover-CufXYdpW.js.br                                         0.36 kB
+dist/assets/badge-Tu7RVmEa.js.br                                           0.37 kB
+dist/assets/page_header-NocXun9u.js.br                                     0.37 kB
+dist/assets/password_strength-C6BZuoSh.js.br                               0.37 kB
+dist/assets/image_preview-C6kGRO9e.js.br                                   0.37 kB
+dist/assets/button-Csg2EINK.js.br                                          0.37 kB
+dist/assets/dropdown-Rw8oxa4T.js.br                                        0.37 kB
+dist/assets/form-aci_QKG3.js.br                                            0.37 kB
+dist/assets/collapsible-BauD_Im2.js.br                                     0.37 kB
+dist/assets/scroll_area-ClA-BMI-.js.br                                     0.37 kB
+dist/assets/context_menu-X__JeWZL.js.br                                    0.38 kB
+dist/assets/hover_card-DCBoIlgw.js.br                                      0.38 kB
+dist/assets/input_otp-C4GwElxW.js.br                                       0.38 kB
+dist/assets/defineProperty-BbfpZ9Tg.js.gz                                  0.39 kB
+dist/assets/WorkflowFixedBar-BCwxtJmw.js.gz                                0.39 kB
+dist/assets/list1-Ch_Ehge0.js.gz                                           0.39 kB
+dist/assets/list2-CGLaXXJU.js.gz                                           0.39 kB
+dist/assets/logo-B2wAro8n.js.br                                            0.39 kB
+dist/assets/label-DSTsjOdF.js.br                                           0.39 kB
+dist/assets/operations-B_YNhQ4U.js.gz                                      0.39 kB
+dist/assets/clinical-Bz08nSXW.js.br                                        0.39 kB
+dist/assets/useApi-CROJJdhE-DcPxsXnv.js.br                                 0.40 kB
+dist/assets/fixed-bar-UQy0VxBW.js.br                                       0.40 kB
+dist/assets/command-BcR-aKg1.js.br                                         0.40 kB
+dist/assets/kbd-BnGG2FsK.js.br                                             0.41 kB
+dist/assets/card-Ch0vPZd6.js.gz                                            0.41 kB
+dist/assets/compliance-Cq7o6qMx.js.br                                      0.41 kB
+dist/assets/icon-CuadjC0R.js.gz                                            0.41 kB
+dist/assets/table-BKDe_8xa.js.gz                                           0.41 kB
+dist/assets/alert-Bg7FtdBR.js.gz                                           0.41 kB
+dist/assets/alert-BkIJvsLP.js.gz                                           0.41 kB
+dist/assets/badge-Tu7RVmEa.js.gz                                           0.41 kB
+dist/assets/drawer-D-c8Xl0M.js.gz                                          0.41 kB
+dist/assets/tag-Blqnsy-i.js.gz                                             0.41 kB
+dist/assets/auth-BqKVJW9b.css.gz                                           0.42 kB
+dist/assets/modal-DIdfQt78.js.gz                                           0.42 kB
+dist/assets/switch-B1lUETlm.js.gz                                          0.42 kB
+dist/assets/label-Bdo4M8pu.js.gz                                           0.42 kB
+dist/assets/pagination-d_prmFsb.js.gz                                      0.42 kB
+dist/assets/page_header-NocXun9u.js.gz                                     0.42 kB
+dist/assets/toast-BNhp4AU3.js.gz                                           0.42 kB
+dist/assets/tabs-CPHJlzJs.js.gz                                            0.42 kB
+dist/assets/input-DOadEDoJ.js.gz                                           0.42 kB
+dist/assets/textarea-DFmb0672.js.gz                                        0.42 kB
+dist/assets/form-aci_QKG3.js.gz                                            0.42 kB
+dist/assets/keep_alive_example-BSHNzz8J.js.br                              0.42 kB
+dist/assets/page_main-q4L7Cia7.js.gz                                       0.42 kB
+dist/assets/DefGrad-DVBqDjhO-Qhsc3WTM.js.br                                0.43 kB
+dist/assets/button-Csg2EINK.js.gz                                          0.43 kB
+dist/assets/descriptions-BNJGdiDd.js.gz                                    0.43 kB
+dist/assets/popover-CufXYdpW.js.gz                                         0.43 kB
+dist/assets/tooltip-Coqmhvtc.js.gz                                         0.43 kB
+dist/assets/dropdown-Rw8oxa4T.js.gz                                        0.43 kB
+dist/assets/collapsible-BauD_Im2.js.gz                                     0.43 kB
+dist/assets/inventory-Bi5jFUE3.js.gz                                       0.43 kB
+dist/assets/context_menu-X__JeWZL.js.gz                                    0.43 kB
+dist/assets/scroll_area-ClA-BMI-.js.gz                                     0.43 kB
+dist/assets/search_bar-BmGEWB-v.js.gz                                      0.43 kB
+dist/assets/file_upload-BA1RiBtV.js.gz                                     0.43 kB
+dist/assets/hover_card-DCBoIlgw.js.gz                                      0.43 kB
+dist/assets/image_upload-CH3_lE61.js.gz                                    0.43 kB
+dist/assets/image_preview-C6kGRO9e.js.gz                                   0.44 kB
+dist/assets/password_strength-C6BZuoSh.js.gz                               0.44 kB
+dist/assets/label-DSTsjOdF.js.gz                                           0.44 kB
+dist/assets/messaging-PxVKbG9J.css.gz                                      0.44 kB
+dist/assets/logo-B2wAro8n.js.gz                                            0.44 kB
+dist/assets/command-BcR-aKg1.js.gz                                         0.45 kB
+dist/assets/diagnostics-DywsnnQY.js.br                                     0.45 kB
+dist/assets/useApi-CROJJdhE-DcPxsXnv.js.gz                                 0.45 kB
+dist/assets/input_otp-C4GwElxW.js.gz                                       0.45 kB
+dist/assets/fixed-bar-UQy0VxBW.js.gz                                       0.46 kB
+dist/assets/BaseScanner-DZvpgOjM-EdZwVA9f.js.br                            0.47 kB
+dist/assets/customer-CQJd-w10.js.br                                        0.47 kB
+dist/assets/kbd-BnGG2FsK.js.gz                                             0.47 kB
+dist/assets/DefGrad-DVBqDjhO-Qhsc3WTM.js.gz                                0.48 kB
+dist/assets/tenant-DQMrhK3_.js.br                                          0.48 kB
+dist/assets/compliance-Cq7o6qMx.js.gz                                      0.49 kB
+dist/assets/trend-0Q8Kifyb.js.br                                           0.49 kB
+dist/assets/Label-W78-wvXk.js.br                                           0.50 kB
+dist/assets/clinical-Bz08nSXW.js.gz                                        0.51 kB
+dist/assets/page-header-BMMhIGgF.js.br                                     0.51 kB
+dist/assets/scroll-VJQiGJtV.js.br                                          0.52 kB
+dist/assets/store-C9Nb_ZAo.js.br                                           0.52 kB
+dist/assets/EmptyState-Cx1EVOM9.js.br                                      0.53 kB
+dist/assets/keep_alive_example-BSHNzz8J.js.gz                              0.53 kB
+dist/assets/useUnsavedChangesGuard-6kzLB3xJ.js.br                          0.53 kB
+dist/assets/settings-BX262mFq.js.br                                        0.53 kB
+dist/assets/fake_example-CEPOa7PA.js.br                                    0.54 kB
+dist/assets/progress-Dorm7Nhp.js.br                                        0.55 kB
+dist/assets/BaseScanner-DZvpgOjM-EdZwVA9f.js.gz                            0.55 kB
+dist/assets/tenant-DQMrhK3_.js.gz                                          0.55 kB
+dist/assets/preload-helper-HclGiUj8.js.br                                  0.55 kB
+dist/assets/EntityPageHeader-Bd1ul2It.js.br                                0.55 kB
+dist/assets/reload-w_uGDonn.js.br                                          0.55 kB
+dist/assets/tabbar-D8WbMo1w.js.br                                          0.56 kB
+dist/assets/PermissionButton-BmiDG6I_.js.br                                0.56 kB
+dist/assets/EntityStatusTag-DQBI9RKZ.js.br                                 0.57 kB
+dist/assets/RecursiveLabels-D9rfID6q-trsaoJIa.js.br                        0.57 kB
+dist/assets/Label-W78-wvXk.js.gz                                           0.57 kB
+dist/assets/useAutoSizeLabelsInsideViewbox-CSzmRywi-C2sNTofz.js.br         0.57 kB
+dist/assets/checkbox-l5bshQJh.js.br                                        0.58 kB
+dist/assets/EmptyState-Cx1EVOM9.js.gz                                      0.58 kB
+dist/assets/A11yDataTable-DdRsVULz-Pzx-Wsq7.js.br                          0.58 kB
+dist/assets/page-header-BMMhIGgF.js.gz                                     0.59 kB
+dist/assets/trend-0Q8Kifyb.js.gz                                           0.59 kB
+dist/assets/leavetips-GbmUnsmq.js.br                                       0.59 kB
+dist/assets/TablePrimaryAction-DyN3kXyQ.js.br                              0.60 kB
+dist/assets/store-C9Nb_ZAo.js.gz                                           0.60 kB
+dist/assets/splitpanes-CLJgwmnT.css.br                                     0.60 kB
+dist/assets/useAutoSizeLabelsInsideViewbox-CSzmRywi-C2sNTofz.js.gz         0.60 kB
+dist/assets/useStableElementSize-C7KADDKj-Bwl3ThqA.js.br                   0.60 kB
+dist/assets/diagnostics-DywsnnQY.js.gz                                     0.61 kB
+dist/assets/BaseLegendToggle-DJU4VsLO-CIZRn9AN.js.br                       0.61 kB
+dist/assets/EntityPageHeader-Bd1ul2It.js.gz                                0.61 kB
+dist/assets/RecursiveLabels-D9rfID6q-trsaoJIa.js.gz                        0.61 kB
+dist/assets/settings-BX262mFq.js.gz                                        0.61 kB
+dist/assets/useFitSvgText-CXTzBplU-BwThahJu.js.br                          0.61 kB
+dist/assets/A11yDataTable-DdRsVULz-Pzx-Wsq7.js.gz                          0.62 kB
+dist/assets/PasswordForm-Bibg3OLu.js.br                                    0.62 kB
+dist/assets/customer-CQJd-w10.js.gz                                        0.63 kB
+dist/assets/EntityStatusTag-DQBI9RKZ.js.gz                                 0.63 kB
+dist/assets/menuswitch-c80J07dJ.js.br                                      0.63 kB
+dist/assets/PermissionButton-BmiDG6I_.js.gz                                0.63 kB
+dist/assets/Title-Thf71-8D-C4nxLxI-.js.br                                  0.64 kB
+dist/assets/useUnsavedChangesGuard-6kzLB3xJ.js.gz                          0.64 kB
+dist/assets/role-Dd0xzjkm.js.br                                            0.64 kB
+dist/assets/RecursiveLinks-BygcpDiT-DZGKUUz8.js.br                         0.64 kB
+dist/assets/checkbox-l5bshQJh.js.gz                                        0.64 kB
+dist/assets/progress-Dorm7Nhp.js.gz                                        0.64 kB
+dist/assets/jsx_example-CFNUCinL.js.br                                     0.65 kB
+dist/assets/tabbar-D8WbMo1w.js.gz                                          0.65 kB
+dist/assets/fake_example-CEPOa7PA.js.gz                                    0.66 kB
+dist/assets/scroll-VJQiGJtV.js.gz                                          0.66 kB
+dist/assets/preload-helper-HclGiUj8.js.gz                                  0.67 kB
+dist/assets/reload-w_uGDonn.js.gz                                          0.67 kB
+dist/assets/tabbar-EC5ngGs0.js.br                                          0.67 kB
+dist/assets/CustomerPicker-CpfCTsYQ.js.br                                  0.67 kB
+dist/assets/TablePrimaryAction-DyN3kXyQ.js.gz                              0.67 kB
+dist/assets/useStableElementSize-C7KADDKj-Bwl3ThqA.js.gz                   0.68 kB
+dist/assets/useFitSvgText-CXTzBplU-BwThahJu.js.gz                          0.68 kB
+dist/assets/closing-D2MbcbMe.js.br                                         0.68 kB
+dist/assets/_...all_-BXiDm-dA.js.br                                        0.68 kB
+dist/assets/vxe-table-CXmsJw60.js.br                                       0.69 kB
+dist/assets/billing-iDJgt3AT.js.br                                         0.69 kB
+dist/assets/Title-Thf71-8D-C4nxLxI-.js.gz                                  0.69 kB
+dist/assets/inventory-pi4Mo_rr.js.br                                       0.70 kB
+dist/assets/BaseLegendToggle-DJU4VsLO-CIZRn9AN.js.gz                       0.70 kB
+dist/assets/app-BVctwJty.js.br                                             0.70 kB
+dist/assets/file-CSxDK4fH.js.br                                            0.70 kB
+dist/assets/useTimeLabelCollider-AEcY4Ioe-BABYbKr3.js.br                   0.70 kB
+dist/assets/RecursiveLinks-BygcpDiT-DZGKUUz8.js.gz                         0.71 kB
+dist/assets/PasswordForm-Bibg3OLu.js.gz                                    0.71 kB
+dist/assets/StoreSelector-DBiTh5FZ.js.br                                   0.71 kB
+dist/assets/EmployeePicker-DLDhiZxi.js.br                                  0.71 kB
+dist/assets/role-Dd0xzjkm.js.gz                                            0.71 kB
+dist/assets/RoleChangeForm-C-Yyy_DO.js.br                                  0.72 kB
+dist/assets/usePrinter-C5ordS-4-DIHXiUik.js.br                             0.72 kB
+dist/assets/detail-ZCb6HRHU.js.br                                          0.72 kB
+dist/assets/leavetips-GbmUnsmq.js.gz                                       0.74 kB
+dist/assets/EntitySummaryHeader-Dtjngnu3.js.br                             0.74 kB
+dist/assets/PetSafetyBanner-aQXJeaGK.js.br                                 0.74 kB
+dist/assets/regulatory-257u3QvX.js.br                                      0.74 kB
+dist/assets/card-DSXClY1K.js.br                                            0.75 kB
+dist/assets/login-D1j02ezL.css.br                                          0.75 kB
+dist/assets/menuswitch-c80J07dJ.js.gz                                      0.75 kB
+dist/assets/divider-sbQwDun6.js.br                                         0.75 kB
+dist/assets/SparkTooltip-GjWLZ39s-_QMNmhus.js.br                           0.75 kB
+dist/assets/tabbar-EC5ngGs0.js.gz                                          0.75 kB
+dist/assets/splitpanes-CLJgwmnT.css.gz                                     0.76 kB
+dist/assets/_...all_-BXiDm-dA.js.gz                                        0.76 kB
+dist/assets/number_field-qDw-jj8P.js.br                                    0.77 kB
+dist/assets/file-CSxDK4fH.js.gz                                            0.77 kB
+dist/assets/jsx_example-CFNUCinL.js.gz                                     0.78 kB
+dist/assets/vxe-table-CXmsJw60.js.gz                                       0.78 kB
+dist/assets/billing-iDJgt3AT.js.gz                                         0.78 kB
+dist/assets/CustomerPicker-CpfCTsYQ.js.gz                                  0.79 kB
+dist/assets/app-BVctwJty.js.gz                                             0.79 kB
+dist/assets/user-Bx0cXfKc.js.br                                            0.79 kB
+dist/assets/inventory-pi4Mo_rr.js.gz                                       0.79 kB
+dist/assets/useTimeLabelCollider-AEcY4Ioe-BABYbKr3.js.gz                   0.79 kB
+dist/assets/StoreSelector-DBiTh5FZ.js.gz                                   0.80 kB
+dist/assets/usePrinter-C5ordS-4-DIHXiUik.js.gz                             0.81 kB
+dist/assets/RoleChangeForm-C-Yyy_DO.js.gz                                  0.81 kB
+dist/assets/kbd-yAjUZCfn.js.br                                             0.82 kB
+dist/assets/EntitySummaryHeader-Dtjngnu3.js.gz                             0.82 kB
+dist/assets/EmployeePicker-DLDhiZxi.js.gz                                  0.83 kB
+dist/assets/PetSafetyBanner-aQXJeaGK.js.gz                                 0.83 kB
+dist/assets/closing-D2MbcbMe.js.gz                                         0.84 kB
+dist/assets/card-DSXClY1K.js.gz                                            0.84 kB
+dist/assets/detail-ZCb6HRHU.js.gz                                          0.84 kB
+dist/assets/Shape-Dmh9jBFh-B2aZ5PK0.js.br                                  0.84 kB
+dist/assets/SparkTooltip-GjWLZ39s-_QMNmhus.js.gz                           0.85 kB
+dist/assets/BaseZoomControls-CwhpsHIL-Bos3H6Ao.js.br                       0.88 kB
+dist/assets/api-BSqC0Bgp.js.br                                             0.89 kB
+dist/assets/ChartCard-CBzamgRU.js.br                                       0.89 kB
+dist/assets/user-Bx0cXfKc.js.gz                                            0.89 kB
+dist/assets/divider-sbQwDun6.js.gz                                         0.89 kB
+dist/assets/avatar-Dw3P3xo5.js.br                                          0.90 kB
+dist/assets/login-D1j02ezL.css.gz                                          0.90 kB
+dist/assets/number_field-qDw-jj8P.js.gz                                    0.90 kB
+dist/assets/regulatory-257u3QvX.js.gz                                      0.90 kB
+dist/assets/pdf-CuSS-5_j-FPbzH5lY.js.br                                    0.90 kB
+dist/assets/DetailForm-DZGtv9py.js.br                                      0.93 kB
+dist/assets/RecursiveCircles-D6aDPmoe-DgJ-zzni.js.br                       0.93 kB
+dist/assets/customer-Ddhthav-.js.br                                        0.93 kB
+dist/assets/fixed_bar-B_9cseWk.js.br                                       0.93 kB
+dist/assets/kbd-yAjUZCfn.js.gz                                             0.94 kB
+dist/assets/Shape-Dmh9jBFh-B2aZ5PK0.js.gz                                  0.95 kB
+dist/assets/BaseZoomControls-CwhpsHIL-Bos3H6Ao.js.gz                       0.97 kB
+dist/assets/vueuse-DsOjOpBN.js.br                                          0.98 kB
+dist/assets/img-zY7_pJz1-B79Shrfh.js.br                                    1.00 kB
+dist/assets/PetPicker-DkzLeXiK.js.br                                       1.00 kB
+dist/assets/StoreForm-Bpsn2sdv.js.br                                       1.01 kB
+dist/assets/CatalogItemPicker-CX79iiDN.js.br                               1.02 kB
+dist/assets/ChartCard-CBzamgRU.js.gz                                       1.02 kB
+dist/assets/RecursiveCircles-D6aDPmoe-DgJ-zzni.js.gz                       1.03 kB
+dist/assets/pdf-CuSS-5_j-FPbzH5lY.js.gz                                    1.03 kB
+dist/assets/cropper-DvqIOoBP.css.br                                        1.04 kB
+dist/assets/avatar-Dw3P3xo5.js.gz                                          1.04 kB
+dist/assets/ColorScheme-CiGIG7uH.js.br                                     1.05 kB
+dist/assets/customer-Ddhthav-.js.gz                                        1.06 kB
+dist/assets/vue-ui-accordion-FimGHtuy-CqnAhuxe.js.br                       1.07 kB
+dist/assets/DetailForm-DZGtv9py.js.gz                                      1.08 kB
+dist/assets/slider-xQns3NJ4.js.br                                          1.08 kB
+dist/assets/fixed_bar-B_9cseWk.js.gz                                       1.13 kB
+dist/assets/select-FHBBtMvB.js.br                                          1.13 kB
+dist/assets/PetPicker-DkzLeXiK.js.gz                                       1.13 kB
+dist/assets/api-BSqC0Bgp.js.gz                                             1.13 kB
+dist/assets/CatalogItemPicker-CX79iiDN.js.gz                               1.14 kB
+dist/assets/cloneDeep-Dibct7Zv.js.br                                       1.15 kB
+dist/assets/InvoicePicker-ChCCgybF.js.br                                   1.16 kB
+dist/assets/vue-ui-accordion-FimGHtuy-CqnAhuxe.js.gz                       1.16 kB
+dist/assets/ColorScheme-CiGIG7uH.js.gz                                     1.17 kB
+dist/assets/vue-ui-mini-loader-CA7XxPk7-CxglksYm.js.br                     1.17 kB
+dist/assets/img-zY7_pJz1-B79Shrfh.js.gz                                    1.17 kB
+dist/assets/role-BC6na0nR.js.br                                            1.18 kB
+dist/assets/StoreForm-Bpsn2sdv.js.gz                                       1.20 kB
+dist/assets/vueuse-DsOjOpBN.js.gz                                          1.21 kB
+dist/assets/useResponsive-ZtArZtUf-C91fblUm.js.br                          1.22 kB
+dist/assets/cropper-DvqIOoBP.css.gz                                        1.23 kB
+dist/assets/operations-DdVFydb4.js.br                                      1.23 kB
+dist/assets/UserForm-D9SsqM-L.js.br                                        1.28 kB
+dist/assets/slider-xQns3NJ4.js.gz                                          1.28 kB
+dist/assets/avatar-DggW2Uey.js.br                                          1.29 kB
+dist/assets/cloneDeep-Dibct7Zv.js.gz                                       1.30 kB
+dist/assets/CheckboxGroup-Bu8d2vwp.js.br                                   1.31 kB
+dist/assets/clinical-KYsvf9qL.js.br                                        1.31 kB
+dist/assets/select-FHBBtMvB.js.gz                                          1.31 kB
+dist/assets/vue-ui-mini-loader-CA7XxPk7-CxglksYm.js.gz                     1.33 kB
+dist/assets/InvoicePicker-ChCCgybF.js.gz                                   1.36 kB
+dist/assets/usePanZoom-CYU3B4T3-ClDgeXBq.js.br                             1.37 kB
+dist/assets/KpiCard-DkygNThk.js.br                                         1.37 kB
+dist/assets/role-BC6na0nR.js.gz                                            1.40 kB
+dist/assets/useResponsive-ZtArZtUf-C91fblUm.js.gz                          1.41 kB
+dist/assets/CheckboxGroup-Bu8d2vwp.js.gz                                   1.43 kB
+dist/assets/operations-DdVFydb4.js.gz                                      1.44 kB
+dist/assets/avatar-DggW2Uey.js.gz                                          1.45 kB
+dist/assets/vue-ui-kpi-EenGDZ-l-CKs0Y42t.js.br                             1.45 kB
+dist/assets/vue-ui-digits-BnMqGAhl-qRhJ9sSu.js.br                          1.46 kB
+dist/assets/Legend-DSPDFP3n-osxaq6kw.js.br                                 1.47 kB
+dist/assets/DataTable-rIsBpJMt-sUH6T9b7.js.br                              1.47 kB
+dist/assets/descriptions-BC560KFi.js.br                                    1.47 kB
+dist/assets/ui_example-DY0tovVP.js.br                                      1.47 kB
+dist/assets/clinical-KYsvf9qL.js.gz                                        1.47 kB
+dist/assets/auth_example-3N407sY2.js.br                                    1.48 kB
+dist/assets/UserForm-D9SsqM-L.js.gz                                        1.49 kB
+dist/assets/detail-DLTaHwU5.js.br                                          1.50 kB
+dist/assets/usePanZoom-CYU3B4T3-ClDgeXBq.js.gz                             1.51 kB
+dist/assets/reset-password-D-NX2JTu.js.br                                  1.54 kB
+dist/assets/KpiCard-DkygNThk.js.gz                                         1.57 kB
+dist/assets/animation-BnGS8ity.js.br                                       1.59 kB
+dist/assets/vue-ui-kpi-EenGDZ-l-CKs0Y42t.js.gz                             1.59 kB
+dist/assets/Legend-DSPDFP3n-osxaq6kw.js.gz                                 1.60 kB
+dist/assets/vue-ui-digits-BnMqGAhl-qRhJ9sSu.js.gz                          1.62 kB
+dist/assets/clinical-1PZ2aEU8.js.br                                        1.63 kB
+dist/assets/echarts-0T7QUiRu.js.br                                         1.65 kB
+dist/assets/DataTable-rIsBpJMt-sUH6T9b7.js.gz                              1.66 kB
+dist/assets/descriptions-BC560KFi.js.gz                                    1.66 kB
+dist/assets/ui_example-DY0tovVP.js.gz                                      1.69 kB
+dist/assets/dashboard-BhHN-jPO.js.br                                       1.72 kB
+dist/assets/store-BMeYHjOI.js.br                                           1.73 kB
+dist/assets/detail-DLTaHwU5.js.gz                                          1.75 kB
+dist/assets/auth_example-3N407sY2.js.gz                                    1.75 kB
+dist/assets/inventory-0fxFY4g9.js.br                                       1.75 kB
+dist/assets/ColorPicker-BVWrKEQl-B_vcFvbe.js.br                            1.78 kB
+dist/assets/animation-BnGS8ity.js.gz                                       1.79 kB
+dist/assets/reset-password-D-NX2JTu.js.gz                                  1.84 kB
+dist/assets/dashboard-DGql4QaL.js.br                                       1.84 kB
+dist/assets/reminder-C8K1Mjwk.js.br                                        1.85 kB
+dist/assets/spritemap.4f6db908.svg.br                                      1.86 kB
+dist/index.html.br                                                         1.89 kB
+dist/assets/customers-htuiyGGH.js.br                                       1.91 kB
+dist/assets/dashboard-EYkvTfZT.js.br                                       1.91 kB
+dist/assets/clinical-1PZ2aEU8.js.gz                                        1.92 kB
+dist/assets/veterinarian-registration-DpHsfIUt.js.br                       1.93 kB
+dist/assets/count-siGnTzML.js.br                                           1.96 kB
+dist/assets/dashboard-BhHN-jPO.js.gz                                       1.99 kB
+dist/assets/handover-CbfHd_bj.js.br                                        2.01 kB
+dist/assets/ColorPicker-BVWrKEQl-B_vcFvbe.js.gz                            2.02 kB
+dist/assets/vue-ui-cursor-DEf_l0Xc-B_i3AM5S.js.br                          2.03 kB
+dist/assets/inpatient-B9dw8b0Q.js.br                                       2.04 kB
+dist/assets/spritemap.4f6db908.svg.gz                                      2.05 kB
+dist/assets/Tooltip-CEbqzIhL-XdluRJWJ.js.br                                2.05 kB
+dist/assets/inventory-0fxFY4g9.js.gz                                       2.06 kB
+dist/assets/store-BMeYHjOI.js.gz                                           2.06 kB
+dist/assets/echarts-0T7QUiRu.js.gz                                         2.08 kB
+dist/assets/radio_group-CckhwzQS.js.br                                     2.08 kB
+dist/assets/deliveries-DtuCLAMY.js.br                                      2.12 kB
+dist/assets/useTimeLabels-B9CEuiLZ-CWEe78uq.js.br                          2.12 kB
+dist/assets/reminder-C8K1Mjwk.js.gz                                        2.17 kB
+dist/assets/tenant-init-gmJMRiOj.js.br                                     2.18 kB
+dist/assets/dashboard-DGql4QaL.js.gz                                       2.18 kB
+dist/assets/vue-ui-gizmo-DyxeSKIk-BTcx673R.js.br                           2.19 kB
+dist/assets/swiper-BYng52-g.css.br                                         2.20 kB
+dist/assets/customer-h9KFEarW.js.br                                        2.20 kB
+dist/assets/customers-htuiyGGH.js.gz                                       2.24 kB
+dist/assets/dashboard-EYkvTfZT.js.gz                                       2.24 kB
+dist/assets/waiting-Bgm55NdI.js.br                                         2.24 kB
+dist/assets/Tooltip-CEbqzIhL-XdluRJWJ.js.gz                                2.26 kB
+dist/assets/count-siGnTzML.js.gz                                           2.26 kB
+dist/assets/vue-ui-cursor-DEf_l0Xc-B_i3AM5S.js.gz                          2.27 kB
+dist/assets/BaseDraggableDialog-hyW32gLf-BEBAv13m.js.br                    2.29 kB
+dist/assets/devtools-Bpr7ZAVB-R4s68mQv.js.br                               2.30 kB
+dist/assets/diagnostics-BRLOv0qz.js.br                                     2.31 kB
+dist/assets/useTimeLabels-B9CEuiLZ-CWEe78uq.js.gz                          2.34 kB
+dist/assets/veterinarian-registration-DpHsfIUt.js.gz                       2.34 kB
+dist/assets/vue-data-ui-DrJQCOL9.js.br                                     2.34 kB
+dist/assets/transfer-CJDCaYpe.js.br                                        2.34 kB
+dist/assets/revenue-BSJaCFcp.js.br                                         2.35 kB
+dist/assets/views-DhZZTGy7.js.br                                           2.36 kB
+dist/assets/followups-2zzjgATT.js.br                                       2.37 kB
+dist/assets/dom-to-png-BbPRUKX6-CWMLafQI.js.br                             2.37 kB
+dist/assets/vue-ui-gizmo-DyxeSKIk-BTcx673R.js.gz                           2.38 kB
+dist/assets/handover-CbfHd_bj.js.gz                                        2.39 kB
+dist/assets/progress-notes-Bd988CLo.js.br                                  2.43 kB
+dist/assets/inpatient-B9dw8b0Q.js.gz                                       2.43 kB
+dist/index.html.gz                                                         2.46 kB
+dist/assets/radio_group-CckhwzQS.js.gz                                     2.49 kB
+dist/assets/tenants-sch_Wu9H.js.br                                         2.50 kB
+dist/assets/appointment-B1s2Afme.js.br                                     2.52 kB
+dist/assets/templates-B5hXxRQc.js.br                                       2.52 kB
+dist/assets/customer-h9KFEarW.js.gz                                        2.52 kB
+dist/assets/devtools-Bpr7ZAVB-R4s68mQv.js.gz                               2.54 kB
+dist/assets/swiper-BYng52-g.css.gz                                         2.54 kB
+dist/assets/login-NVVU0LJ7.js.br                                           2.55 kB
+dist/assets/deliveries-DtuCLAMY.js.gz                                      2.56 kB
+dist/assets/detail-c1oWeryM.js.br                                          2.56 kB
+dist/assets/BaseDraggableDialog-hyW32gLf-BEBAv13m.js.gz                    2.58 kB
+dist/assets/waiting-Bgm55NdI.js.gz                                         2.58 kB
+dist/assets/diagnostics-BRLOv0qz.js.gz                                     2.61 kB
+dist/assets/tenant-init-gmJMRiOj.js.gz                                     2.61 kB
+dist/assets/transfer-CJDCaYpe.js.gz                                        2.68 kB
+dist/assets/dom-to-png-BbPRUKX6-CWMLafQI.js.gz                             2.71 kB
+dist/assets/followups-2zzjgATT.js.gz                                       2.72 kB
+dist/assets/RoleForm-Cqu4-Bpq.js.br                                        2.72 kB
+dist/assets/user-iaGXm10G.js.br                                            2.72 kB
+dist/assets/list-By3VJc-H.js.br                                            2.74 kB
+dist/assets/animation-DcQu0ADv.css.br                                      2.75 kB
+dist/assets/views-DhZZTGy7.js.gz                                           2.76 kB
+dist/assets/vue-data-ui-DrJQCOL9.js.gz                                     2.78 kB
+dist/assets/vue-ui-rating-B7ApWpIJ-B6OLsr4c.js.br                          2.79 kB
+dist/assets/revenue-BSJaCFcp.js.gz                                         2.79 kB
+dist/assets/annual-report-jUOuScWh.js.br                                   2.83 kB
+dist/assets/progress-notes-Bd988CLo.js.gz                                  2.83 kB
+dist/assets/vue-ui-sparkgauge-VSiPVgUQ-D5-1g4Lo.js.br                      2.83 kB
+dist/assets/checkbox-CnGZMenW.js.br                                        2.86 kB
+dist/assets/billing-B4ltZqmQ.js.br                                         2.90 kB
+dist/assets/vaccination-Cbu1Xj4j.js.br                                     2.92 kB
+dist/assets/appointment-B1s2Afme.js.gz                                     2.93 kB
+dist/assets/epidemic-C3zAqby0.js.br                                        2.94 kB
+dist/assets/tenants-sch_Wu9H.js.gz                                         2.96 kB
+dist/assets/lab-samples-DYi-gVrm.js.br                                     2.98 kB
+dist/assets/templates-B5hXxRQc.js.gz                                       2.99 kB
+dist/assets/login-NVVU0LJ7.js.gz                                           3.00 kB
+dist/assets/geoProjections-BCP_PoiB-BG3HD0bZ.js.br                         3.01 kB
+dist/assets/detail-c1oWeryM.js.gz                                          3.04 kB
+dist/assets/vue-ui-sparkgauge-VSiPVgUQ-D5-1g4Lo.js.gz                      3.05 kB
+dist/assets/reconciliation-sxyPbzHf.js.br                                  3.06 kB
+dist/assets/suppliers-C76Qraxk.js.br                                       3.06 kB
+dist/assets/closing-BniqQzvG.js.br                                         3.07 kB
+dist/assets/vue-ui-rating-B7ApWpIJ-B6OLsr4c.js.gz                          3.07 kB
+dist/assets/admission-CtRzgCmM.js.br                                       3.12 kB
+dist/assets/license-D_15bW3Q.js.br                                         3.13 kB
+dist/assets/medical-waste-BcykTtid.js.br                                   3.14 kB
+dist/assets/user-iaGXm10G.js.gz                                            3.16 kB
+dist/assets/animation-DcQu0ADv.css.gz                                      3.17 kB
+dist/assets/reports-CAUhhMBa.js.br                                         3.18 kB
+dist/assets/critical-values-CKr9TKcO.js.br                                 3.18 kB
+dist/assets/receipt-PakDwQoP.js.br                                         3.20 kB
+dist/assets/src-kMoYMedZ.css.br                                            3.21 kB
+dist/assets/vue-ui-sparkbar-DeSSqv4v-DZ5YQ08K.js.br                        3.24 kB
+dist/assets/FollowupDetailDrawer-GoRyaYdn.js.br                            3.24 kB
+dist/assets/vue-ui-smiley-DZBPvVeN-AiJBi4yd.js.br                          3.27 kB
+dist/assets/list-By3VJc-H.js.gz                                            3.27 kB
+dist/assets/component-demo-CrPePuRL.js.br                                  3.28 kB
+dist/assets/geoProjections-BCP_PoiB-BG3HD0bZ.js.gz                         3.28 kB
+dist/assets/nursing-5En-E17J.js.br                                         3.32 kB
+dist/assets/vue-ui-table-heatmap-1LTxQfQX-DmfDCsdT.js.br                   3.34 kB
+dist/assets/settlement-CMi_MnGW.js.br                                      3.35 kB
+dist/assets/RoleForm-Cqu4-Bpq.js.gz                                        3.37 kB
+dist/assets/approvals-BJgqnZbn.js.br                                       3.37 kB
+dist/assets/layouts-B2_GFrTl.css.br                                        3.38 kB
+dist/assets/billing-B4ltZqmQ.js.gz                                         3.39 kB
+dist/assets/detail-DN4_KEu1.js.br                                          3.40 kB
+dist/assets/vaccination-Cbu1Xj4j.js.gz                                     3.43 kB
+dist/assets/annual-report-jUOuScWh.js.gz                                   3.43 kB
+dist/assets/checkbox-CnGZMenW.js.gz                                        3.44 kB
+dist/assets/nurse-tasks-M8kM2IMI.js.br                                     3.51 kB
+dist/assets/lab-samples-DYi-gVrm.js.gz                                     3.53 kB
+dist/assets/vue-ui-sparkbar-DeSSqv4v-DZ5YQ08K.js.gz                        3.53 kB
+dist/assets/medical-orders-BCmdZzaW.js.br                                  3.54 kB
+dist/assets/epidemic-C3zAqby0.js.gz                                        3.56 kB
+dist/assets/suppliers-C76Qraxk.js.gz                                       3.57 kB
+dist/assets/CatalogItemForm-t6ejz1oH.js.br                                 3.58 kB
+dist/assets/admission-CtRzgCmM.js.gz                                       3.59 kB
+dist/assets/reconciliation-sxyPbzHf.js.gz                                  3.62 kB
+dist/assets/vue-ui-table-heatmap-1LTxQfQX-DmfDCsdT.js.gz                   3.64 kB
+dist/assets/vue-ui-smiley-DZBPvVeN-AiJBi4yd.js.gz                          3.65 kB
+dist/assets/src-kMoYMedZ.css.gz                                            3.68 kB
+dist/assets/detail-sOS1l0ih.js.br                                          3.69 kB
+dist/assets/closing-BniqQzvG.js.gz                                         3.69 kB
+dist/assets/critical-values-CKr9TKcO.js.gz                                 3.71 kB
+dist/assets/vue-ui-timer-BVjydam--DzYmptlG.js.br                           3.72 kB
+dist/assets/receipt-PakDwQoP.js.gz                                         3.76 kB
+dist/assets/license-D_15bW3Q.js.gz                                         3.76 kB
+dist/assets/reports-CAUhhMBa.js.gz                                         3.77 kB
+dist/assets/settings-Crb6EyVk.js.br                                        3.79 kB
+dist/assets/medical-waste-BcykTtid.js.gz                                   3.80 kB
+dist/assets/layouts-B2_GFrTl.css.gz                                        3.81 kB
+dist/assets/settlement-CMi_MnGW.js.gz                                      3.81 kB
+dist/assets/FollowupDetailDrawer-GoRyaYdn.js.gz                            3.84 kB
+dist/assets/memberships-WY_z2RM2.js.br                                     3.86 kB
+dist/assets/slider-yd9G3gnr.js.br                                          3.86 kB
+dist/assets/nursing-5En-E17J.js.gz                                         3.88 kB
+dist/assets/splitpanes-fEFoBrqV.js.br                                      3.89 kB
+dist/assets/audit-gmKPOKng.js.br                                           3.91 kB
+dist/assets/component-demo-CrPePuRL.js.gz                                  3.94 kB
+dist/assets/approvals-BJgqnZbn.js.gz                                       3.96 kB
+dist/assets/detail-DN4_KEu1.js.gz                                          4.02 kB
+dist/assets/vue-ui-timer-BVjydam--DzYmptlG.js.gz                           4.05 kB
+dist/assets/vue-ui-spark-trend-CW4cLUqP-Z5S-MIFg.js.br                     4.07 kB
+dist/assets/medical-orders-BCmdZzaW.js.gz                                  4.12 kB
+dist/assets/nurse-tasks-M8kM2IMI.js.gz                                     4.12 kB
+dist/assets/CatalogItemForm-t6ejz1oH.js.gz                                 4.17 kB
+dist/assets/splitpanes-fEFoBrqV.js.gz                                      4.27 kB
+dist/assets/slider-yd9G3gnr.js.gz                                          4.28 kB
+dist/assets/settings-Crb6EyVk.js.gz                                        4.28 kB
+dist/assets/vue-ui-carousel-table-BD_fxykj-BD4_3jJX.js.br                  4.31 kB
+dist/assets/detail-sOS1l0ih.js.gz                                          4.42 kB
+dist/assets/vue-ui-spark-trend-CW4cLUqP-Z5S-MIFg.js.gz                     4.42 kB
+dist/assets/audit-gmKPOKng.js.gz                                           4.55 kB
+dist/assets/NonSvgPenAndPaper-DZyYthbM-vn85I5Op.js.br                      4.56 kB
+dist/assets/catalog-iAR9iVWW.js.br                                         4.57 kB
+dist/assets/polyfills-7VnE6ArO.js.br                                       4.60 kB
+dist/assets/workbench-C9Dj9T0x.js.br                                       4.63 kB
+dist/assets/lab-BtAhaEld.js.br                                             4.68 kB
+dist/assets/memberships-WY_z2RM2.js.gz                                     4.69 kB
+dist/assets/vue-ui-sparkhistogram-B5252IVr-CUmTHAGL.js.br                  4.72 kB
+dist/assets/print-DDhCPOsj.js.br                                           4.76 kB
+dist/assets/vue-ui-carousel-table-BD_fxykj-BD4_3jJX.js.gz                  4.77 kB
+dist/assets/purchasing-Dk6KZcVP.js.br                                      4.89 kB
+dist/assets/esign-G9eK6B5K.js.br                                           4.91 kB
+dist/assets/UserOptions-BknvMNU1-CL-JMd0J.js.br                            4.99 kB
+dist/assets/print-D0iNQeJj.js.br                                           5.01 kB
+dist/assets/PenAndPaper-D--sbRMA-BbB5Q1px.js.br                            5.03 kB
+dist/assets/NonSvgPenAndPaper-DZyYthbM-vn85I5Op.js.gz                      5.08 kB
+dist/assets/polyfills-7VnE6ArO.js.gz                                       5.12 kB
+dist/assets/cashier-4oURkN_C.js.br                                         5.13 kB
+dist/assets/settings-CcwX8KB8.js.br                                        5.17 kB
+dist/assets/vue-ui-sparkhistogram-B5252IVr-CUmTHAGL.js.gz                  5.17 kB
+dist/assets/messaging-CXy4kW9n.js.br                                       5.25 kB
+dist/assets/documents-DF67r8ma.js.br                                       5.26 kB
+dist/assets/imaging-ChJABrxP.js.br                                         5.27 kB
+dist/assets/lab-BtAhaEld.js.gz                                             5.43 kB
+dist/assets/esign-G9eK6B5K.js.gz                                           5.45 kB
+dist/assets/workbench-C9Dj9T0x.js.gz                                       5.46 kB
+dist/assets/vue-ui-tiremarks-3ZBAE8SA-D3U_XauD.js.br                       5.48 kB
+dist/assets/catalog-iAR9iVWW.js.gz                                         5.50 kB
+dist/assets/print-DDhCPOsj.js.gz                                           5.54 kB
+dist/assets/purchasing-Dk6KZcVP.js.gz                                      5.63 kB
+dist/assets/PenAndPaper-D--sbRMA-BbB5Q1px.js.gz                            5.64 kB
+dist/assets/iconfont.1785242738274-G0HNy9M3.woff                           5.70 kB
+dist/assets/vue-ui-sparkstackbar-CiLgNzaI-AZdHLQ7b.js.br                   5.79 kB
+dist/assets/detail-CqNm6JEz.js.br                                          5.80 kB
+dist/assets/currency.input-tAEO3WeW.js.br                                  5.84 kB
+dist/assets/vue-ui-table-sparkline-CyGqW88t-D7TKrJgN.js.br                 5.85 kB
+dist/assets/UserOptions-BknvMNU1-CL-JMd0J.js.gz                            5.89 kB
+dist/assets/vue-ui-tiremarks-3ZBAE8SA-D3U_XauD.js.gz                       5.98 kB
+dist/assets/number-field-CZWr3GKi.js.br                                    5.98 kB
+dist/assets/cashier-4oURkN_C.js.gz                                         5.98 kB
+dist/assets/vue-ui-thermometer-CNvTQJUq-CQ2EYyEK.js.br                     5.99 kB
+dist/assets/hooks.plus-D-cGVvKI.js.br                                      6.03 kB
+dist/assets/vue-data-ui-D3jZ4lg1-BSjSj1vO.js.br                            6.06 kB
+dist/assets/print-D0iNQeJj.js.gz                                           6.12 kB
+dist/assets/messaging-CXy4kW9n.js.gz                                       6.13 kB
+dist/assets/imaging-ChJABrxP.js.gz                                         6.15 kB
+dist/assets/settings-CcwX8KB8.js.gz                                        6.17 kB
+dist/assets/documents-DF67r8ma.js.gz                                       6.22 kB
+dist/assets/vue-ui-bullet-CKg0bShN-B01l-VnL.js.br                          6.27 kB
+dist/assets/vue-ui-table-sparkline-CyGqW88t-D7TKrJgN.js.gz                 6.42 kB
+dist/assets/vue-ui-sparkstackbar-CiLgNzaI-AZdHLQ7b.js.gz                   6.43 kB
+dist/assets/rules-z-THk0rU.js.br                                           6.44 kB
+dist/assets/vue-ui-thermometer-CNvTQJUq-CQ2EYyEK.js.gz                     6.55 kB
+dist/assets/number-field-CZWr3GKi.js.gz                                    6.62 kB
+dist/assets/hooks.plus-D-cGVvKI.js.gz                                      6.63 kB
+dist/assets/currency.input-tAEO3WeW.js.gz                                  6.69 kB
+dist/assets/vue-ui-dashboard-mGLvP0UA-PZibeaWd.js.br                       6.71 kB
+dist/assets/vue-ui-funnel-DSpUMyDO-DU6LEYpW.js.br                          6.71 kB
+dist/assets/useSvgExport-Ba9qBr9M-DqOQchzc.js.br                           6.74 kB
+dist/assets/spritemap.4f6db908.svg                                         6.76 kB │ gzip:   2.07 kB
+dist/assets/Slicer-JdCzBeYM-Bw01v8mI.js.br                                 6.81 kB
+dist/assets/detail-CqNm6JEz.js.gz                                          6.85 kB
+dist/assets/vue-ui-bullet-CKg0bShN-B01l-VnL.js.gz                          6.91 kB
+dist/assets/vue-data-ui-D3jZ4lg1-BSjSj1vO.js.gz                            7.01 kB
+dist/assets/boarding-DmWSH0ne.js.br                                        7.20 kB
+dist/assets/vue-ui-wheel-D-VVxvxY-DvT1aUax.js.br                           7.22 kB
+dist/assets/vue-ui-relation-circle-LVOR5VZ6-DKW1GBM6.js.br                 7.31 kB
+dist/assets/vue-ui-molecule-5rpD2mlK-BWbLokj4.js.br                        7.34 kB
+dist/assets/vue-ui-funnel-DSpUMyDO-DU6LEYpW.js.gz                          7.40 kB
+dist/assets/Slicer-JdCzBeYM-Bw01v8mI.js.gz                                 7.42 kB
+dist/assets/useSvgExport-Ba9qBr9M-DqOQchzc.js.gz                           7.48 kB
+dist/assets/vue-ui-gauge-CegUK3FD-1dcJsOAW.js.br                           7.49 kB
+dist/assets/vue-ui-dashboard-mGLvP0UA-PZibeaWd.js.gz                       7.50 kB
+dist/assets/reactivity.esm-bundler-D9OPVc9J.js.br                          7.50 kB
+dist/assets/rules-z-THk0rU.js.gz                                           7.66 kB
+dist/assets/vue-ui-wheel-D-VVxvxY-DvT1aUax.js.gz                           7.95 kB
+dist/assets/vue-ui-relation-circle-LVOR5VZ6-DKW1GBM6.js.gz                 8.07 kB
+dist/assets/reactivity.esm-bundler-D9OPVc9J.js.gz                          8.14 kB
+dist/assets/vue-ui-molecule-5rpD2mlK-BWbLokj4.js.gz                        8.15 kB
+dist/assets/imports-OaRV7b2f.js.br                                         8.19 kB
+dist/assets/vue-ui-gauge-CegUK3FD-1dcJsOAW.js.gz                           8.22 kB
+dist/assets/boarding-DmWSH0ne.js.gz                                        8.41 kB
+dist/assets/runtime-dom.esm-bundler-Dnva3vcP.js.br                         8.51 kB
+dist/index.html                                                            8.73 kB │ gzip:   2.46 kB
+dist/assets/vue-ui-mood-radar-TWo57SKD-BZitluHP.js.br                      8.82 kB
+dist/assets/vue-ui-skeleton-Cxszgax7--t-kruK0.js.br                        8.95 kB
+dist/assets/vue-ui-age-pyramid-D4f-Agb7-CSE13IuM.js.br                     9.07 kB
+dist/assets/vue-ui-galaxy-CxKafV1X-D4uNbDn1.js.br                          9.15 kB
+dist/assets/vue-ui-bump-CG3WTTFy-daY7KUkv.js.br                            9.25 kB
+dist/assets/runtime-dom.esm-bundler-Dnva3vcP.js.gz                         9.35 kB
+dist/assets/imports-OaRV7b2f.js.gz                                         9.61 kB
+dist/assets/vue-ui-onion-CDC9AGh1-CWATNiim.js.br                           9.71 kB
+dist/assets/SlicerPreview-CCIb3v8u-B9QQkMSH.js.br                          9.84 kB
+dist/assets/vue-ui-rings-DEZrfBYX-P6oKCXSg.js.br                           9.90 kB
+dist/assets/vue-ui-mood-radar-TWo57SKD-BZitluHP.js.gz                      9.92 kB
+dist/assets/vue-ui-age-pyramid-D4f-Agb7-CSE13IuM.js.gz                    10.08 kB
+dist/assets/vue-ui-galaxy-CxKafV1X-D4uNbDn1.js.gz                         10.12 kB
+dist/assets/vue-ui-bump-CG3WTTFy-daY7KUkv.js.gz                           10.20 kB
+dist/assets/vue-ui-radar-BVz6Uq2k-C4JcDkq2.js.br                          10.22 kB
+dist/assets/iconfont.1785242738274-DQWiQZ_I.ttf                           10.31 kB
+dist/assets/vue-ui-flow-CnateJjc-BTsx7CnW.js.br                           10.34 kB
+dist/assets/vue-ui-3d-bar-D9-jAA5Z-bgqDpYMS.js.br                         10.38 kB
+dist/assets/vue-ui-chord-DCZo55QA-lPSJFBFb.js.br                          10.45 kB
+dist/assets/vue-ui-parallel-coordinate-plot-DUOI7HoD-DaftlaB7.js.br       10.45 kB
+dist/assets/vue-ui-dumbbell-DZ78WASa-B2rJGIxU.js.br                       10.70 kB
+dist/assets/vue-ui-onion-CDC9AGh1-CWATNiim.js.gz                          10.72 kB
+dist/assets/SlicerPreview-CCIb3v8u-B9QQkMSH.js.gz                         10.83 kB
+dist/assets/vue-ui-geo-DnO1RIFR-DfBvr5PK.js.br                            10.86 kB
+dist/assets/vue-ui-waffle-B37Yx9uw-BQDjLh4Z.js.br                         10.90 kB
+dist/assets/vue-ui-rings-DEZrfBYX-P6oKCXSg.js.gz                          10.98 kB
+dist/assets/vue-ui-skeleton-Cxszgax7--t-kruK0.js.gz                       11.11 kB
+dist/assets/vue-ui-radar-BVz6Uq2k-C4JcDkq2.js.gz                          11.30 kB
+dist/assets/vue-ui-flow-CnateJjc-BTsx7CnW.js.gz                           11.39 kB
+dist/assets/cropper-LytUyVnl.js.br                                        11.44 kB
+dist/assets/vue-ui-chestnut-i7FYoqi8-Cn_R5sEj.js.br                       11.47 kB
+dist/assets/vue-ui-3d-bar-D9-jAA5Z-bgqDpYMS.js.gz                         11.55 kB
+dist/assets/vue-ui-parallel-coordinate-plot-DUOI7HoD-DaftlaB7.js.gz       11.60 kB
+dist/assets/vue-ui-chord-DCZo55QA-lPSJFBFb.js.gz                          11.60 kB
+dist/assets/vue-ui-nested-donuts-W0TpPXIQ-DPnffpfc.js.br                  11.66 kB
+dist/assets/vue-ui-heatmap-6Ja5LKYE-DDC6uVo2.js.br                        11.67 kB
+dist/assets/vue-ui-table-DEhy61ln-DcNF-djA.js.br                          11.72 kB
+dist/assets/vue-ui-ridgeline-BlyzSJHc-jyk_Fotv.js.br                      11.74 kB
+dist/assets/vue-ui-dumbbell-DZ78WASa-B2rJGIxU.js.gz                       11.85 kB
+dist/assets/vue-ui-sparkline-DyZdAQMl-rNdz4GMt.js.br                      11.85 kB
+dist/assets/vue-ui-history-plot-XOexkxeI-Ci155Fxd.js.br                   11.93 kB
+dist/assets/vue-ui-waffle-B37Yx9uw-BQDjLh4Z.js.gz                         12.03 kB
+dist/assets/vue-ui-geo-DnO1RIFR-DfBvr5PK.js.gz                            12.08 kB
+dist/assets/vue-ui-circle-pack--DUVDQx3-B-sIhow7.js.br                    12.10 kB
+dist/assets/vue-ui-horizontal-bar-BCTdLxjK-BsL_8Y6h.js.br                 12.25 kB
+dist/assets/vue-ui-word-cloud-CcRch2t2-BAMtR9Bc.js.br                     12.25 kB
+dist/assets/vue-ui-quadrant-BM9VLDcC-D2jRWz_U.js.br                       12.34 kB
+dist/assets/vue-ui-donut-evolution-D54NP3FP-BhlqTdzW.js.br                12.37 kB
+dist/assets/vue-ui-strip-plot-BquHFKHA-KxgSXI4s.js.br                     12.53 kB
+dist/assets/cropper-LytUyVnl.js.gz                                        12.81 kB
+dist/assets/vue-ui-chestnut-i7FYoqi8-Cn_R5sEj.js.gz                       12.88 kB
+dist/assets/vue-ui-nested-donuts-W0TpPXIQ-DPnffpfc.js.gz                  12.89 kB
+dist/assets/vue-ui-heatmap-6Ja5LKYE-DDC6uVo2.js.gz                        12.96 kB
+dist/assets/vue-ui-sparkline-DyZdAQMl-rNdz4GMt.js.gz                      13.06 kB
+dist/assets/vue-ui-table-DEhy61ln-DcNF-djA.js.gz                          13.07 kB
+dist/assets/vue-ui-annotator-P9E8hpJl-CNXk9RQ6.js.br                      13.16 kB
+dist/assets/vue-ui-candlestick-C3smYvQA-CRggMJhI.js.br                    13.19 kB
+dist/assets/vue-ui-ridgeline-BlyzSJHc-jyk_Fotv.js.gz                      13.28 kB
+dist/assets/vue-ui-history-plot-XOexkxeI-Ci155Fxd.js.gz                   13.35 kB
+dist/assets/vue-ui-circle-pack--DUVDQx3-B-sIhow7.js.gz                    13.39 kB
+dist/assets/vue-ui-treemap-FqqXQvZw-kcshi7_V.js.br                        13.60 kB
+dist/assets/vue-ui-word-cloud-CcRch2t2-BAMtR9Bc.js.gz                     13.62 kB
+dist/assets/vue-ui-horizontal-bar-BCTdLxjK-BsL_8Y6h.js.gz                 13.62 kB
+dist/assets/BaseIcon-DJbOzCDs-QB3qJHCZ.js.br                              13.66 kB
+dist/assets/vue-ui-donut-evolution-D54NP3FP-BhlqTdzW.js.gz                13.72 kB
+dist/assets/vue-ui-strip-plot-BquHFKHA-KxgSXI4s.js.gz                     13.88 kB
+dist/assets/vue-ui-quadrant-BM9VLDcC-D2jRWz_U.js.gz                       13.94 kB
+dist/assets/form-ILtpC3v-.js.br                                           14.09 kB
+dist/assets/vue-ui-xy-canvas-mDqjPtxh-CPFc_Zo4.js.br                      14.13 kB
+dist/assets/vue-data-ui-DsPBjTKO.css.br                                   14.52 kB
+dist/assets/useConfig-C0V0eG7L-BW30Wel-.js.br                             14.57 kB
+dist/assets/vue-ui-candlestick-C3smYvQA-CRggMJhI.js.gz                    14.70 kB
+dist/assets/vee-validate-zod-DiHOm4Uf.js.br                               14.86 kB
+dist/assets/vue-ui-treemap-FqqXQvZw-kcshi7_V.js.gz                        15.07 kB
+dist/assets/vue-ui-quick-chart-B8XCKef--Df7fGnZC.js.br                    15.09 kB
+dist/assets/vue-ui-annotator-P9E8hpJl-CNXk9RQ6.js.gz                      15.36 kB
+dist/assets/form-ILtpC3v-.js.gz                                           15.41 kB
+dist/assets/vue-ui-donut-BCLG16Vb-VWZgRRKw.js.br                          15.60 kB
+dist/assets/lib-C-QGo8GG-CvPpiVvZ.js.br                                   15.63 kB
+dist/assets/vue-ui-xy-canvas-mDqjPtxh-CPFc_Zo4.js.gz                      15.74 kB
+dist/assets/BaseIcon-DJbOzCDs-QB3qJHCZ.js.gz                              15.90 kB
+dist/assets/vue-ui-scatter-owaIOpD0-BsDAhQq9.js.br                        16.11 kB
+dist/assets/useConfig-C0V0eG7L-BW30Wel-.js.gz                             16.65 kB
+dist/assets/vee-validate-zod-DiHOm4Uf.js.gz                               16.69 kB
+dist/assets/vue-ui-quick-chart-B8XCKef--Df7fGnZC.js.gz                    16.82 kB
+dist/assets/vue-ui-stackbar-Bwz6Z7M4-HcQw_JtD.js.br                       17.10 kB
+dist/assets/vue-ui-donut-BCLG16Vb-VWZgRRKw.js.gz                          17.38 kB
+dist/assets/vue-ui-scatter-owaIOpD0-BsDAhQq9.js.gz                        18.23 kB
+dist/assets/lib-C-QGo8GG-CvPpiVvZ.js.gz                                   18.26 kB
+dist/assets/vue-ui-stackline-DX3YDRSg-B-bBOJqg.js.br                      19.01 kB
+dist/assets/vue-ui-stackbar-Bwz6Z7M4-HcQw_JtD.js.gz                       19.11 kB
+dist/assets/vue-data-ui-DsPBjTKO.css.gz                                   20.20 kB
+dist/assets/vue-ui-dag-beo3-quD-B9F1lRSs.js.br                            20.53 kB
+dist/assets/vue-ui-stackline-DX3YDRSg-B-bBOJqg.js.gz                      21.27 kB
+dist/assets/login-banner-ZfMZACb6.png                                     22.06 kB
+dist/assets/vue-ui-dag-beo3-quD-B9F1lRSs.js.gz                            22.62 kB
+dist/assets/runtime-core.esm-bundler-D-xeQwTN.js.br                       22.95 kB
+dist/assets/auth-DelRdZKG.js.br                                           23.15 kB
+dist/assets/runtime-core.esm-bundler-D-xeQwTN.js.gz                       25.31 kB
+dist/assets/swiper-CqHKpwLF.js.br                                         28.26 kB
+dist/assets/auth-DelRdZKG.js.gz                                           28.49 kB
+dist/assets/iconfont.1785391082558-B_rcQgS3.woff                          31.42 kB
+dist/assets/vue-ui-xy-D64AB5Qy-DEy4mgMn.js.br                             31.47 kB
+dist/assets/naive-ui-C6Tmj51D.png                                         32.15 kB
+dist/assets/swiper-CqHKpwLF.js.gz                                         32.34 kB
+dist/assets/element-plus-DQsmXB0a.png                                     34.51 kB
+dist/assets/antdv-next-CBGIJh5O.png                                       34.96 kB
+dist/assets/vexip-ui-B-aDzKFj.png                                         35.75 kB
+dist/assets/vue-ui-xy-D64AB5Qy-DEy4mgMn.js.gz                             36.19 kB
+dist/assets/tdesign-BntVIiCV.png                                          36.26 kB
+dist/assets/arco-design-vue-BUuIdk0a.png                                  39.81 kB
+dist/assets/ant-design-vue-y3lELn7f.png                                   41.63 kB
+dist/assets/examples-DmjW74y0.js.br                                       45.11 kB
+dist/assets/supabase-BHTFaxCN.js.br                                       45.19 kB
+dist/assets/vue-ui-world-BJq4PZqF-CxKKYMmt.js.br                          48.21 kB
+dist/assets/supabase-BHTFaxCN.js.gz                                       53.18 kB
+dist/assets/vue-ui-world-BJq4PZqF-CxKKYMmt.js.gz                          55.56 kB
+dist/assets/iconfont.1785391082558-BKeHq76J.ttf                           55.88 kB
+dist/assets/examples-DmjW74y0.js.gz                                       59.14 kB
+dist/assets/src-BwCXMXTV.js.br                                           119.94 kB
+dist/assets/index-FXYnBcdc.css.br                                        131.95 kB
+dist/assets/layouts-BsbAfSEv.js.br                                       137.10 kB
+dist/assets/src-BwCXMXTV.js.gz                                           144.77 kB
+dist/assets/index-FXYnBcdc.css.gz                                        168.19 kB
+dist/assets/layouts-BsbAfSEv.js.gz                                       173.63 kB
+dist/assets/echarts-Be_P9hBx.js.br                                       297.91 kB
+dist/assets/tinymce-C-yV5spn.js.br                                       319.71 kB
+dist/assets/echarts-Be_P9hBx.js.gz                                       367.38 kB
+dist/assets/tinymce-C-yV5spn.js.gz                                       418.50 kB
+dist/assets/vchart-Cb-As6cN.js.br                                        424.67 kB
+dist/assets/vchart-Cb-As6cN.js.gz                                        539.97 kB
+dist/assets/index-GOt32fcE.js.br                                         550.51 kB
+dist/assets/index-GOt32fcE.js.gz                                         707.58 kB
+dist/assets/JsxComp-DFKLFjk5.css                                           0.09 kB │ gzip:   0.09 kB
+dist/assets/templates-ytH5dd8o.css                                         0.26 kB │ gzip:   0.20 kB
+dist/assets/jsx_example-D8_yWl5M.css                                       0.27 kB │ gzip:   0.13 kB
+dist/assets/reset-password-EI_m74QD.css                                    0.52 kB │ gzip:   0.25 kB
+dist/assets/deliveries-prSkdZNG.css                                        0.59 kB │ gzip:   0.29 kB
+dist/assets/ui_example-BU5E-mpr.css                                        0.89 kB │ gzip:   0.27 kB
+dist/assets/auth-BqKVJW9b.css                                              0.91 kB │ gzip:   0.42 kB
+dist/assets/messaging-PxVKbG9J.css                                         1.15 kB │ gzip:   0.44 kB
+dist/assets/splitpanes-CLJgwmnT.css                                        3.34 kB │ gzip:   0.76 kB
+dist/assets/cropper-DvqIOoBP.css                                           3.73 kB │ gzip:   1.23 kB
+dist/assets/login-D1j02ezL.css                                             4.15 kB │ gzip:   0.89 kB
+dist/assets/swiper-BYng52-g.css                                           15.61 kB │ gzip:   2.56 kB
+dist/assets/src-kMoYMedZ.css                                              18.30 kB │ gzip:   3.70 kB
+dist/assets/animation-DcQu0ADv.css                                        24.23 kB │ gzip:   3.21 kB
+dist/assets/layouts-B2_GFrTl.css                                          37.90 kB │ gzip:   3.85 kB
+dist/assets/vue-data-ui-DsPBjTKO.css                                     177.32 kB │ gzip:  20.31 kB
+dist/assets/index-FXYnBcdc.css                                         1,113.76 kB │ gzip: 168.68 kB
+dist/assets/useToast-Bc61ZLuX.js                                           0.07 kB │ gzip:   0.08 kB
+dist/assets/login-banner-Bd40XH_F.js                                       0.08 kB │ gzip:   0.10 kB
+dist/assets/_plugin-vue_export-helper-B3ysoDQm-BDNMzG2s.js                 0.08 kB │ gzip:   0.09 kB
+dist/assets/_plugin-vue_export-helper-BDNMzG2s.js                          0.08 kB │ gzip:   0.09 kB
+dist/assets/__vite-optional-peer-dep_jspdf_vue-data-ui-t5dhqR-O.js         0.11 kB │ gzip:   0.12 kB
+dist/assets/rolldown-runtime-Dy4uBu1J-DK3Fl9T5.js                          0.15 kB │ gzip:   0.15 kB
+dist/assets/useNestedProp-BYfiWVP8-DbrxFlsg.js                             0.18 kB │ gzip:   0.15 kB
+dist/assets/compliance-DRodjTHl.js                                         0.22 kB │ gzip:   0.20 kB
+dist/assets/reload-B_QpKrgO.js                                             0.24 kB │ gzip:   0.21 kB
+dist/assets/vClickOutside-DUrZWttG-BxNzkY17.js                             0.24 kB │ gzip:   0.16 kB
+dist/assets/page-BUqke0gz.js                                               0.26 kB │ gzip:   0.21 kB
+dist/assets/useMountedDelay-BAjrhRJb-rXAUqYir.js                           0.27 kB │ gzip:   0.21 kB
+dist/assets/useStoreScopedPage-CZXdmWlV.js                                 0.30 kB │ gzip:   0.23 kB
+dist/assets/usePrefersMotion-BC-CsqR1-Ctsp4D2U.js                          0.34 kB │ gzip:   0.24 kB
+dist/assets/page-Cqe43NP3.js                                               0.36 kB │ gzip:   0.29 kB
+dist/assets/catalog-1SmqwIyv.js                                            0.36 kB │ gzip:   0.30 kB
+dist/assets/page-CSYEowNf.js                                               0.36 kB │ gzip:   0.29 kB
+dist/assets/page1-D0-DHgmb.js                                              0.36 kB │ gzip:   0.29 kB
+dist/assets/page2-BCh2yHc8.js                                              0.36 kB │ gzip:   0.29 kB
+dist/assets/format-BSGF2yep.js                                             0.37 kB │ gzip:   0.23 kB
+dist/assets/PackageVersion-BUmadjVO-D-GRfJH2.js                            0.38 kB │ gzip:   0.29 kB
+dist/assets/test-BEg6ear7.js                                               0.38 kB │ gzip:   0.34 kB
+dist/assets/detail1-COZZ8k6k.js                                            0.38 kB │ gzip:   0.32 kB
+dist/assets/detail2-COZZ8k6k.js                                            0.38 kB │ gzip:   0.32 kB
+dist/assets/useUserOptionState-DK-_1ddE-CLVfeEV1.js                        0.39 kB │ gzip:   0.25 kB
+dist/assets/JsxComp-C-dz4tgO.js                                            0.40 kB │ gzip:   0.34 kB
+dist/assets/useChartAccessibility-DYqac8yF-BvIqBMvy.js                     0.41 kB │ gzip:   0.28 kB
+dist/assets/useTableResponsive-BAqJPR68-D3CWNa3A.js                        0.44 kB │ gzip:   0.31 kB
+dist/assets/billing-B_lniC46.js                                            0.45 kB │ gzip:   0.33 kB
+dist/assets/KbdGroup-DRk6rVz8.js                                           0.46 kB │ gzip:   0.33 kB
+dist/assets/useThemeCheck-C43Tcqmk-BefFDA_f.js                             0.47 kB │ gzip:   0.32 kB
+dist/assets/operations-B_YNhQ4U.js                                         0.50 kB │ gzip:   0.39 kB
+dist/assets/alert-BkIJvsLP.js                                              0.50 kB │ gzip:   0.41 kB
+dist/assets/labelUtils-DYdYmN_Q-BaGiRQtY.js                                0.51 kB │ gzip:   0.31 kB
+dist/assets/list1-Ch_Ehge0.js                                              0.53 kB │ gzip:   0.39 kB
+dist/assets/list2-CGLaXXJU.js                                              0.53 kB │ gzip:   0.39 kB
+dist/assets/pagination-DFThDuGL.js                                         0.54 kB │ gzip:   0.30 kB
+dist/assets/WorkflowFixedBar-BCwxtJmw.js                                   0.60 kB │ gzip:   0.39 kB
+dist/assets/tag-Blqnsy-i.js                                                0.61 kB │ gzip:   0.41 kB
+dist/assets/card-Ch0vPZd6.js                                               0.61 kB │ gzip:   0.41 kB
+dist/assets/icon-CuadjC0R.js                                               0.61 kB │ gzip:   0.41 kB
+dist/assets/alert-Bg7FtdBR.js                                              0.61 kB │ gzip:   0.41 kB
+dist/assets/badge-Tu7RVmEa.js                                              0.61 kB │ gzip:   0.41 kB
+dist/assets/label-Bdo4M8pu.js                                              0.61 kB │ gzip:   0.42 kB
+dist/assets/modal-DIdfQt78.js                                              0.61 kB │ gzip:   0.42 kB
+dist/assets/table-BKDe_8xa.js                                              0.61 kB │ gzip:   0.41 kB
+dist/assets/tabs-CPHJlzJs.js                                               0.62 kB │ gzip:   0.42 kB
+dist/assets/drawer-D-c8Xl0M.js                                             0.62 kB │ gzip:   0.41 kB
+dist/assets/switch-B1lUETlm.js                                             0.62 kB │ gzip:   0.42 kB
+dist/assets/input-DOadEDoJ.js                                              0.62 kB │ gzip:   0.42 kB
+dist/assets/toast-BNhp4AU3.js                                              0.62 kB │ gzip:   0.42 kB
+dist/assets/popover-CufXYdpW.js                                            0.62 kB │ gzip:   0.43 kB
+dist/assets/textarea-DFmb0672.js                                           0.62 kB │ gzip:   0.42 kB
+dist/assets/page_main-q4L7Cia7.js                                          0.62 kB │ gzip:   0.42 kB
+dist/assets/pagination-d_prmFsb.js                                         0.62 kB │ gzip:   0.42 kB
+dist/assets/tooltip-Coqmhvtc.js                                            0.62 kB │ gzip:   0.43 kB
+dist/assets/form-aci_QKG3.js                                               0.63 kB │ gzip:   0.42 kB
+dist/assets/page_header-NocXun9u.js                                        0.63 kB │ gzip:   0.42 kB
+dist/assets/dropdown-Rw8oxa4T.js                                           0.63 kB │ gzip:   0.43 kB
+dist/assets/hover_card-DCBoIlgw.js                                         0.63 kB │ gzip:   0.43 kB
+dist/assets/search_bar-BmGEWB-v.js                                         0.63 kB │ gzip:   0.43 kB
+dist/assets/file_upload-BA1RiBtV.js                                        0.63 kB │ gzip:   0.43 kB
+dist/assets/scroll_area-ClA-BMI-.js                                        0.63 kB │ gzip:   0.43 kB
+dist/assets/button-Csg2EINK.js                                             0.63 kB │ gzip:   0.43 kB
+dist/assets/collapsible-BauD_Im2.js                                        0.63 kB │ gzip:   0.43 kB
+dist/assets/context_menu-X__JeWZL.js                                       0.63 kB │ gzip:   0.43 kB
+dist/assets/image_upload-CH3_lE61.js                                       0.63 kB │ gzip:   0.43 kB
+dist/assets/descriptions-BNJGdiDd.js                                       0.63 kB │ gzip:   0.43 kB
+dist/assets/image_preview-C6kGRO9e.js                                      0.64 kB │ gzip:   0.44 kB
+dist/assets/input_otp-C4GwElxW.js                                          0.64 kB │ gzip:   0.45 kB
+dist/assets/password_strength-C6BZuoSh.js                                  0.64 kB │ gzip:   0.44 kB
+dist/assets/command-BcR-aKg1.js                                            0.66 kB │ gzip:   0.45 kB
+dist/assets/label-DSTsjOdF.js                                              0.68 kB │ gzip:   0.44 kB
+dist/assets/keep_alive_example-BSHNzz8J.js                                 0.70 kB │ gzip:   0.53 kB
+dist/assets/defineProperty-BbfpZ9Tg.js                                     0.70 kB │ gzip:   0.39 kB
+dist/assets/fixed-bar-UQy0VxBW.js                                          0.71 kB │ gzip:   0.46 kB
+dist/assets/kbd-BnGG2FsK.js                                                0.76 kB │ gzip:   0.47 kB
+dist/assets/useApi-CROJJdhE-DcPxsXnv.js                                    0.83 kB │ gzip:   0.45 kB
+dist/assets/trend-0Q8Kifyb.js                                              0.84 kB │ gzip:   0.59 kB
+dist/assets/inventory-Bi5jFUE3.js                                          0.84 kB │ gzip:   0.43 kB
+dist/assets/BaseScanner-DZvpgOjM-EdZwVA9f.js                               0.86 kB │ gzip:   0.55 kB
+dist/assets/clinical-Bz08nSXW.js                                           0.89 kB │ gzip:   0.51 kB
+dist/assets/fake_example-CEPOa7PA.js                                       0.89 kB │ gzip:   0.66 kB
+dist/assets/scroll-VJQiGJtV.js                                             0.93 kB │ gzip:   0.66 kB
+dist/assets/progress-Dorm7Nhp.js                                           0.96 kB │ gzip:   0.64 kB
+dist/assets/DefGrad-DVBqDjhO-Qhsc3WTM.js                                   0.96 kB │ gzip:   0.48 kB
+dist/assets/customer-CQJd-w10.js                                           0.96 kB │ gzip:   0.63 kB
+dist/assets/reload-w_uGDonn.js                                             0.98 kB │ gzip:   0.67 kB
+dist/assets/EmptyState-Cx1EVOM9.js                                         1.01 kB │ gzip:   0.58 kB
+dist/assets/leavetips-GbmUnsmq.js                                          1.03 kB │ gzip:   0.74 kB
+dist/assets/useUnsavedChangesGuard-6kzLB3xJ.js                             1.03 kB │ gzip:   0.64 kB
+dist/assets/useAutoSizeLabelsInsideViewbox-CSzmRywi-C2sNTofz.js            1.03 kB │ gzip:   0.61 kB
+dist/assets/Label-W78-wvXk.js                                              1.05 kB │ gzip:   0.57 kB
+dist/assets/logo-B2wAro8n.js                                               1.07 kB │ gzip:   0.45 kB
+dist/assets/EntityPageHeader-Bd1ul2It.js                                   1.07 kB │ gzip:   0.61 kB
+dist/assets/RecursiveLabels-D9rfID6q-trsaoJIa.js                           1.08 kB │ gzip:   0.61 kB
+dist/assets/page-header-BMMhIGgF.js                                        1.09 kB │ gzip:   0.59 kB
+dist/assets/diagnostics-DywsnnQY.js                                        1.13 kB │ gzip:   0.61 kB
+dist/assets/A11yDataTable-DdRsVULz-Pzx-Wsq7.js                             1.16 kB │ gzip:   0.62 kB
+dist/assets/PasswordForm-Bibg3OLu.js                                       1.17 kB │ gzip:   0.71 kB
+dist/assets/checkbox-l5bshQJh.js                                           1.17 kB │ gzip:   0.64 kB
+dist/assets/EntityStatusTag-DQBI9RKZ.js                                    1.18 kB │ gzip:   0.63 kB
+dist/assets/TablePrimaryAction-DyN3kXyQ.js                                 1.18 kB │ gzip:   0.67 kB
+dist/assets/preload-helper-HclGiUj8.js                                     1.21 kB │ gzip:   0.67 kB
+dist/assets/BaseLegendToggle-DJU4VsLO-CIZRn9AN.js                          1.21 kB │ gzip:   0.70 kB
+dist/assets/compliance-Cq7o6qMx.js                                         1.22 kB │ gzip:   0.49 kB
+dist/assets/useFitSvgText-CXTzBplU-BwThahJu.js                             1.23 kB │ gzip:   0.68 kB
+dist/assets/tenant-DQMrhK3_.js                                             1.24 kB │ gzip:   0.55 kB
+dist/assets/CustomerPicker-CpfCTsYQ.js                                     1.28 kB │ gzip:   0.79 kB
+dist/assets/useStableElementSize-C7KADDKj-Bwl3ThqA.js                      1.28 kB │ gzip:   0.68 kB
+dist/assets/PermissionButton-BmiDG6I_.js                                   1.29 kB │ gzip:   0.64 kB
+dist/assets/store-C9Nb_ZAo.js                                              1.31 kB │ gzip:   0.60 kB
+dist/assets/jsx_example-CFNUCinL.js                                        1.34 kB │ gzip:   0.78 kB
+dist/assets/RoleChangeForm-C-Yyy_DO.js                                     1.36 kB │ gzip:   0.81 kB
+dist/assets/menuswitch-c80J07dJ.js                                         1.37 kB │ gzip:   0.75 kB
+dist/assets/EmployeePicker-DLDhiZxi.js                                     1.37 kB │ gzip:   0.83 kB
+dist/assets/useTimeLabelCollider-AEcY4Ioe-BABYbKr3.js                      1.40 kB │ gzip:   0.79 kB
+dist/assets/StoreSelector-DBiTh5FZ.js                                      1.48 kB │ gzip:   0.80 kB
+dist/assets/detail-ZCb6HRHU.js                                             1.49 kB │ gzip:   0.84 kB
+dist/assets/vxe-table-CXmsJw60.js                                          1.49 kB │ gzip:   0.78 kB
+dist/assets/PetSafetyBanner-aQXJeaGK.js                                    1.58 kB │ gzip:   0.83 kB
+dist/assets/_...all_-BXiDm-dA.js                                           1.60 kB │ gzip:   0.76 kB
+dist/assets/tabbar-D8WbMo1w.js                                             1.62 kB │ gzip:   0.66 kB
+dist/assets/file-CSxDK4fH.js                                               1.66 kB │ gzip:   0.77 kB
+dist/assets/usePrinter-C5ordS-4-DIHXiUik.js                                1.70 kB │ gzip:   0.81 kB
+dist/assets/SparkTooltip-GjWLZ39s-_QMNmhus.js                              1.72 kB │ gzip:   0.85 kB
+dist/assets/closing-D2MbcbMe.js                                            1.73 kB │ gzip:   0.84 kB
+dist/assets/RecursiveLinks-BygcpDiT-DZGKUUz8.js                            1.77 kB │ gzip:   0.71 kB
+dist/assets/EntitySummaryHeader-Dtjngnu3.js                                1.78 kB │ gzip:   0.82 kB
+dist/assets/role-Dd0xzjkm.js                                               1.89 kB │ gzip:   0.71 kB
+dist/assets/pdf-CuSS-5_j-FPbzH5lY.js                                       1.90 kB │ gzip:   1.03 kB
+dist/assets/ChartCard-CBzamgRU.js                                          2.02 kB │ gzip:   1.02 kB
+dist/assets/PetPicker-DkzLeXiK.js                                          2.03 kB │ gzip:   1.13 kB
+dist/assets/CatalogItemPicker-CX79iiDN.js                                  2.04 kB │ gzip:   1.14 kB
+dist/assets/Title-Thf71-8D-C4nxLxI-.js                                     2.08 kB │ gzip:   0.69 kB
+dist/assets/tabbar-EC5ngGs0.js                                             2.15 kB │ gzip:   0.76 kB
+dist/assets/vueuse-DsOjOpBN.js                                             2.15 kB │ gzip:   1.21 kB
+dist/assets/settings-BX262mFq.js                                           2.18 kB │ gzip:   0.61 kB
+dist/assets/divider-sbQwDun6.js                                            2.19 kB │ gzip:   0.89 kB
+dist/assets/DetailForm-DZGtv9py.js                                         2.26 kB │ gzip:   1.08 kB
+dist/assets/app-BVctwJty.js                                                2.30 kB │ gzip:   0.79 kB
+dist/assets/RecursiveCircles-D6aDPmoe-DgJ-zzni.js                          2.41 kB │ gzip:   1.03 kB
+dist/assets/billing-iDJgt3AT.js                                            2.43 kB │ gzip:   0.79 kB
+dist/assets/role-BC6na0nR.js                                               2.44 kB │ gzip:   1.40 kB
+dist/assets/kbd-yAjUZCfn.js                                                2.44 kB │ gzip:   0.94 kB
+dist/assets/Shape-Dmh9jBFh-B2aZ5PK0.js                                     2.44 kB │ gzip:   0.95 kB
+dist/assets/vue-ui-accordion-FimGHtuy-CqnAhuxe.js                          2.49 kB │ gzip:   1.16 kB
+dist/assets/ColorScheme-CiGIG7uH.js                                        2.50 kB │ gzip:   1.17 kB
+dist/assets/fixed_bar-B_9cseWk.js                                          2.53 kB │ gzip:   1.13 kB
+dist/assets/regulatory-257u3QvX.js                                         2.56 kB │ gzip:   0.90 kB
+dist/assets/number_field-qDw-jj8P.js                                       2.67 kB │ gzip:   0.90 kB
+dist/assets/StoreForm-Bpsn2sdv.js                                          2.68 kB │ gzip:   1.19 kB
+dist/assets/api-BSqC0Bgp.js                                                2.69 kB │ gzip:   1.13 kB
+dist/assets/img-zY7_pJz1-B79Shrfh.js                                       2.69 kB │ gzip:   1.17 kB
+dist/assets/user-Bx0cXfKc.js                                               2.70 kB │ gzip:   0.89 kB
+dist/assets/card-DSXClY1K.js                                               2.78 kB │ gzip:   0.84 kB
+dist/assets/avatar-Dw3P3xo5.js                                             2.91 kB │ gzip:   1.05 kB
+dist/assets/BaseZoomControls-CwhpsHIL-Bos3H6Ao.js                          3.01 kB │ gzip:   0.97 kB
+dist/assets/CheckboxGroup-Bu8d2vwp.js                                      3.03 kB │ gzip:   1.43 kB
+dist/assets/KpiCard-DkygNThk.js                                            3.05 kB │ gzip:   1.57 kB
+dist/assets/inventory-pi4Mo_rr.js                                          3.08 kB │ gzip:   0.79 kB
+dist/assets/Legend-DSPDFP3n-osxaq6kw.js                                    3.21 kB │ gzip:   1.61 kB
+dist/assets/customer-Ddhthav-.js                                           3.34 kB │ gzip:   1.07 kB
+dist/assets/ui_example-DY0tovVP.js                                         3.46 kB │ gzip:   1.69 kB
+dist/assets/reset-password-D-NX2JTu.js                                     3.50 kB │ gzip:   1.84 kB
+dist/assets/detail-DLTaHwU5.js                                             3.59 kB │ gzip:   1.75 kB
+dist/assets/DataTable-rIsBpJMt-sUH6T9b7.js                                 3.61 kB │ gzip:   1.66 kB
+dist/assets/UserForm-D9SsqM-L.js                                           3.63 kB │ gzip:   1.49 kB
+dist/assets/cloneDeep-Dibct7Zv.js                                          3.64 kB │ gzip:   1.31 kB
+dist/assets/vue-ui-kpi-EenGDZ-l-CKs0Y42t.js                                3.73 kB │ gzip:   1.60 kB
+dist/assets/clinical-1PZ2aEU8.js                                           3.85 kB │ gzip:   1.92 kB
+dist/assets/avatar-DggW2Uey.js                                             3.90 kB │ gzip:   1.45 kB
+dist/assets/usePanZoom-CYU3B4T3-ClDgeXBq.js                                4.06 kB │ gzip:   1.51 kB
+dist/assets/InvoicePicker-ChCCgybF.js                                      4.13 kB │ gzip:   1.37 kB
+dist/assets/store-BMeYHjOI.js                                              4.24 kB │ gzip:   2.07 kB
+dist/assets/vue-ui-mini-loader-CA7XxPk7-CxglksYm.js                        4.29 kB │ gzip:   1.33 kB
+dist/assets/dashboard-BhHN-jPO.js                                          4.34 kB │ gzip:   1.99 kB
+dist/assets/dashboard-DGql4QaL.js                                          4.36 kB │ gzip:   2.18 kB
+dist/assets/inventory-0fxFY4g9.js                                          4.44 kB │ gzip:   2.06 kB
+dist/assets/customers-htuiyGGH.js                                          4.54 kB │ gzip:   2.24 kB
+dist/assets/reminder-C8K1Mjwk.js                                           4.58 kB │ gzip:   2.18 kB
+dist/assets/count-siGnTzML.js                                              4.66 kB │ gzip:   2.27 kB
+dist/assets/descriptions-BC560KFi.js                                       4.81 kB │ gzip:   1.67 kB
+dist/assets/useResponsive-ZtArZtUf-C91fblUm.js                             4.89 kB │ gzip:   1.43 kB
+dist/assets/echarts-0T7QUiRu.js                                            5.02 kB │ gzip:   2.08 kB
+dist/assets/slider-xQns3NJ4.js                                             5.30 kB │ gzip:   1.28 kB
+dist/assets/vue-ui-digits-BnMqGAhl-qRhJ9sSu.js                             5.36 kB │ gzip:   1.63 kB
+dist/assets/dashboard-EYkvTfZT.js                                          5.37 kB │ gzip:   2.25 kB
+dist/assets/customer-h9KFEarW.js                                           5.41 kB │ gzip:   2.53 kB
+dist/assets/deliveries-DtuCLAMY.js                                         5.41 kB │ gzip:   2.56 kB
+dist/assets/select-FHBBtMvB.js                                             5.47 kB │ gzip:   1.31 kB
+dist/assets/vue-ui-gizmo-DyxeSKIk-BTcx673R.js                              5.48 kB │ gzip:   2.38 kB
+dist/assets/Tooltip-CEbqzIhL-XdluRJWJ.js                                   5.59 kB │ gzip:   2.27 kB
+dist/assets/handover-CbfHd_bj.js                                           5.62 kB │ gzip:   2.39 kB
+dist/assets/auth_example-3N407sY2.js                                       5.62 kB │ gzip:   1.75 kB
+dist/assets/devtools-Bpr7ZAVB-R4s68mQv.js                                  5.65 kB │ gzip:   2.55 kB
+dist/assets/ColorPicker-BVWrKEQl-B_vcFvbe.js                               5.70 kB │ gzip:   2.02 kB
+dist/assets/revenue-BSJaCFcp.js                                            5.73 kB │ gzip:   2.79 kB
+dist/assets/waiting-Bgm55NdI.js                                            5.82 kB │ gzip:   2.59 kB
+dist/assets/followups-2zzjgATT.js                                          5.89 kB │ gzip:   2.73 kB
+dist/assets/useTimeLabels-B9CEuiLZ-CWEe78uq.js                             5.99 kB │ gzip:   2.35 kB
+dist/assets/veterinarian-registration-DpHsfIUt.js                          6.15 kB │ gzip:   2.35 kB
+dist/assets/vue-ui-cursor-DEf_l0Xc-B_i3AM5S.js                             6.44 kB │ gzip:   2.28 kB
+dist/assets/clinical-KYsvf9qL.js                                           6.48 kB │ gzip:   1.47 kB
+dist/assets/tenant-init-gmJMRiOj.js                                        6.51 kB │ gzip:   2.61 kB
+dist/assets/appointment-B1s2Afme.js                                        6.62 kB │ gzip:   2.94 kB
+dist/assets/operations-DdVFydb4.js                                         6.80 kB │ gzip:   1.44 kB
+dist/assets/tenants-sch_Wu9H.js                                            6.99 kB │ gzip:   2.97 kB
+dist/assets/transfer-CJDCaYpe.js                                           7.06 kB │ gzip:   2.69 kB
+dist/assets/progress-notes-Bd988CLo.js                                     7.15 kB │ gzip:   2.83 kB
+dist/assets/templates-B5hXxRQc.js                                          7.24 kB │ gzip:   2.99 kB
+dist/assets/user-iaGXm10G.js                                               7.33 kB │ gzip:   3.17 kB
+dist/assets/animation-BnGS8ity.js                                          7.34 kB │ gzip:   1.78 kB
+dist/assets/login-NVVU0LJ7.js                                              7.38 kB │ gzip:   3.01 kB
+dist/assets/views-DhZZTGy7.js                                              7.43 kB │ gzip:   2.77 kB
+dist/assets/dom-to-png-BbPRUKX6-CWMLafQI.js                                7.45 kB │ gzip:   2.72 kB
+dist/assets/radio_group-CckhwzQS.js                                        7.53 kB │ gzip:   2.49 kB
+dist/assets/BaseDraggableDialog-hyW32gLf-BEBAv13m.js                       7.63 kB │ gzip:   2.58 kB
+dist/assets/inpatient-B9dw8b0Q.js                                          7.69 kB │ gzip:   2.44 kB
+dist/assets/billing-B4ltZqmQ.js                                            8.02 kB │ gzip:   3.40 kB
+dist/assets/annual-report-jUOuScWh.js                                      8.04 kB │ gzip:   3.44 kB
+dist/assets/detail-c1oWeryM.js                                             8.12 kB │ gzip:   3.05 kB
+dist/assets/geoProjections-BCP_PoiB-BG3HD0bZ.js                            8.21 kB │ gzip:   3.29 kB
+dist/assets/vue-data-ui-DrJQCOL9.js                                        8.23 kB │ gzip:   2.81 kB
+dist/assets/list-By3VJc-H.js                                               8.31 kB │ gzip:   3.28 kB
+dist/assets/vue-ui-sparkgauge-VSiPVgUQ-D5-1g4Lo.js                         8.35 kB │ gzip:   3.06 kB
+dist/assets/admission-CtRzgCmM.js                                          8.77 kB │ gzip:   3.60 kB
+dist/assets/reconciliation-sxyPbzHf.js                                     8.84 kB │ gzip:   3.63 kB
+dist/assets/closing-BniqQzvG.js                                            9.40 kB │ gzip:   3.70 kB
+dist/assets/suppliers-C76Qraxk.js                                          9.45 kB │ gzip:   3.59 kB
+dist/assets/lab-samples-DYi-gVrm.js                                        9.47 kB │ gzip:   3.54 kB
+dist/assets/approvals-BJgqnZbn.js                                          9.61 kB │ gzip:   3.97 kB
+dist/assets/vaccination-Cbu1Xj4j.js                                        9.61 kB │ gzip:   3.44 kB
+dist/assets/vue-ui-table-heatmap-1LTxQfQX-DmfDCsdT.js                      9.62 kB │ gzip:   3.65 kB
+dist/assets/settings-Crb6EyVk.js                                           9.99 kB │ gzip:   4.30 kB
+dist/assets/reports-CAUhhMBa.js                                           10.01 kB │ gzip:   3.78 kB
+dist/assets/settlement-CMi_MnGW.js                                        10.05 kB │ gzip:   3.82 kB
+dist/assets/critical-values-CKr9TKcO.js                                   10.17 kB │ gzip:   3.72 kB
+dist/assets/epidemic-C3zAqby0.js                                          10.24 kB │ gzip:   3.58 kB
+dist/assets/vue-ui-sparkbar-DeSSqv4v-DZ5YQ08K.js                          10.60 kB │ gzip:   3.54 kB
+dist/assets/vue-ui-rating-B7ApWpIJ-B6OLsr4c.js                            10.61 kB │ gzip:   3.09 kB
+dist/assets/RoleForm-Cqu4-Bpq.js                                          10.62 kB │ gzip:   3.37 kB
+dist/assets/medical-waste-BcykTtid.js                                     10.69 kB │ gzip:   3.82 kB
+dist/assets/license-D_15bW3Q.js                                           10.79 kB │ gzip:   3.78 kB
+dist/assets/medical-orders-BCmdZzaW.js                                    11.05 kB │ gzip:   4.12 kB
+dist/assets/component-demo-CrPePuRL.js                                    11.06 kB │ gzip:   3.96 kB
+dist/assets/receipt-PakDwQoP.js                                           11.10 kB │ gzip:   3.76 kB
+dist/assets/nursing-5En-E17J.js                                           11.14 kB │ gzip:   3.89 kB
+dist/assets/nurse-tasks-M8kM2IMI.js                                       11.28 kB │ gzip:   4.13 kB
+dist/assets/detail-DN4_KEu1.js                                            11.64 kB │ gzip:   4.03 kB
+dist/assets/FollowupDetailDrawer-GoRyaYdn.js                              11.88 kB │ gzip:   3.85 kB
+dist/assets/splitpanes-fEFoBrqV.js                                        12.07 kB │ gzip:   4.30 kB
+dist/assets/vue-ui-spark-trend-CW4cLUqP-Z5S-MIFg.js                       13.40 kB │ gzip:   4.43 kB
+dist/assets/audit-gmKPOKng.js                                             13.45 kB │ gzip:   4.56 kB
+dist/assets/vue-ui-timer-BVjydam--DzYmptlG.js                             13.51 kB │ gzip:   4.06 kB
+dist/assets/polyfills-7VnE6ArO.js                                         13.52 kB │ gzip:   5.16 kB
+dist/assets/slider-yd9G3gnr.js                                            13.63 kB │ gzip:   4.29 kB
+dist/assets/detail-sOS1l0ih.js                                            13.85 kB │ gzip:   4.43 kB
+dist/assets/diagnostics-BRLOv0qz.js                                       14.02 kB │ gzip:   2.62 kB
+dist/assets/vue-ui-carousel-table-BD_fxykj-BD4_3jJX.js                    14.04 kB │ gzip:   4.79 kB
+dist/assets/esign-G9eK6B5K.js                                             14.22 kB │ gzip:   5.50 kB
+dist/assets/vue-ui-smiley-DZBPvVeN-AiJBi4yd.js                            14.81 kB │ gzip:   3.67 kB
+dist/assets/checkbox-CnGZMenW.js                                          15.10 kB │ gzip:   3.44 kB
+dist/assets/memberships-WY_z2RM2.js                                       15.32 kB │ gzip:   4.71 kB
+dist/assets/lab-BtAhaEld.js                                               15.36 kB │ gzip:   5.46 kB
+dist/assets/cashier-4oURkN_C.js                                           16.03 kB │ gzip:   6.01 kB
+dist/assets/workbench-C9Dj9T0x.js                                         16.04 kB │ gzip:   5.48 kB
+dist/assets/NonSvgPenAndPaper-DZyYthbM-vn85I5Op.js                        16.16 kB │ gzip:   5.10 kB
+dist/assets/print-DDhCPOsj.js                                             16.17 kB │ gzip:   5.57 kB
+dist/assets/CatalogItemForm-t6ejz1oH.js                                   16.30 kB │ gzip:   4.19 kB
+dist/assets/rules-z-THk0rU.js                                             16.64 kB │ gzip:   7.70 kB
+dist/assets/vue-ui-sparkhistogram-B5252IVr-CUmTHAGL.js                    16.84 kB │ gzip:   5.19 kB
+dist/assets/documents-DF67r8ma.js                                         17.19 kB │ gzip:   6.23 kB
+dist/assets/PenAndPaper-D--sbRMA-BbB5Q1px.js                              17.23 kB │ gzip:   5.66 kB
+dist/assets/print-D0iNQeJj.js                                             17.84 kB │ gzip:   6.13 kB
+dist/assets/purchasing-Dk6KZcVP.js                                        18.11 kB │ gzip:   5.65 kB
+dist/assets/vue-ui-tiremarks-3ZBAE8SA-D3U_XauD.js                         18.39 kB │ gzip:   6.00 kB
+dist/assets/messaging-CXy4kW9n.js                                         18.97 kB │ gzip:   6.15 kB
+dist/assets/hooks.plus-D-cGVvKI.js                                        19.03 kB │ gzip:   6.67 kB
+dist/assets/imaging-ChJABrxP.js                                           19.17 kB │ gzip:   6.18 kB
+dist/assets/vue-ui-sparkstackbar-CiLgNzaI-AZdHLQ7b.js                     20.26 kB │ gzip:   6.46 kB
+dist/assets/number-field-CZWr3GKi.js                                      20.53 kB │ gzip:   6.65 kB
+dist/assets/vue-ui-table-sparkline-CyGqW88t-D7TKrJgN.js                   20.93 kB │ gzip:   6.45 kB
+dist/assets/currency.input-tAEO3WeW.js                                    21.10 kB │ gzip:   6.72 kB
+dist/assets/vue-ui-thermometer-CNvTQJUq-CQ2EYyEK.js                       21.29 kB │ gzip:   6.58 kB
+dist/assets/reactivity.esm-bundler-D9OPVc9J.js                            21.75 kB │ gzip:   8.23 kB
+dist/assets/useSvgExport-Ba9qBr9M-DqOQchzc.js                             22.74 kB │ gzip:   7.51 kB
+dist/assets/settings-CcwX8KB8.js                                          22.82 kB │ gzip:   6.20 kB
+dist/assets/catalog-iAR9iVWW.js                                           23.21 kB │ gzip:   5.52 kB
+dist/assets/vue-ui-bullet-CKg0bShN-B01l-VnL.js                            23.40 kB │ gzip:   6.92 kB
+dist/assets/detail-CqNm6JEz.js                                            23.54 kB │ gzip:   6.86 kB
+dist/assets/runtime-dom.esm-bundler-Dnva3vcP.js                           23.85 kB │ gzip:   9.43 kB
+dist/assets/vue-ui-relation-circle-LVOR5VZ6-DKW1GBM6.js                   24.99 kB │ gzip:   8.10 kB
+dist/assets/vue-ui-funnel-DSpUMyDO-DU6LEYpW.js                            25.69 kB │ gzip:   7.42 kB
+dist/assets/vue-data-ui-D3jZ4lg1-BSjSj1vO.js                              26.16 kB │ gzip:   7.04 kB
+dist/assets/Slicer-JdCzBeYM-Bw01v8mI.js                                   26.69 kB │ gzip:   7.46 kB
+dist/assets/vue-ui-molecule-5rpD2mlK-BWbLokj4.js                          26.81 kB │ gzip:   8.17 kB
+dist/assets/vue-ui-wheel-D-VVxvxY-DvT1aUax.js                             27.46 kB │ gzip:   7.99 kB
+dist/assets/vue-ui-dashboard-mGLvP0UA-PZibeaWd.js                         28.38 kB │ gzip:   7.53 kB
+dist/assets/imports-OaRV7b2f.js                                           28.76 kB │ gzip:   9.65 kB
+dist/assets/vue-ui-gauge-CegUK3FD-1dcJsOAW.js                             29.14 kB │ gzip:   8.25 kB
+dist/assets/boarding-DmWSH0ne.js                                          29.97 kB │ gzip:   8.44 kB
+dist/assets/vue-ui-mood-radar-TWo57SKD-BZitluHP.js                        33.15 kB │ gzip:   9.96 kB
+dist/assets/vue-ui-galaxy-CxKafV1X-D4uNbDn1.js                            33.84 kB │ gzip:  10.17 kB
+dist/assets/vue-ui-bump-CG3WTTFy-daY7KUkv.js                              35.78 kB │ gzip:  10.23 kB
+dist/assets/vue-ui-flow-CnateJjc-BTsx7CnW.js                              36.46 kB │ gzip:  11.44 kB
+dist/assets/vue-ui-onion-CDC9AGh1-CWATNiim.js                             36.96 kB │ gzip:  10.79 kB
+dist/assets/UserOptions-BknvMNU1-CL-JMd0J.js                              37.54 kB │ gzip:   5.90 kB
+dist/assets/vue-ui-age-pyramid-D4f-Agb7-CSE13IuM.js                       37.99 kB │ gzip:  10.11 kB
+dist/assets/cropper-LytUyVnl.js                                           39.03 kB │ gzip:  12.93 kB
+dist/assets/vue-ui-rings-DEZrfBYX-P6oKCXSg.js                             39.44 kB │ gzip:  11.04 kB
+dist/assets/vue-ui-radar-BVz6Uq2k-C4JcDkq2.js                             39.48 kB │ gzip:  11.36 kB
+dist/assets/vue-ui-geo-DnO1RIFR-DfBvr5PK.js                               40.30 kB │ gzip:  12.15 kB
+dist/assets/SlicerPreview-CCIb3v8u-B9QQkMSH.js                            40.64 kB │ gzip:  10.90 kB
+dist/assets/vue-ui-parallel-coordinate-plot-DUOI7HoD-DaftlaB7.js          41.44 kB │ gzip:  11.66 kB
+dist/assets/vue-ui-chord-DCZo55QA-lPSJFBFb.js                             41.59 kB │ gzip:  11.66 kB
+dist/assets/vue-ui-sparkline-DyZdAQMl-rNdz4GMt.js                         41.89 kB │ gzip:  13.15 kB
+dist/assets/vue-ui-circle-pack--DUVDQx3-B-sIhow7.js                       41.97 kB │ gzip:  13.44 kB
+dist/assets/vue-ui-word-cloud-CcRch2t2-BAMtR9Bc.js                        42.48 kB │ gzip:  13.70 kB
+dist/assets/vue-ui-waffle-B37Yx9uw-BQDjLh4Z.js                            42.86 kB │ gzip:  12.08 kB
+dist/assets/vue-ui-dumbbell-DZ78WASa-B2rJGIxU.js                          46.45 kB │ gzip:  11.90 kB
+dist/assets/lib-C-QGo8GG-CvPpiVvZ.js                                      46.63 kB │ gzip:  18.43 kB
+dist/assets/form-ILtpC3v-.js                                              46.96 kB │ gzip:  15.58 kB
+dist/assets/vue-ui-3d-bar-D9-jAA5Z-bgqDpYMS.js                            47.80 kB │ gzip:  11.61 kB
+dist/assets/vue-ui-heatmap-6Ja5LKYE-DDC6uVo2.js                           47.97 kB │ gzip:  13.02 kB
+dist/assets/vue-ui-nested-donuts-W0TpPXIQ-DPnffpfc.js                     47.98 kB │ gzip:  12.96 kB
+dist/assets/vue-ui-treemap-FqqXQvZw-kcshi7_V.js                           49.01 kB │ gzip:  15.17 kB
+dist/assets/vue-ui-strip-plot-BquHFKHA-KxgSXI4s.js                        49.03 kB │ gzip:  13.97 kB
+dist/assets/vue-ui-history-plot-XOexkxeI-Ci155Fxd.js                      51.09 kB │ gzip:  13.43 kB
+dist/assets/vue-ui-ridgeline-BlyzSJHc-jyk_Fotv.js                         51.31 kB │ gzip:  13.37 kB
+dist/assets/BaseIcon-DJbOzCDs-QB3qJHCZ.js                                 52.32 kB │ gzip:  16.10 kB
+dist/assets/vue-ui-donut-evolution-D54NP3FP-BhlqTdzW.js                   53.41 kB │ gzip:  13.81 kB
+dist/assets/vue-ui-horizontal-bar-BCTdLxjK-BsL_8Y6h.js                    55.29 kB │ gzip:  13.69 kB
+dist/assets/vue-ui-table-DEhy61ln-DcNF-djA.js                             56.71 kB │ gzip:  13.16 kB
+dist/assets/vue-ui-candlestick-C3smYvQA-CRggMJhI.js                       57.71 kB │ gzip:  14.79 kB
+dist/assets/vue-ui-quadrant-BM9VLDcC-D2jRWz_U.js                          60.08 kB │ gzip:  14.03 kB
+dist/assets/vue-ui-skeleton-Cxszgax7--t-kruK0.js                          60.21 kB │ gzip:  11.25 kB
+dist/assets/vue-ui-chestnut-i7FYoqi8-Cn_R5sEj.js                          60.43 kB │ gzip:  12.95 kB
+dist/assets/vee-validate-zod-DiHOm4Uf.js                                  61.70 kB │ gzip:  16.85 kB
+dist/assets/vue-ui-xy-canvas-mDqjPtxh-CPFc_Zo4.js                         62.37 kB │ gzip:  15.85 kB
+dist/assets/runtime-core.esm-bundler-D-xeQwTN.js                          63.44 kB │ gzip:  25.55 kB
+dist/assets/vue-ui-quick-chart-B8XCKef--Df7fGnZC.js                       69.97 kB │ gzip:  16.96 kB
+dist/assets/vue-ui-donut-BCLG16Vb-VWZgRRKw.js                             71.25 kB │ gzip:  17.49 kB
+dist/assets/vue-ui-dag-beo3-quD-B9F1lRSs.js                               72.71 kB │ gzip:  22.83 kB
+dist/assets/vue-ui-scatter-owaIOpD0-BsDAhQq9.js                           74.61 kB │ gzip:  18.35 kB
+dist/assets/vue-ui-annotator-P9E8hpJl-CNXk9RQ6.js                         76.39 kB │ gzip:  15.44 kB
+dist/assets/vue-ui-stackbar-Bwz6Z7M4-HcQw_JtD.js                          78.79 kB │ gzip:  19.28 kB
+dist/assets/vue-ui-stackline-DX3YDRSg-B-bBOJqg.js                         81.96 kB │ gzip:  21.45 kB
+dist/assets/useConfig-C0V0eG7L-BW30Wel-.js                                84.77 kB │ gzip:  16.84 kB
+dist/assets/auth-DelRdZKG.js                                              97.72 kB │ gzip:  28.76 kB
+dist/assets/swiper-CqHKpwLF.js                                           113.74 kB │ gzip:  32.71 kB
+dist/assets/vue-ui-world-BJq4PZqF-CxKKYMmt.js                            113.89 kB │ gzip:  56.06 kB
+dist/assets/vue-ui-xy-D64AB5Qy-DEy4mgMn.js                               151.45 kB │ gzip:  36.54 kB
+dist/assets/supabase-BHTFaxCN.js                                         207.50 kB │ gzip:  53.75 kB
+dist/assets/examples-DmjW74y0.js                                         336.35 kB │ gzip:  59.66 kB
+dist/assets/layouts-BsbAfSEv.js                                          387.40 kB │ gzip: 174.88 kB
+dist/assets/src-BwCXMXTV.js                                              528.67 kB │ gzip: 146.26 kB
+dist/assets/echarts-Be_P9hBx.js                                        1,119.32 kB │ gzip: 371.23 kB
+dist/assets/tinymce-C-yV5spn.js                                        1,255.74 kB │ gzip: 422.62 kB
+dist/assets/vchart-Cb-As6cN.js                                         2,003.97 kB │ gzip: 546.08 kB
+dist/assets/index-GOt32fcE.js                                          2,464.18 kB │ gzip: 714.95 kB
+
+[33m[33m[PLUGIN_TIMINGS] [0mYour build spent significant time in plugins. Here is a breakdown:
+  - vite-plugin-app-loading (25%)
+  - unocss:global:build:scan (23%)
+  - vite-plugin-debug-plugin (9%)
+  - vite-plugin-turbo-console-bridge (6%)
+  - vite-plugin-system-copyright (6%)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+[39m
+[33m[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeS
+plitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+[2mdist/[22m[32mfavicon.svg.gz                                                [39m[1m[2m0.35 kB[1m[22m
+[2mdist/[22m[32mbrowser_upgrade/index.css.gz                                  [39m[1m[2m0.35 kB[1m[22m
+[2mdist/[22m[32mfavicon.svg.br                                                [39m[1m[2m0.32 kB[1m[22m
+[2mdist/[22m[32mbrowser_upgrade/index.css.br                                  [39m[1m[2m0.24 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/dark/content.css.gz                     [39m[1m[2m0.63 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/dark/content.css.br                     [39m[1m[2m0.50 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/default/content.css.gz                  [39m[1m[2m0.60 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/dark/content.min.css.gz                 [39m[1m[2m0.53 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/dark/content.min.css.br                 [39m[1m[2m0.41 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/default/content.css.br                  [39m[1m[2m0.46 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/default/content.min.css.gz              [39m[1m[2m0.50 kB[1m[22m
+[2mdist/[22m[32mtinymce/langs/zh-Hans.js.gz                                   [39m[1m[2m6.49 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/default/content.min.css.br              [39m[1m[2m0.40 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/document/content.css.gz                 [39m[1m[2m0.66 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/document/content.css.br                 [39m[1m[2m0.55 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/tinymce-5/content.css.gz                [39m[1m[2m0.60 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/document/content.min.css.gz             [39m[1m[2m0.57 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/document/content.min.css.br             [39m[1m[2m0.46 kB[1m[22m
+[2mdist/[22m[32mtinymce/langs/zh-Hans.js.br                                   [39m[1m[2m5.35 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/tinymce-5/content.min.css.gz            [39m[1m[2m0.50 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/tinymce-5-dark/content.css.gz           [39m[1m[2m0.63 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/tinymce-5/content.css.br                [39m[1m[2m0.46 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/tinymce-5-dark/content.min.css.gz       [39m[1m[2m0.53 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/writer/content.css.gz                   [39m[1m[2m0.61 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/tinymce-5/content.min.css.br            [39m[1m[2m0.40 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/tinymce-5-dark/content.min.css.br       [39m[1m[2m0.43 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/writer/content.min.css.gz               [39m[1m[2m0.51 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/tinymce-5-dark/content.css.br           [39m[1m[2m0.51 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/content.css.gz                         [39m[1m[2m6.06 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/writer/content.css.br                   [39m[1m[2m0.47 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/content/writer/content.min.css.br               [39m[1m[2m0.40 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/content.inline.css.gz                  [39m[1m[2m6.03 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/content.inline.min.css.gz              [39m[1m[2m5.79 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/content.min.css.gz                     [39m[1m[2m5.81 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/content.css.br                         [39m[1m[2m5.23 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/content.inline.css.br                  [39m[1m[2m5.21 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/content.inline.min.css.br              [39m[1m[2m5.03 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/content.min.css.br                     [39m[1m[2m5.05 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/skin.shadowdom.css.gz                  [39m[1m[2m0.29 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/skin.shadowdom.min.css.gz              [39m[1m[2m0.29 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/skin.shadowdom.css.br                  [39m[1m[2m0.21 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/content.css.gz                    [39m[1m[2m5.97 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/skin.shadowdom.min.css.br              [39m[1m[2m0.21 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/skin.min.css.gz                        [39m[1m[2m10.40 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/skin.css.gz                            [39m[1m[2m10.90 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/content.inline.css.gz             [39m[1m[2m6.03 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/content.css.br                    [39m[1m[2m5.16 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/content.inline.min.css.gz         [39m[1m[2m5.79 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/content.inline.css.br             [39m[1m[2m5.21 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/content.min.css.gz                [39m[1m[2m5.75 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/skin.min.css.br                        [39m[1m[2m9.09 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/content.inline.min.css.br         [39m[1m[2m5.03 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/skin.css.gz                       [39m[1m[2m10.90 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide/skin.css.br                            [39m[1m[2m9.43 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/skin.min.css.gz                   [39m[1m[2m10.40 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/skin.shadowdom.css.br             [39m[1m[2m0.21 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/skin.shadowdom.css.gz             [39m[1m[2m0.29 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/skin.shadowdom.min.css.gz         [39m[1m[2m0.29 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/skin.shadowdom.min.css.br         [39m[1m[2m0.21 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/content.min.css.br                [39m[1m[2m5.00 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/content.css.gz                     [39m[1m[2m6.06 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/content.inline.css.gz              [39m[1m[2m6.03 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/content.css.br                     [39m[1m[2m5.23 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/content.inline.min.css.gz          [39m[1m[2m5.79 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/content.inline.css.br              [39m[1m[2m5.21 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/content.min.css.gz                 [39m[1m[2m5.81 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/content.inline.min.css.br          [39m[1m[2m5.03 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/skin.css.br                       [39m[1m[2m9.40 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/oxide-dark/skin.min.css.br                   [39m[1m[2m9.05 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/skin.css.gz                        [39m[1m[2m11.20 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/skin.min.css.gz                    [39m[1m[2m10.71 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/skin.shadowdom.css.gz              [39m[1m[2m0.29 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/skin.shadowdom.css.br              [39m[1m[2m0.21 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/skin.shadowdom.min.css.gz          [39m[1m[2m0.29 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/skin.shadowdom.min.css.br          [39m[1m[2m0.21 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/content.min.css.br                 [39m[1m[2m5.05 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/content.css.gz                [39m[1m[2m5.97 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/content.inline.css.gz         [39m[1m[2m6.03 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/content.css.br                [39m[1m[2m5.16 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/content.inline.min.css.gz     [39m[1m[2m5.79 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/content.inline.css.br         [39m[1m[2m5.21 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/content.min.css.gz            [39m[1m[2m5.75 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/content.inline.min.css.br     [39m[1m[2m5.03 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/skin.min.css.br                    [39m[1m[2m9.33 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/skin.css.gz                   [39m[1m[2m11.22 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5/skin.css.br                        [39m[1m[2m9.66 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/skin.min.css.gz               [39m[1m[2m10.73 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/skin.shadowdom.css.gz         [39m[1m[2m0.29 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/skin.shadowdom.css.br         [39m[1m[2m0.21 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/skin.shadowdom.min.css.gz     [39m[1m[2m0.29 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/skin.shadowdom.min.css.br     [39m[1m[2m0.21 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/content.min.css.br            [39m[1m[2m5.00 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/skin.min.css.br               [39m[1m[2m9.31 kB[1m[22m
+[2mdist/[22m[32mtinymce/skins/ui/tinymce-5-dark/skin.css.br                   [39m[1m[2m9.65 kB[1m[22m
+[32m✓ built in 1m 41s[39m
+
+
