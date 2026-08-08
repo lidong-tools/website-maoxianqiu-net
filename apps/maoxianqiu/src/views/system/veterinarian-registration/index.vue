@@ -184,9 +184,8 @@ async function onSubmit() {
   }
 }
 
-// 复审审计 §6:切租户时重置门店筛选并重载,避免残留旧租户数据
+// 复审审计 §6:切租户时重载数据,避免残留旧租户数据
 watch(currentTenantId, () => {
-  searchStoreId.value = ''
   getDataList()
 })
 

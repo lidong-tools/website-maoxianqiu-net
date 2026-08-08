@@ -26,7 +26,7 @@
  *     与 Overall 的发票开账(应计)口径不同,属 KPI 会计基础差异,不是对账 Bug(§16)。
  */
 import type { ServiceClient } from './common'
-import { bucketKey, chunk, loadStoreNameMap, toNum } from './common'
+import { bucketKey, chunk, loadStoreNameMap, toNum, UUID_CHUNK_SIZE } from './common'
 import type {
   AnalyticsGroupBy,
   RevenueDimension,
@@ -368,8 +368,8 @@ async function buildCatalogDimension(
   const invoiceByCat = new Map<string, Set<string>>()
   // 发票 → 明细金额合计(供退款分摊比例)
   const invoiceTotalByItem = new Map<string, Map<string, number>>()
-  // 大 IN 分批(审计 v3 §11):invoiceIds 量级可能很大,按块查询避免单次查询过长
-  for (const chunkIds of chunk(invoiceIds, 500)) {
+  // 大 IN 分批(审计 v3 §11 + v4 §4 + v5 §5):invoiceIds 量级可能很大,按 UUID_CHUNK_SIZE 分批
+  for (const chunkIds of chunk(invoiceIds, UUID_CHUNK_SIZE)) {
     for (let from = 0; ; from += PAGE_SIZE) {
       const { data, error } = await service
         .from('invoice_items')
@@ -447,9 +447,9 @@ async function buildDoctorDimension(
   // 函数级声明:refund 归属需复用 encounter→doctor 映射(审计 v2 §15)
   let encs: Array<{ id: string; doctor_id: string | null }> = []
   if (encounterIds.length > 0) {
-    // 大 IN 分批(审计 v3 §11):encounterIds 量级可能很大
+    // 大 IN 分批(审计 v3 §11 + v4 §4 + v5 §5):encounterIds 量级可能很大,按 UUID_CHUNK_SIZE 分批
     const encOut: Array<{ id: string; doctor_id: string | null }> = []
-    for (const chunkIds of chunk(encounterIds, 500)) {
+    for (const chunkIds of chunk(encounterIds, UUID_CHUNK_SIZE)) {
       const { data } = await service
         .from('encounters')
         .select('id, doctor_id')

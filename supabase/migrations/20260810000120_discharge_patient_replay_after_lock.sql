@@ -37,6 +37,7 @@ declare
   v_cage public.cages;
   v_existing jsonb;
   v_total_charge numeric(12,2) := 0;
+  v_cage_rows int := 0;
 begin
   -- 幂等检查(快路径):进入锁之前先查一次,已存在直接 replay
   -- (tenant scope:显式限定 admission 归属租户,避免不同租户同 Key 串读)

@@ -10,6 +10,9 @@ export type ImportJobType = 'customer' | 'pet' | 'catalog-item' | 'employee' | '
 export type ImportJobStatus =
   | 'uploaded' | 'mapped' | 'validated' | 'queued' | 'pending'
   | 'processing' | 'completed' | 'failed' | 'cancelled'
+  // 审计 v4 §14:employee/opening-stock 导入的终态是"待领域应用"
+  // (写待邀请队列/期初命令队列后,由 IAM/库存领域后续应用,非 completed)
+  | 'awaiting_domain_apply'
 export type DuplicateStrategy = 'skip' | 'update' | 'create_duplicate'
 export type FieldType = 'string' | 'int' | 'number' | 'date' | 'boolean' | 'string[]'
 

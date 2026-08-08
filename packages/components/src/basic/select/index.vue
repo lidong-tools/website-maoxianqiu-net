@@ -144,7 +144,7 @@ const selectedOption = computed({
           <SelectItem
             v-for="(item, index) in (option as GroupOption).options"
             :key="index"
-            :value="toRenderValue(item.value)"
+            :value="toRenderValue(item.value) ?? EMPTY_VALUE_SENTINEL"
             :disabled="item.disabled"
           >
             {{ item.label }}
@@ -152,7 +152,7 @@ const selectedOption = computed({
         </SelectGroup>
         <SelectItem
           v-else
-          :value="toRenderValue((option as Option).value)"
+          :value="toRenderValue((option as Option).value) ?? EMPTY_VALUE_SENTINEL"
           :disabled="(option as Option).disabled"
         >
           {{ option.label }}

@@ -167,3 +167,35 @@
 - 改动文件 GetDiagnostics 全部无错误(engine.ts / common.ts / revenue.ts / inventory.ts)。
 - S3.1 Source Code Gate:**PASS**;S3.2 Source Code Gate:**PASS WITH P1 HARDENING**(v4 §17 判定)。
 - 未触碰 Pilot 前建议项(§12 stale sending 结果未知语义、§6 DST 时区、§14 Import Consumer),按产品节奏跟进;Runtime Gate 保持 `runtime_verification_pending`。
+
+## 10. S3.1/S3.2 再审计(v6/v5)收口
+
+> 依据:`document/stage-03/subagent-3-2/S3.1-Reaudit-v6.md`、`S3.2-Reaudit-v5.md`。
+> 修正上轮交付缺陷:上轮 commit 中 analytics import/部分 chunk、migration 120 变量声明
+> 实际未落盘(GetDiagnostics 未检出),审计两报告指出的 P0 属实,本轮已全部补齐。
+
+### 10.1 修复清单(对应两报告 P0)
+
+| 项 | 来源 | 修复 |
+| --- | --- | --- |
+| Migration 120 `v_cage_rows` 未声明(PL/pgSQL 编译错误) | S3.1 v6 §2 | `DECLARE` 区补 `v_cage_rows int := 0;`,与 `GET DIAGNOSTICS` 用法一致 |
+| revenue.ts 缺 `UUID_CHUNK_SIZE` import(TS2304) | S3.2 v5 §3 | import 补 `UUID_CHUNK_SIZE` |
+| inventory.ts 缺 `chunk` / `UUID_CHUNK_SIZE` import(TS2304) | S3.2 v5 §3 | import 补 `chunk, UUID_CHUNK_SIZE` |
+| `chunk(invoiceIds, 500)` 未改 | S3.2 v5 §5 | → `chunk(invoiceIds, UUID_CHUNK_SIZE)` |
+| `chunk(encounterIds, 500)` 未改 | S3.2 v5 §5 | → `chunk(encounterIds, UUID_CHUNK_SIZE)` |
+| API tsc 既有错误:`ImportJobStatus` 缺 `awaiting_domain_apply` | 门禁执行发现 | `api/services/imports/fields.ts` 类型补 `'awaiting_domain_apply'`(审计 §14 导入终态) |
+| 前端 typecheck 既有错误:`searchStoreId` 未声明 | 门禁执行发现 | veterinarian-registration 组件本无门店筛选,删除无效引用,保留切租户重载 |
+| 前端 typecheck 既有错误:select 哨兵值含 undefined 不匹配 SelectItem | 门禁执行发现 | 模板 `:value` 加 `?? EMPTY_VALUE_SENTINEL` 兜底(单值路径输入恒非 undefined) |
+
+### 10.2 真实门禁执行结果(非 GetDiagnostics)
+
+| 门禁 | 命令 | 结果 |
+| --- | --- | --- |
+| API TypeScript | `npx tsc --noEmit -p api/tsconfig.json` | ✅ exit 0 |
+| Frontend TypeScript | `npx vue-tsc -b`(apps/maoxianqiu) | ✅ exit 0 |
+| Build | `npx vite build`(apps/maoxianqiu) | ✅ ✓ built in 2m 27s,exit 0 |
+
+- 依据 S3.2 v5 §8,Source Gate 证据改为真实 tsc/vue-tsc/vite build 命令输出,不再引用 IDE GetDiagnostics。
+- Migration 版本唯一性维持 **NO_DUPLICATE_VERSIONS(97 个唯一)**,旧 115 仅存 messaging 版本(v6 §4 遗留疑问:增量包无法证明 → 以真实 git tree 全量核验关闭)。
+- S3.1 Source Code Gate:**PASS**;S3.2 Source Code Gate:**PASS**(v5 §10:剩余 P0 关闭)。
+- Runtime Gate 保持 `runtime_verification_pending`(依赖 staging)。
