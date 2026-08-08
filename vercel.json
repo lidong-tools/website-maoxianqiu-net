@@ -5,6 +5,7 @@
   "buildCommand": "pnpm --filter @fantastic-admin/maoxianqiu build",
   "outputDirectory": "apps/maoxianqiu/dist",
   "rewrites": [
+    { "source": "/health", "destination": "/api/health" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }

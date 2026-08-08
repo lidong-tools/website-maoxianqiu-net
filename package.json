@@ -33,6 +33,13 @@
     "commit": "git cz",
     "release": "bumpp"
   },
+  "dependencies": {
+    "@aws-sdk/client-s3": "catalog:",
+    "@aws-sdk/s3-request-presigner": "catalog:",
+    "@supabase/supabase-js": "catalog:",
+    "hono": "catalog:",
+    "zod": "catalog:"
+  },
   "devDependencies": {
     "@antfu/eslint-config": "catalog:",
     "@clack/prompts": "catalog:",

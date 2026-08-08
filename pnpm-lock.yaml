@@ -380,6 +380,22 @@ catalogs:
 importers:
 
   .:
+    dependencies:
+      '@aws-sdk/client-s3':
+        specifier: 'catalog:'
+        version: 3.1103.0
+      '@aws-sdk/s3-request-presigner':
+        specifier: 'catalog:'
+        version: 3.1103.0
+      '@supabase/supabase-js':
+        specifier: 'catalog:'
+        version: 2.112.0
+      hono:
+        specifier: 'catalog:'
+        version: 4.13.0
+      zod:
+        specifier: 'catalog:'
+        version: 4.4.3
     devDependencies:
       '@antfu/eslint-config':
         specifier: 'catalog:'
