@@ -1048,4 +1048,509 @@ operationsRoutes.get('/security-events', async (c) => {
   return ok(c, { list: data ?? [], total: count ?? 0 })
 })
 
+// ============================================================
+// 会员中心产品化(Agent-02 S3.1)
+// 路由清单:
+//   - GET  /operations/membership-tiers          会员等级列表
+//   - POST /operations/membership-tiers          新建等级
+//   - PATCH /operations/membership-tiers/:id     更新等级(禁用物理删除已使用等级)
+//   - GET  /operations/customer-memberships      客户会员列表(含客户姓名/手机/等级)
+//   - PATCH /operations/customer-memberships/:id 调整等级/有效期
+//   - GET  /operations/point-transactions        积分流水(只读,不可改)
+//   - GET  /operations/discount-rules            折扣规则列表
+//   - POST /operations/discount-rules            新建折扣规则
+//   - PATCH /operations/discount-rules/:id       更新折扣规则
+//   - DELETE /operations/discount-rules/:id      删除折扣规则
+//   - POST /operations/membership-pricing-preview 有效会员定价预览(RPC)
+// ============================================================
+
+// ===== 会员等级 =====
+const membershipTierSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  code: z.string().min(1, '等级编码不能为空').max(50),
+  name: z.string().min(1, '等级名称不能为空').max(50),
+  discountPercent: z.number().min(0, '折扣不可为负').max(100, '折扣不可超过 100%'),
+  pointsMultiplier: z.number().min(0, '积分倍率不可为负').max(100),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+})
+
+/**
+ * 会员等级列表
+ * - 权限:membership.view
+ */
+operationsRoutes.get('/membership-tiers', async (c) => {
+  const tenantId = c.req.query('tenantId')
+  const onlyActive = c.req.query('onlyActive') === 'true'
+  if (!tenantId) {
+    throw err.badRequest('缺少租户标识')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'membership.view',
+    tenantId,
+    dataScope: true,
+  })
+
+  const service = createServiceClient()
+  let query = service
+    .from('membership_tiers')
+    .select('*', { count: 'exact' })
+    .eq('tenant_id', scope.tenantId)
+  if (onlyActive) {
+    query = query.eq('is_active', true)
+  }
+  const { data, error, count } = await query.order('sort_order', { ascending: true })
+  if (error) {
+    throw err.internal(`查询会员等级失败: ${error.message}`)
+  }
+  return ok(c, { list: data ?? [], total: count ?? 0 })
+})
+
+/**
+ * 新建会员等级
+ * - 权限:membership.manage(租户级)
+ * - code 租户内唯一由 DB 唯一索引兜底
+ */
+operationsRoutes.post('/membership-tiers', async (c) => {
+  const input = await parseJsonBody(c, membershipTierSchema)
+  const scope = await requireScopedPermission(c, { code: 'membership.manage', tenantId: input.tenantId })
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('membership_tiers')
+    .insert({
+      tenant_id: scope.tenantId,
+      code: input.code,
+      name: input.name,
+      discount_percent: input.discountPercent,
+      points_multiplier: input.pointsMultiplier,
+      is_active: input.isActive ?? true,
+      sort_order: input.sortOrder ?? 0,
+    })
+    .select()
+    .single()
+  if (error) {
+    throw err.internal(`新建会员等级失败: ${error.message}`)
+  }
+  await writeAudit(c, {
+    action: 'membership.tier.create',
+    entityType: 'membership_tier',
+    entityId: data.id,
+    tenantId: scope.tenantId,
+    metadata: { code: input.code, name: input.name, discountPercent: input.discountPercent },
+  })
+  return ok(c, data)
+})
+
+const membershipTierPatchSchema = z.object({
+  code: z.string().min(1, '等级编码不能为空').max(50).optional(),
+  name: z.string().min(1, '等级名称不能为空').max(50).optional(),
+  discountPercent: z.number().min(0).max(100).optional(),
+  pointsMultiplier: z.number().min(0).max(100).optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+})
+
+/**
+ * 更新会员等级
+ * - 权限:membership.manage
+ * - 禁止物理删除已使用等级;停用走 is_active=false
+ */
+operationsRoutes.patch('/membership-tiers/:id', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, membershipTierPatchSchema)
+  const service = createServiceClient()
+
+  const { data: existing, error: fetchErr } = await service
+    .from('membership_tiers')
+    .select('tenant_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchErr || !existing) {
+    throw err.notFound('会员等级不存在')
+  }
+  const scope = await requireScopedPermission(c, { code: 'membership.manage', tenantId: existing.tenant_id })
+
+  const { data, error } = await service
+    .from('membership_tiers')
+    .update({
+      ...(input.code !== undefined ? { code: input.code } : {}),
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.discountPercent !== undefined ? { discount_percent: input.discountPercent } : {}),
+      ...(input.pointsMultiplier !== undefined ? { points_multiplier: input.pointsMultiplier } : {}),
+      ...(input.isActive !== undefined ? { is_active: input.isActive } : {}),
+      ...(input.sortOrder !== undefined ? { sort_order: input.sortOrder } : {}),
+    })
+    .eq('id', id)
+    .eq('tenant_id', scope.tenantId)
+    .select()
+    .single()
+  if (error) {
+    throw err.internal(`更新会员等级失败: ${error.message}`)
+  }
+  await writeAudit(c, {
+    action: 'membership.tier.update',
+    entityType: 'membership_tier',
+    entityId: id,
+    tenantId: scope.tenantId,
+    metadata: { code: input.code, name: input.name, isActive: input.isActive },
+  })
+  return ok(c, data)
+})
+
+// ===== 客户会员 =====
+/**
+ * 客户会员列表
+ * - 权限:membership.view
+ * - 返回客户姓名/手机(不能以 UUID 为主要识别)
+ * - 支持按客户关键词过滤(姓名/手机)
+ */
+operationsRoutes.get('/customer-memberships', async (c) => {
+  const tenantId = c.req.query('tenantId')
+  const keyword = c.req.query('keyword')
+  const from = Number(c.req.query('from') ?? 0)
+  const limit = Math.min(Number(c.req.query('limit') ?? 20), 100)
+  if (!tenantId) {
+    throw err.badRequest('缺少租户标识')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'membership.view',
+    tenantId,
+    dataScope: true,
+  })
+
+  const service = createServiceClient()
+  let query = service
+    .from('customer_memberships')
+    .select('*, customer:customers(id, name, phone), tier:membership_tiers(id, code, name, discount_percent, points_multiplier)', { count: 'exact' })
+    .eq('tenant_id', scope.tenantId)
+  if (keyword) {
+    // 先查匹配的客户 id,再按 customer_id 过滤(跨表关键词)
+    const { data: matchedCustomers, error: customerErr } = await service
+      .from('customers')
+      .select('id')
+      .eq('tenant_id', scope.tenantId)
+      .or(`name.ilike.%${keyword}%,phone.ilike.%${keyword}%`)
+      .limit(200)
+    if (customerErr) {
+      throw err.internal(`查询客户失败: ${customerErr.message}`)
+    }
+    const ids = (matchedCustomers ?? []).map((r: { id: string }) => r.id)
+    if (ids.length === 0) {
+      return ok(c, { list: [], total: 0 })
+    }
+    query = query.in('customer_id', ids)
+  }
+  query = query.range(from, from + limit - 1)
+  const { data, error, count } = await query.order('joined_at', { ascending: false })
+  if (error) {
+    throw err.internal(`查询客户会员失败: ${error.message}`)
+  }
+  return ok(c, { list: data ?? [], total: count ?? 0 })
+})
+
+const customerMembershipPatchSchema = z.object({
+  tierId: z.string().uuid('等级 id 格式错误').optional(),
+  expiresAt: z.string().nullable().optional(),
+})
+
+/**
+ * 调整客户会员等级/有效期
+ * - 权限:membership.manage
+ */
+operationsRoutes.patch('/customer-memberships/:id', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, customerMembershipPatchSchema)
+  const service = createServiceClient()
+
+  const { data: existing, error: fetchErr } = await service
+    .from('customer_memberships')
+    .select('tenant_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchErr || !existing) {
+    throw err.notFound('客户会员关系不存在')
+  }
+  const scope = await requireScopedPermission(c, { code: 'membership.manage', tenantId: existing.tenant_id })
+
+  const { data, error } = await service
+    .from('customer_memberships')
+    .update({
+      ...(input.tierId !== undefined ? { tier_id: input.tierId } : {}),
+      ...(input.expiresAt !== undefined ? { expires_at: input.expiresAt ? new Date(input.expiresAt).toISOString() : null } : {}),
+    })
+    .eq('id', id)
+    .eq('tenant_id', scope.tenantId)
+    .select()
+    .single()
+  if (error) {
+    throw err.internal(`调整客户会员失败: ${error.message}`)
+  }
+  await writeAudit(c, {
+    action: 'membership.customer.update',
+    entityType: 'customer_membership',
+    entityId: id,
+    tenantId: scope.tenantId,
+    metadata: { tierId: input.tierId, expiresAt: input.expiresAt ?? null },
+  })
+  return ok(c, data)
+})
+
+// ===== 积分流水 =====
+/**
+ * 积分流水列表(只读,流水不可 update/delete)
+ * - 权限:points.view
+ * - 支持按客户过滤
+ */
+operationsRoutes.get('/point-transactions', async (c) => {
+  const tenantId = c.req.query('tenantId')
+  const customerId = c.req.query('customerId')
+  const from = Number(c.req.query('from') ?? 0)
+  const limit = Math.min(Number(c.req.query('limit') ?? 20), 100)
+  if (!tenantId) {
+    throw err.badRequest('缺少租户标识')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'points.view',
+    tenantId,
+    dataScope: true,
+  })
+
+  const service = createServiceClient()
+  let query = service
+    .from('point_transactions')
+    .select('*, customer:customers(id, name, phone)', { count: 'exact' })
+    .eq('tenant_id', scope.tenantId)
+  if (customerId) {
+    query = query.eq('customer_id', customerId)
+  }
+  query = query.range(from, from + limit - 1)
+  const { data, error, count } = await query.order('created_at', { ascending: false })
+  if (error) {
+    throw err.internal(`查询积分流水失败: ${error.message}`)
+  }
+  return ok(c, { list: data ?? [], total: count ?? 0 })
+})
+
+// ===== 折扣规则 =====
+const discountRuleSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  tierId: z.string().uuid('等级 id 格式错误'),
+  storeId: z.string().uuid('门店 id 格式错误').nullable().optional(),
+  catalogItemId: z.string().uuid('项目 id 格式错误').nullable().optional(),
+  catalogType: z.string().max(50).nullable().optional(),
+  discountPercent: z.number().min(0, '折扣不可为负').max(100, '折扣不可超过 100%'),
+  priority: z.number().int().optional(),
+  isActive: z.boolean().optional(),
+})
+
+/**
+ * 折扣规则列表
+ * - 权限:membership.view
+ * - 按 tierId 可选过滤
+ */
+operationsRoutes.get('/discount-rules', async (c) => {
+  const tenantId = c.req.query('tenantId')
+  const tierId = c.req.query('tierId')
+  if (!tenantId) {
+    throw err.badRequest('缺少租户标识')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'membership.view',
+    tenantId,
+    dataScope: true,
+  })
+
+  const service = createServiceClient()
+  let query = service
+    .from('membership_discount_rules')
+    .select('*, tier:membership_tiers(id, code, name)', { count: 'exact' })
+    .eq('tenant_id', scope.tenantId)
+  if (tierId) {
+    query = query.eq('tier_id', tierId)
+  }
+  const { data, error, count } = await query.order('priority', { ascending: true })
+  if (error) {
+    throw err.internal(`查询折扣规则失败: ${error.message}`)
+  }
+  return ok(c, { list: data ?? [], total: count ?? 0 })
+})
+
+/**
+ * 新建折扣规则
+ * - 权限:membership.manage
+ */
+operationsRoutes.post('/discount-rules', async (c) => {
+  const input = await parseJsonBody(c, discountRuleSchema)
+  const scope = await requireScopedPermission(c, { code: 'membership.manage', tenantId: input.tenantId })
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('membership_discount_rules')
+    .insert({
+      tenant_id: scope.tenantId,
+      tier_id: input.tierId,
+      store_id: input.storeId ?? null,
+      catalog_item_id: input.catalogItemId ?? null,
+      catalog_type: input.catalogType ?? null,
+      discount_percent: input.discountPercent,
+      priority: input.priority ?? 100,
+      is_active: input.isActive ?? true,
+    })
+    .select()
+    .single()
+  if (error) {
+    throw err.internal(`新建折扣规则失败: ${error.message}`)
+  }
+  await writeAudit(c, {
+    action: 'membership.discountRule.create',
+    entityType: 'membership_discount_rule',
+    entityId: data.id,
+    tenantId: scope.tenantId,
+    metadata: { tierId: input.tierId, discountPercent: input.discountPercent },
+  })
+  return ok(c, data)
+})
+
+const discountRulePatchSchema = z.object({
+  tierId: z.string().uuid('等级 id 格式错误').optional(),
+  storeId: z.string().uuid('门店 id 格式错误').nullable().optional(),
+  catalogItemId: z.string().uuid('项目 id 格式错误').nullable().optional(),
+  catalogType: z.string().max(50).nullable().optional(),
+  discountPercent: z.number().min(0).max(100).optional(),
+  priority: z.number().int().optional(),
+  isActive: z.boolean().optional(),
+})
+
+/**
+ * 更新折扣规则
+ * - 权限:membership.manage
+ */
+operationsRoutes.patch('/discount-rules/:id', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, discountRulePatchSchema)
+  const service = createServiceClient()
+
+  const { data: existing, error: fetchErr } = await service
+    .from('membership_discount_rules')
+    .select('tenant_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchErr || !existing) {
+    throw err.notFound('折扣规则不存在')
+  }
+  const scope = await requireScopedPermission(c, { code: 'membership.manage', tenantId: existing.tenant_id })
+
+  const { data, error } = await service
+    .from('membership_discount_rules')
+    .update({
+      ...(input.tierId !== undefined ? { tier_id: input.tierId } : {}),
+      ...(input.storeId !== undefined ? { store_id: input.storeId } : {}),
+      ...(input.catalogItemId !== undefined ? { catalog_item_id: input.catalogItemId } : {}),
+      ...(input.catalogType !== undefined ? { catalog_type: input.catalogType } : {}),
+      ...(input.discountPercent !== undefined ? { discount_percent: input.discountPercent } : {}),
+      ...(input.priority !== undefined ? { priority: input.priority } : {}),
+      ...(input.isActive !== undefined ? { is_active: input.isActive } : {}),
+    })
+    .eq('id', id)
+    .eq('tenant_id', scope.tenantId)
+    .select()
+    .single()
+  if (error) {
+    throw err.internal(`更新折扣规则失败: ${error.message}`)
+  }
+  await writeAudit(c, {
+    action: 'membership.discountRule.update',
+    entityType: 'membership_discount_rule',
+    entityId: id,
+    tenantId: scope.tenantId,
+    metadata: { tierId: input.tierId, discountPercent: input.discountPercent },
+  })
+  return ok(c, data)
+})
+
+/**
+ * 删除折扣规则
+ * - 权限:membership.manage
+ */
+operationsRoutes.delete('/discount-rules/:id', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: existing, error: fetchErr } = await service
+    .from('membership_discount_rules')
+    .select('tenant_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchErr || !existing) {
+    throw err.notFound('折扣规则不存在')
+  }
+  const scope = await requireScopedPermission(c, { code: 'membership.manage', tenantId: existing.tenant_id })
+
+  const { error } = await service
+    .from('membership_discount_rules')
+    .delete()
+    .eq('id', id)
+    .eq('tenant_id', scope.tenantId)
+  if (error) {
+    throw err.internal(`删除折扣规则失败: ${error.message}`)
+  }
+  await writeAudit(c, {
+    action: 'membership.discountRule.delete',
+    entityType: 'membership_discount_rule',
+    entityId: id,
+    tenantId: scope.tenantId,
+    metadata: {},
+  })
+  return ok(c, { isSuccess: true })
+})
+
+// ===== 有效会员定价预览 =====
+const pricingPreviewSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid('门店 id 格式错误'),
+  customerId: z.string().uuid('客户 id 格式错误'),
+  items: z.array(
+    z.object({
+      catalogItemId: z.string().uuid().nullable().optional(),
+      storeCatalogItemId: z.string().uuid().nullable().optional(),
+      catalogType: z.string().nullable().optional(),
+      name: z.string().optional(),
+      unitPrice: z.number().min(0),
+      quantity: z.number().positive(),
+    }),
+  ).min(1, '至少一个收费项目'),
+})
+
+/**
+ * 有效会员定价预览
+ * - 权限:membership.view
+ * - 调 preview_membership_discount RPC,返回每项折扣 + 应收汇总
+ */
+operationsRoutes.post('/membership-pricing-preview', async (c) => {
+  const input = await parseJsonBody(c, pricingPreviewSchema)
+  const scope = await requireScopedPermission(c, {
+    code: 'membership.view',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
+
+  const service = createServiceClient()
+  const { data, error } = await service.rpc('preview_membership_discount', {
+    p_tenant_id: scope.tenantId,
+    p_store_id: input.storeId,
+    p_customer_id: input.customerId,
+    p_items: input.items.map(item => ({
+      catalog_item_id: item.catalogItemId ?? null,
+      store_catalog_item_id: item.storeCatalogItemId ?? null,
+      catalog_type: item.catalogType ?? null,
+      name: item.name ?? null,
+      unit_price: item.unitPrice,
+      quantity: item.quantity,
+    })),
+  })
+  if (error) {
+    throw err.internal(`会员定价预览失败: ${error.message}`)
+  }
+  return ok(c, data)
+})
+
 export default operationsRoutes

@@ -1,11 +1,10 @@
-import { supabase } from '@/lib/supabase'
 import api from '../index'
 
 /**
  * 系统设置 API 模块(CORE-06)
  * - 通用配置(system_settings):走 Hono Command,支持门店覆盖 → 租户默认 → 系统默认继承
  * - 医院信息 / 门店营业:走 Hono Command
- * - 支付 / 打印 / 字典:浏览器直连(RLS 兜底,迁移 0052 已补策略)
+ * - 支付 / 打印 / 字典:P0-12 起统一走 Hono Command + 审计,浏览器不再直连写
  */
 
 export interface EffectiveSettingItem {
@@ -82,121 +81,75 @@ export default {
     return api.patch(`stores/${id}/settings`, patch)
   },
 
-  // ===== 支付 =====
+  // ===== 支付(P0-12:走 Hono Command + 审计) =====
   async listPaymentContexts(tenantId: string, storeId: string) {
-    const { data, error } = await supabase
-      .from('payment_contexts')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('store_id', storeId)
-      .order('method', { ascending: true })
-    if (error) {
-      throw new Error(error.message)
-    }
-    return data ?? []
+    const res = await api.get<{ list: any[] }>('settings/payment-contexts', { params: { tenantId, storeId } })
+    return ((res as any).data?.list) ?? []
   },
 
   async savePaymentContext(row: { id?: string, tenant_id: string, store_id: string, method: string, label: string, is_default?: boolean, is_active?: boolean }) {
-    const payload = {
-      tenant_id: row.tenant_id,
-      store_id: row.store_id,
+    const res = await api.put('settings/payment-contexts', {
+      id: row.id,
+      tenantId: row.tenant_id,
+      storeId: row.store_id,
       method: row.method,
       label: row.label,
-      is_default: row.is_default ?? false,
-      is_active: row.is_active ?? true,
-    }
-    if (row.id) {
-      const { id, ...patch } = { ...payload, id: row.id }
-      const { error } = await supabase.from('payment_contexts').update(patch).eq('id', id)
-      if (error) {
-        throw new Error(error.message)
-      }
-      return
-    }
-    const { error } = await supabase.from('payment_contexts').insert(payload)
-    if (error) {
-      throw new Error(error.message)
-    }
+      isDefault: row.is_default ?? false,
+      isActive: row.is_active ?? true,
+    })
+    return (res as any).data
   },
 
-  // ===== 打印 =====
+  async deletePaymentContext(id: string, tenantId: string, storeId: string) {
+    const res = await api.delete(`settings/payment-contexts/${id}`, { params: { tenantId, storeId } })
+    return (res as any).data
+  },
+
+  // ===== 打印(P0-12:走 Hono Command + 审计) =====
   async listPrintSettings(tenantId: string, storeId: string) {
-    const { data, error } = await supabase
-      .from('print_settings')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('store_id', storeId)
-      .order('paper_size', { ascending: true })
-    if (error) {
-      throw new Error(error.message)
-    }
-    return data ?? []
+    const res = await api.get<{ list: any[] }>('settings/print-settings', { params: { tenantId, storeId } })
+    return ((res as any).data?.list) ?? []
   },
 
   async savePrintSetting(row: { id?: string, tenant_id: string, store_id: string, paper_size: string, label: string, is_default?: boolean, is_active?: boolean }) {
-    const payload = {
-      tenant_id: row.tenant_id,
-      store_id: row.store_id,
-      paper_size: row.paper_size,
+    const res = await api.put('settings/print-settings', {
+      id: row.id,
+      tenantId: row.tenant_id,
+      storeId: row.store_id,
+      paperSize: row.paper_size,
       label: row.label,
-      is_default: row.is_default ?? false,
-      is_active: row.is_active ?? true,
-    }
-    if (row.id) {
-      const { id, ...patch } = { ...payload, id: row.id }
-      const { error } = await supabase.from('print_settings').update(patch).eq('id', id)
-      if (error) {
-        throw new Error(error.message)
-      }
-      return
-    }
-    const { error } = await supabase.from('print_settings').insert(payload)
-    if (error) {
-      throw new Error(error.message)
-    }
+      isDefault: row.is_default ?? false,
+      isActive: row.is_active ?? true,
+    })
+    return (res as any).data
   },
 
-  // ===== 字典 =====
+  async deletePrintSetting(id: string, tenantId: string, storeId: string) {
+    const res = await api.delete(`settings/print-settings/${id}`, { params: { tenantId, storeId } })
+    return (res as any).data
+  },
+
+  // ===== 字典(P0-12:走 Hono Command + 审计) =====
   async listDictionary(tenantId: string, category: string) {
-    const { data, error } = await supabase
-      .from('base_dictionaries')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('category', category)
-      .order('sort_order', { ascending: true })
-    if (error) {
-      throw new Error(error.message)
-    }
-    return data ?? []
+    const res = await api.get<{ list: any[] }>('settings/dictionaries', { params: { tenantId, category } })
+    return ((res as any).data?.list) ?? []
   },
 
   async saveDictionaryItem(row: { id?: string, tenant_id: string, category: string, code: string, label: string, sort_order?: number, is_active?: boolean }) {
-    const payload = {
-      tenant_id: row.tenant_id,
+    const res = await api.put('settings/dictionaries', {
+      id: row.id,
+      tenantId: row.tenant_id,
       category: row.category,
       code: row.code,
       label: row.label,
-      sort_order: row.sort_order ?? 0,
-      is_active: row.is_active ?? true,
-    }
-    if (row.id) {
-      const { id, ...patch } = { ...payload, id: row.id }
-      const { error } = await supabase.from('base_dictionaries').update(patch).eq('id', id)
-      if (error) {
-        throw new Error(error.message)
-      }
-      return
-    }
-    const { error } = await supabase.from('base_dictionaries').insert(payload)
-    if (error) {
-      throw new Error(error.message)
-    }
+      sortOrder: row.sort_order ?? 0,
+      isActive: row.is_active ?? true,
+    })
+    return (res as any).data
   },
 
-  async deleteDictionaryItem(id: string) {
-    const { error } = await supabase.from('base_dictionaries').delete().eq('id', id)
-    if (error) {
-      throw new Error(error.message)
-    }
+  async deleteDictionaryItem(id: string, tenantId: string) {
+    const res = await api.delete(`settings/dictionaries/${id}`, { params: { tenantId } })
+    return (res as any).data
   },
 }

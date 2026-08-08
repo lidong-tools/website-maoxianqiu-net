@@ -9,7 +9,9 @@ defineOptions({
 })
 
 const tenantStore = useAppTenantStore()
+const appAccountStore = useAppAccountStore()
 const { auth } = useAppAuth()
+const { pagination, onSizeChange, onCurrentChange } = usePagination()
 
 const activeTab = ref('inbox')
 const loading = ref(false)
@@ -108,26 +110,15 @@ function waitText(createdAt: string | null): string {
 async function load() {
   loading.value = true
   try {
-    const params = { tenantId: tenantStore.currentTenantId }
-    const [inbox, mine, processed] = await Promise.all([
-      apiApproval.listApprovalInbox(params),
-      apiApproval.listMyApprovals(params),
-      apiApproval.listProcessedApprovals(params),
+    const tenantId = tenantStore.currentTenantId || undefined
+    // P0-18:只加载当前 Tab 分页数据 + 独立计数,不再一次拉三个全量列表
+    const [listRes, counts] = await Promise.all([
+      apiApproval.listApprovals({ tab: activeTab.value as 'inbox' | 'mine' | 'processed', page: pagination.value.page, pageSize: pagination.value.size, tenantId }),
+      apiApproval.getApprovalCounts({ tenantId }),
     ])
-    tabCounts.value = {
-      inbox: inbox.total,
-      mine: mine.total,
-      processed: processed.total,
-    }
-    if (activeTab.value === 'inbox') {
-      dataList.value = inbox.list
-    }
-    else if (activeTab.value === 'mine') {
-      dataList.value = mine.list
-    }
-    else {
-      dataList.value = processed.list
-    }
+    tabCounts.value = counts
+    dataList.value = listRes.list ?? []
+    pagination.value.total = listRes.total ?? 0
   }
   catch (e) {
     dataList.value = []
@@ -142,7 +133,15 @@ async function load() {
 }
 
 function onTabChange() {
-  load()
+  onCurrentChange(1).then(() => load())
+}
+
+function handlePageChange(page: number) {
+  onCurrentChange(page).then(() => load())
+}
+
+function handleSizeChange(size: number) {
+  onSizeChange(size).then(() => load())
 }
 
 // ===== 详情 =====
@@ -163,7 +162,15 @@ function snapshotLines(snapshot: Record<string, unknown> | undefined): Array<{ k
   }))
 }
 
+// P0-17:自己发起的申请不可自审(后端 RPC 亦强制,此处 UI 先行禁用)
+function isSelfInitiated(item: ApprovalInboxItem): boolean {
+  return item.type === 'invoice_discount' && item.requestedBy === appAccountStore.userId
+}
+
 function canApprove(item: ApprovalInboxItem): boolean {
+  if (isSelfInitiated(item)) {
+    return false
+  }
   if (item.type === 'invoice_discount') {
     return auth('invoice.confirm')
   }
@@ -244,7 +251,10 @@ onMounted(load)
             <FaButton variant="outline" size="icon-sm" @click.stop="openDetail(row.original)">
               <FaIcon name="i-ri:eye-line" />
             </FaButton>
-            <template v-if="row.original.status === 'pending' && canApprove(row.original)">
+            <span v-if="row.original.status === 'pending' && isSelfInitiated(row.original)" class="text-xs text-muted-foreground">
+              不可审批本人申请
+            </span>
+            <template v-else-if="row.original.status === 'pending' && canApprove(row.original)">
               <FaButton variant="outline" size="sm" class="text-green-600" @click.stop="openDecision(row.original, 'approve')">
                 批准
               </FaButton>
@@ -255,6 +265,14 @@ onMounted(load)
           </div>
         </template>
       </FaTable>
+      <FaPagination
+        :page="pagination.page"
+        :size="pagination.size"
+        :total="pagination.total"
+        class="mt-2 px-4 pb-3"
+        @page-change="handlePageChange"
+        @size-change="handleSizeChange"
+      />
     </FaPageMain>
 
     <!-- 审批详情 -->

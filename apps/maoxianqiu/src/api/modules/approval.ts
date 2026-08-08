@@ -33,7 +33,24 @@ function unwrap<T>(res: any): { list: T[], total: number } {
 }
 
 export default {
-  /** 待我审批 */
+  /** P0-18:按 Tab 分页查询,附带三个 Tab 计数 facets */
+  async listApprovals(params: { tab: 'inbox' | 'mine' | 'processed', page?: number, pageSize?: number, tenantId?: string }) {
+    const res = await api.get<{
+      list: ApprovalInboxItem[]
+      total: number
+      pagination: { page: number, pageSize: number, total: number }
+      facets: { inbox: number, mine: number, processed: number }
+    }>('approvals', { params: { tab: params.tab, page: params.page ?? 1, pageSize: params.pageSize ?? 20, tenantId: params.tenantId } })
+    return ((res as any)?.data) ?? { list: [], total: 0, pagination: { page: 1, pageSize: 20, total: 0 }, facets: { inbox: 0, mine: 0, processed: 0 } }
+  },
+
+  /** P0-18:独立计数 */
+  async getApprovalCounts(params: { tenantId?: string }) {
+    const res = await api.get<{ inbox: number, mine: number, processed: number }>('approvals/counts', { params })
+    return ((res as any)?.data) ?? { inbox: 0, mine: 0, processed: 0 }
+  },
+
+  /** 待我审批(兼容旧调用,无分页) */
   async listApprovalInbox(params?: { tenantId?: string }) {
     const res = await api.get<{ list: ApprovalInboxItem[], total: number }>('approvals/inbox', { params })
     return unwrap<ApprovalInboxItem>(res)

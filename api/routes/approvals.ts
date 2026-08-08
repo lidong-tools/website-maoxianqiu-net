@@ -176,10 +176,11 @@ async function queryApprovals(
   filter: 'pending' | 'mine' | 'processed',
   userId: string,
   employeeId: string,
+  range?: { from: number, to: number },
 ) {
   let query = service
     .from('approvals')
-    .select('*, invoice:invoices(invoice_no, total, subtotal, discount_amount)')
+    .select('*, invoice:invoices(invoice_no, total, subtotal, discount_amount)', { count: 'exact' })
     .eq('tenant_id', tenantId)
     .eq('entity_type', 'invoice_discount')
   // 门店级角色只返回其授权门店的审批(租户级角色 allowedStoreIds = 全租户,等价无过滤)
@@ -195,11 +196,18 @@ async function queryApprovals(
   else {
     query = query.eq('requested_by', userId)
   }
-  const { data, error } = await query.order('created_at', { ascending: false }).limit(100)
+  query = query.order('created_at', { ascending: false })
+  if (range) {
+    query = query.range(range.from, range.to)
+  }
+  else {
+    query = query.limit(100)
+  }
+  const { data, error, count } = await query
   if (error) {
     throw err.internal(`查询折扣审批失败: ${error.message}`)
   }
-  return (data ?? []) as InvoiceApprovalRow[]
+  return { rows: (data ?? []) as InvoiceApprovalRow[], total: count ?? 0 }
 }
 
 async function queryAmendments(
@@ -208,10 +216,11 @@ async function queryAmendments(
   allowedStoreIds: string[],
   filter: 'pending' | 'mine' | 'processed',
   employeeId: string,
+  range?: { from: number, to: number },
 ) {
   let query = service
     .from('medical_record_amendments')
-    .select('*, encounter:encounters(customer_id, pet_id, started_at)')
+    .select('*, encounter:encounters(customer_id, pet_id, started_at)', { count: 'exact' })
     .eq('tenant_id', tenantId)
   if (allowedStoreIds.length > 0) {
     query = query.in('store_id', allowedStoreIds)
@@ -225,14 +234,61 @@ async function queryAmendments(
   else {
     query = query.eq('requested_by', employeeId)
   }
-  const { data, error } = await query.order('requested_at', { ascending: false }).limit(100)
+  query = query.order('requested_at', { ascending: false })
+  if (range) {
+    query = query.range(range.from, range.to)
+  }
+  else {
+    query = query.limit(100)
+  }
+  const { data, error, count } = await query
   if (error) {
     throw err.internal(`查询病历修订审批失败: ${error.message}`)
   }
-  return (data ?? []) as AmendmentRow[]
+  return { rows: (data ?? []) as AmendmentRow[], total: count ?? 0 }
 }
 
-async function loadInbox(c: Parameters<typeof requireScopedPermission>[0], filter: 'pending' | 'mine' | 'processed') {
+type ApprovalFilter = 'pending' | 'mine' | 'processed'
+
+/** 单个 filter 的总数(approvals + amendments) */
+async function countForFilter(
+  service: ReturnType<typeof createServiceClient>,
+  tenantId: string,
+  allowedStoreIds: string[],
+  filter: ApprovalFilter,
+  userId: string,
+  employeeId: string,
+): Promise<number> {
+  const [a, m] = await Promise.all([
+    queryApprovals(service, tenantId, allowedStoreIds, filter, userId, employeeId, { from: 0, to: 0 }),
+    queryAmendments(service, tenantId, allowedStoreIds, filter, employeeId, { from: 0, to: 0 }),
+  ])
+  return a.total + m.total
+}
+
+/** P0-18:三个 Tab 的独立计数,避免拉全量列表只为算数字 */
+async function loadCounts(c: Parameters<typeof requireScopedPermission>[0]) {
+  const tenantId = c.req.query('tenantId') ?? (getContext(c).memberships[0]?.tenant_id ?? '')
+  const scope = await requireScopedPermission(c, {
+    code: 'approval.inbox.view',
+    tenantId,
+    dataScope: true,
+  })
+  const service = createServiceClient()
+  const [inbox, mine, processed] = await Promise.all([
+    countForFilter(service, scope.tenantId, scope.allowedStoreIds, 'pending', scope.userId, scope.employeeId),
+    countForFilter(service, scope.tenantId, scope.allowedStoreIds, 'mine', scope.userId, scope.employeeId),
+    countForFilter(service, scope.tenantId, scope.allowedStoreIds, 'processed', scope.userId, scope.employeeId),
+  ])
+  return { inbox, mine, processed }
+}
+
+async function loadInbox(
+  c: Parameters<typeof requireScopedPermission>[0],
+  filter: ApprovalFilter,
+  page = 1,
+  pageSize = 20,
+) {
   const tenantId = c.req.query('tenantId') ?? (getContext(c).memberships[0]?.tenant_id ?? '')
   const scope = await requireScopedPermission(c, {
     code: 'approval.inbox.view',
@@ -241,33 +297,59 @@ async function loadInbox(c: Parameters<typeof requireScopedPermission>[0], filte
   })
 
   const service = createServiceClient()
-  const [approvalRows, amendmentRows] = await Promise.all([
-    queryApprovals(service, scope.tenantId, scope.allowedStoreIds, filter, scope.userId, scope.employeeId),
-    queryAmendments(service, scope.tenantId, scope.allowedStoreIds, filter, scope.employeeId),
+  const from = (page - 1) * pageSize
+  const to = from + pageSize - 1
+  const [approvalRes, amendmentRes] = await Promise.all([
+    queryApprovals(service, scope.tenantId, scope.allowedStoreIds, filter, scope.userId, scope.employeeId, { from, to }),
+    queryAmendments(service, scope.tenantId, scope.allowedStoreIds, filter, scope.employeeId, { from, to }),
   ])
 
   const names = await mapEmployeeNames(
     service,
     scope.tenantId,
-    approvalRows.map(r => r.requested_by ?? ''),
-    amendmentRows.map(r => r.requested_by ?? ''),
+    approvalRes.rows.map(r => r.requested_by ?? ''),
+    amendmentRes.rows.map(r => r.requested_by ?? ''),
   )
 
   const items: ApprovalInboxItem[] = [
-    ...buildInvoiceItems(approvalRows, names),
-    ...buildAmendmentItems(amendmentRows, names),
+    ...buildInvoiceItems(approvalRes.rows, names),
+    ...buildAmendmentItems(amendmentRes.rows, names),
   ].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+
+  const total = approvalRes.total + amendmentRes.total
+  const facets = await loadCounts(c)
 
   await writeAudit(c, {
     action: `approvals.${filter}.view`,
     entityType: 'approval',
     tenantId: scope.tenantId,
-    metadata: { filter, total: items.length },
+    metadata: { filter, page, pageSize, total },
   })
 
-  return ok(c, { list: items, total: items.length })
+  return ok(c, { list: items, total, pagination: { page, pageSize, total }, facets })
 }
 
+// P0-18:分页 + 计数统一入口
+approvalsRoutes.get('/', async (c) => {
+  const tab = c.req.query('tab') ?? 'inbox'
+  const filter: ApprovalFilter = tab === 'mine' ? 'mine' : tab === 'processed' ? 'processed' : 'pending'
+  const page = Math.max(1, Number(c.req.query('page')) || 1)
+  const pageSize = Math.min(100, Math.max(1, Number(c.req.query('pageSize')) || 20))
+  return loadInbox(c, filter, page, pageSize)
+})
+
+// P0-18:独立计数
+approvalsRoutes.get('/counts', async (c) => {
+  const facets = await loadCounts(c)
+  await writeAudit(c, {
+    action: 'approvals.counts.view',
+    entityType: 'approval',
+    metadata: { facets },
+  })
+  return ok(c, facets)
+})
+
+// 兼容旧入口(无分页,默认拉前 100)
 approvalsRoutes.get('/inbox', async (c) => {
   return loadInbox(c, 'pending')
 })

@@ -3,7 +3,7 @@ import type { AppEnv } from '../lib/types'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
-import { err } from '../lib/errors'
+import { ApiError, err } from '../lib/errors'
 import { getRequestIdempotencyKey } from '../lib/idempotency'
 import { requireScopedPermission } from '../lib/permission'
 import { loadContext } from '../lib/request-context'
@@ -54,16 +54,19 @@ function mapRpcError(error: { message: string }) {
     return err.conflict('发票已取消')
   }
   if (msg.includes('DISCOUNT_APPROVAL_PENDING')) {
-    return err.conflict('大额折扣审批待处理,无法确认发票')
+    return new ApiError(409, 'DISCOUNT_APPROVAL_PENDING', '大额折扣审批待处理,无法确认发票')
   }
   if (msg.includes('DISCOUNT_APPROVAL_REQUIRED')) {
-    return err.conflict('大额折扣(>10%)需 manager 审批后才能确认')
+    return new ApiError(409, 'DISCOUNT_APPROVAL_REQUIRED', '大额折扣需 manager 审批后才能确认')
+  }
+  if (msg.includes('SELF_APPROVAL_FORBIDDEN')) {
+    return new ApiError(422, 'SELF_APPROVAL_FORBIDDEN', '不可审批本人发起的申请')
   }
   if (msg.includes('APPROVAL_ALREADY_PROCESSED')) {
     return err.conflict('审批已处理,不可重复操作')
   }
   if (msg.includes('AMOUNT_EXCEEDS_DUE')) {
-    return err.conflict('支付金额超过未付余额')
+    return new ApiError(409, 'AMOUNT_EXCEEDS_DUE', '支付金额超过未付余额')
   }
   if (msg.includes('REFUND_EXCEEDS_PAID')) {
     return err.conflict('退款金额超过已付金额')
@@ -182,6 +185,7 @@ const createInvoiceSchema = z.object({
   paymentMethod: z.enum(['cash', 'wechat', 'alipay', 'card', 'other']).optional(),
   dueDate: z.string().optional(),
   idempotencyKey: z.string().max(200).optional(),
+  applyMembershipDiscount: z.boolean().optional(),
 })
 
 /**
@@ -215,6 +219,7 @@ billingRoutes.post('/invoices', async (c) => {
     amount: item.amount,
     sort_order: item.sortOrder ?? idx,
     category: item.category ?? 'service',
+    catalog_type: item.category ?? null,
   }))
 
   const { data, error } = await service.rpc('create_invoice', {
@@ -230,6 +235,7 @@ billingRoutes.post('/invoices', async (c) => {
     p_payment_method: input.paymentMethod ?? null,
     p_due_date: input.dueDate ?? null,
     p_operator_id: user.id,
+    p_apply_membership_discount: input.applyMembershipDiscount ?? false,
   })
 
   if (error) {

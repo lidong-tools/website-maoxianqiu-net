@@ -21,6 +21,19 @@ const settingsRoutes = new Hono<AppEnv>()
 
 settingsRoutes.use('*', authMiddleware(), loadCaller(), loadContext())
 
+/**
+ * 设置强类型注册表(P0-11)
+ * 业务规则配置写入时必须符合对应 Schema,API 不信任 UI。
+ * key 格式:namespace.key
+ */
+const SETTING_REGISTRY: Record<string, z.ZodTypeAny> = {
+  'business.discount.approval.threshold': z.number().min(0).max(1),
+  'business.refund.approval.threshold': z.number().min(0),
+  'business.inventory.adjust.approval.threshold': z.number().min(0),
+  'business.transfer.approval.enabled': z.boolean(),
+  'business.near_expiry.reminder.days': z.number().int().min(1).max(3650),
+}
+
 /** 业务规则内置系统默认(读取优先级最低) */
 const BUSINESS_RULE_DEFS: Array<{ key: string, label: string, defaultValue: unknown, type: 'percent' | 'number' | 'days' | 'bool' }> = [
   { key: 'discount.approval.threshold', label: '折扣审批阈值', defaultValue: 0.1, type: 'percent' },
@@ -155,6 +168,18 @@ settingsRoutes.put('/:namespace/:key', async (c) => {
   const user = c.get('user')
   const service = createServiceClient()
 
+  // P0-11:注册表强类型校验,拒绝越界/非法值(折扣阈值 -1、近效期 -200 天等)
+  const registrySchema = SETTING_REGISTRY[`${namespace}.${key}`]
+  if (registrySchema) {
+    const parsed = registrySchema.safeParse(input.value)
+    if (!parsed.success) {
+      throw err.unprocessable('配置值不符合业务规则', {
+        value: parsed.error.issues.map(i => i.message),
+      })
+    }
+    input.value = parsed.data as typeof input.value
+  }
+
   if (input.storeId) {
     const scope = await requireScopedPermission(c, {
       code: 'settings.store.manage',
@@ -239,6 +264,312 @@ settingsRoutes.delete('/:namespace/:key/override', async (c) => {
     metadata: { namespace, key },
   })
 
+  return ok(c, { isSuccess: true })
+})
+
+// ============================================================
+// P0-12:支付 / 打印 / 字典设置写入走 Hono Command + 审计
+// 浏览器不再直连写关键业务设置(RLS 只做兜底,审计统一进 audit_logs)
+// ============================================================
+
+const paymentContextSchema = z.object({
+  id: z.string().uuid().optional(),
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid('门店 id 格式错误'),
+  method: z.enum(['cash', 'card', 'wechat', 'alipay', 'other']),
+  label: z.string().min(1, '支付名称不能为空').max(50),
+  isDefault: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+})
+
+settingsRoutes.get('/payment-contexts', async (c) => {
+  const tenantId = c.req.query('tenantId')
+  const storeId = c.req.query('storeId')
+  if (!tenantId || !storeId) {
+    throw err.badRequest('缺少租户或门店标识')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'settings.store.read',
+    tenantId,
+    storeId,
+    dataScope: true,
+  })
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('payment_contexts')
+    .select('*')
+    .eq('tenant_id', scope.tenantId)
+    .eq('store_id', storeId)
+    .order('method', { ascending: true })
+  if (error) {
+    throw err.internal(`查询支付方式失败: ${error.message}`)
+  }
+  return ok(c, { list: data ?? [] })
+})
+
+settingsRoutes.put('/payment-contexts', async (c) => {
+  const input = await parseJsonBody(c, paymentContextSchema)
+  const scope = await requireScopedPermission(c, {
+    code: 'settings.store.manage',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+  const payload = {
+    tenant_id: scope.tenantId,
+    store_id: input.storeId,
+    method: input.method,
+    label: input.label,
+    is_default: input.isDefault ?? false,
+    is_active: input.isActive ?? true,
+  }
+  if (input.id) {
+    const { error } = await service.from('payment_contexts').update(payload).eq('id', input.id).eq('tenant_id', scope.tenantId)
+    if (error) {
+      throw err.internal(`更新支付方式失败: ${error.message}`)
+    }
+  }
+  else {
+    const { error } = await service.from('payment_contexts').insert(payload)
+    if (error) {
+      throw err.internal(`新增支付方式失败: ${error.message}`)
+    }
+  }
+  await writeAudit(c, {
+    action: 'settings.paymentContext.save',
+    entityType: 'payment_context',
+    entityId: input.id,
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+    metadata: { method: input.method, label: input.label, isActive: input.isActive ?? true },
+  })
+  return ok(c, { isSuccess: true, id: input.id ?? undefined })
+})
+
+settingsRoutes.delete('/payment-contexts/:id', async (c) => {
+  const id = c.req.param('id')
+  const tenantId = c.req.query('tenantId')
+  const storeId = c.req.query('storeId')
+  if (!tenantId || !storeId) {
+    throw err.badRequest('缺少租户或门店标识')
+  }
+  await requireScopedPermission(c, {
+    code: 'settings.store.manage',
+    tenantId,
+    storeId,
+  })
+  const service = createServiceClient()
+  const { error } = await service.from('payment_contexts').delete().eq('id', id).eq('tenant_id', tenantId).eq('store_id', storeId)
+  if (error) {
+    throw err.internal(`删除支付方式失败: ${error.message}`)
+  }
+  await writeAudit(c, {
+    action: 'settings.paymentContext.delete',
+    entityType: 'payment_context',
+    entityId: id,
+    tenantId,
+    storeId,
+    metadata: {},
+  })
+  return ok(c, { isSuccess: true })
+})
+
+const printSettingSchema = z.object({
+  id: z.string().uuid().optional(),
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid('门店 id 格式错误'),
+  paperSize: z.enum(['58mm', '80mm', 'a4']),
+  label: z.string().min(1, '模板名称不能为空').max(50),
+  isDefault: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+})
+
+settingsRoutes.get('/print-settings', async (c) => {
+  const tenantId = c.req.query('tenantId')
+  const storeId = c.req.query('storeId')
+  if (!tenantId || !storeId) {
+    throw err.badRequest('缺少租户或门店标识')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'settings.store.read',
+    tenantId,
+    storeId,
+    dataScope: true,
+  })
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('print_settings')
+    .select('*')
+    .eq('tenant_id', scope.tenantId)
+    .eq('store_id', storeId)
+    .order('paper_size', { ascending: true })
+  if (error) {
+    throw err.internal(`查询打印设置失败: ${error.message}`)
+  }
+  return ok(c, { list: data ?? [] })
+})
+
+settingsRoutes.put('/print-settings', async (c) => {
+  const input = await parseJsonBody(c, printSettingSchema)
+  const scope = await requireScopedPermission(c, {
+    code: 'settings.store.manage',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
+  const service = createServiceClient()
+  const payload = {
+    tenant_id: scope.tenantId,
+    store_id: input.storeId,
+    paper_size: input.paperSize,
+    label: input.label,
+    is_default: input.isDefault ?? false,
+    is_active: input.isActive ?? true,
+  }
+  if (input.id) {
+    const { error } = await service.from('print_settings').update(payload).eq('id', input.id).eq('tenant_id', scope.tenantId)
+    if (error) {
+      throw err.internal(`更新打印设置失败: ${error.message}`)
+    }
+  }
+  else {
+    const { error } = await service.from('print_settings').insert(payload)
+    if (error) {
+      throw err.internal(`新增打印设置失败: ${error.message}`)
+    }
+  }
+  await writeAudit(c, {
+    action: 'settings.printSetting.save',
+    entityType: 'print_setting',
+    entityId: input.id,
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+    metadata: { paperSize: input.paperSize, label: input.label },
+  })
+  return ok(c, { isSuccess: true, id: input.id ?? undefined })
+})
+
+settingsRoutes.delete('/print-settings/:id', async (c) => {
+  const id = c.req.param('id')
+  const tenantId = c.req.query('tenantId')
+  const storeId = c.req.query('storeId')
+  if (!tenantId || !storeId) {
+    throw err.badRequest('缺少租户或门店标识')
+  }
+  await requireScopedPermission(c, {
+    code: 'settings.store.manage',
+    tenantId,
+    storeId,
+  })
+  const service = createServiceClient()
+  const { error } = await service.from('print_settings').delete().eq('id', id).eq('tenant_id', tenantId).eq('store_id', storeId)
+  if (error) {
+    throw err.internal(`删除打印设置失败: ${error.message}`)
+  }
+  await writeAudit(c, {
+    action: 'settings.printSetting.delete',
+    entityType: 'print_setting',
+    entityId: id,
+    tenantId,
+    storeId,
+    metadata: {},
+  })
+  return ok(c, { isSuccess: true })
+})
+
+const dictionarySchema = z.object({
+  id: z.string().uuid().optional(),
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  category: z.string().min(1, '字典分类不能为空').max(50),
+  code: z.string().min(1, '字典编码不能为空').max(50),
+  label: z.string().min(1, '字典名称不能为空').max(100),
+  sortOrder: z.number().int().optional(),
+  isActive: z.boolean().optional(),
+})
+
+settingsRoutes.get('/dictionaries', async (c) => {
+  const tenantId = c.req.query('tenantId')
+  const category = c.req.query('category')
+  if (!tenantId || !category) {
+    throw err.badRequest('缺少租户或字典分类标识')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'settings.tenant.read',
+    tenantId,
+    dataScope: true,
+  })
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('base_dictionaries')
+    .select('*')
+    .eq('tenant_id', scope.tenantId)
+    .eq('category', category)
+    .order('sort_order', { ascending: true })
+  if (error) {
+    throw err.internal(`查询字典失败: ${error.message}`)
+  }
+  return ok(c, { list: data ?? [] })
+})
+
+settingsRoutes.put('/dictionaries', async (c) => {
+  const input = await parseJsonBody(c, dictionarySchema)
+  const scope = await requireScopedPermission(c, {
+    code: 'settings.tenant.manage',
+    tenantId: input.tenantId,
+  })
+  const service = createServiceClient()
+  const payload = {
+    tenant_id: scope.tenantId,
+    category: input.category,
+    code: input.code,
+    label: input.label,
+    sort_order: input.sortOrder ?? 0,
+    is_active: input.isActive ?? true,
+  }
+  if (input.id) {
+    const { error } = await service.from('base_dictionaries').update(payload).eq('id', input.id).eq('tenant_id', scope.tenantId)
+    if (error) {
+      throw err.internal(`更新字典失败: ${error.message}`)
+    }
+  }
+  else {
+    const { error } = await service.from('base_dictionaries').insert(payload)
+    if (error) {
+      throw err.internal(`新增字典失败: ${error.message}`)
+    }
+  }
+  await writeAudit(c, {
+    action: 'settings.dictionary.save',
+    entityType: 'base_dictionary',
+    entityId: input.id,
+    tenantId: input.tenantId,
+    metadata: { category: input.category, code: input.code, label: input.label },
+  })
+  return ok(c, { isSuccess: true, id: input.id ?? undefined })
+})
+
+settingsRoutes.delete('/dictionaries/:id', async (c) => {
+  const id = c.req.param('id')
+  const tenantId = c.req.query('tenantId')
+  if (!tenantId) {
+    throw err.badRequest('缺少租户标识')
+  }
+  await requireScopedPermission(c, {
+    code: 'settings.tenant.manage',
+    tenantId,
+  })
+  const service = createServiceClient()
+  const { error } = await service.from('base_dictionaries').delete().eq('id', id).eq('tenant_id', tenantId)
+  if (error) {
+    throw err.internal(`删除字典失败: ${error.message}`)
+  }
+  await writeAudit(c, {
+    action: 'settings.dictionary.delete',
+    entityType: 'base_dictionary',
+    entityId: id,
+    tenantId,
+    metadata: {},
+  })
   return ok(c, { isSuccess: true })
 })
 

@@ -29,6 +29,17 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    // S3.1 会员中心(等级/客户会员/积分流水/折扣规则)
+    path: '/operations/memberships',
+    name: 'operationsMemberships',
+    component: () => import('@/views/operations/memberships/index.vue'),
+    meta: {
+      title: '会员中心',
+      icon: 'i-ri:medal-line',
+      auth: 'membership.view',
+    },
+  },
+  {
     path: '/operations/imports',
     name: 'operationsImports',
     component: () => import('@/views/operations/imports/index.vue'),

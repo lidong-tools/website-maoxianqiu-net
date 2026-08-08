@@ -7,6 +7,8 @@ import type {
   ReceiptData,
 } from '@/types/billing'
 import apiBilling, { generateIdempotencyKey } from '@/api/modules/billing'
+import apiOperations from '@/api/modules/operations'
+import apiSettings from '@/api/modules/settings'
 import BusinessCustomerPicker from '@/components/business/CustomerPicker/index.vue'
 import BusinessPetPicker from '@/components/business/PetPicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
@@ -67,6 +69,37 @@ const payment = reactive({
 const receiptVisible = ref(false)
 const receiptData = ref<ReceiptData | null>(null)
 const receiptLoading = ref(false)
+
+// P0-16:支付方式来自系统设置(payment_contexts),不再前端静态硬编码
+const paymentMethods = ref<Array<{ method: PaymentMethod, label: string }>>([])
+const PAYMENT_METHOD_FALLBACK = (Object.entries(PAYMENT_METHOD_LABELS) as Array<[PaymentMethod, string]>)
+  .map(([method, label]) => ({ method, label }))
+
+async function loadPaymentMethods() {
+  if (!tenantStore.currentTenantId || !tenantStore.currentStoreId) {
+    paymentMethods.value = PAYMENT_METHOD_FALLBACK
+    return
+  }
+  try {
+    const list: any[] = await apiSettings.listPaymentContexts(tenantStore.currentTenantId, tenantStore.currentStoreId)
+    const active = list.filter(c => c.is_active)
+    if (active.length === 0) {
+      paymentMethods.value = PAYMENT_METHOD_FALLBACK
+      return
+    }
+    paymentMethods.value = active.map(c => ({ method: c.method as PaymentMethod, label: c.label }))
+    const def = active.find(c => c.is_default)
+    if (def) {
+      payment.method = def.method as PaymentMethod
+    }
+    else if (!active.some(c => c.method === payment.method)) {
+      payment.method = active[0].method as PaymentMethod
+    }
+  }
+  catch {
+    paymentMethods.value = PAYMENT_METHOD_FALLBACK
+  }
+}
 
 const cartColumns = computed<TableColumn<CartItem>[]>(() => [
   { accessorKey: 'name', header: '项目' },
@@ -182,7 +215,8 @@ const subtotal = computed(() => {
 })
 
 const total = computed(() => {
-  return Math.max(subtotal.value - Number(form.discountAmount || 0) + Number(form.taxAmount || 0), 0)
+  // S3.1:有会员折扣时,应收 = 原价 - 手动折扣 - 会员折扣(与服务端快照一致)
+  return Math.max(subtotal.value - Number(form.discountAmount || 0) - memberDiscount.value + Number(form.taxAmount || 0), 0)
 })
 
 const discountPercent = computed(() => {
@@ -201,6 +235,49 @@ const change = computed(() => {
   return Math.max(payment.amount - total.value, 0)
 })
 
+// S3.1 会员折扣:选客户后预览会员折扣,提交时由服务端权威计算写入快照
+const memberDiscount = ref(0)
+const memberTierName = ref('')
+const memberDiscountLoading = ref(false)
+
+async function loadMemberDiscountPreview() {
+  memberDiscount.value = 0
+  memberTierName.value = ''
+  if (!tenantStore.currentTenantId || !tenantStore.currentStoreId || !form.customerId || cart.value.length === 0) {
+    return
+  }
+  memberDiscountLoading.value = true
+  try {
+    const res: any = await apiOperations.previewMembershipPricing({
+      tenantId: tenantStore.currentTenantId,
+      storeId: tenantStore.currentStoreId,
+      customerId: form.customerId,
+      items: cart.value.map(item => ({
+        catalogItemId: item.catalogItemId,
+        catalogType: (item as any).category ?? undefined,
+        unitPrice: item.unitPrice,
+        quantity: item.quantity,
+        name: item.name,
+      })),
+    })
+    const data = res?.data
+    memberDiscount.value = Number(data?.memberDiscountTotal ?? 0)
+    const tierName = data?.items?.find((i: any) => i.tier_name)?.tier_name
+    memberTierName.value = tierName ?? ''
+  }
+  catch {
+    memberDiscount.value = 0
+    memberTierName.value = ''
+  }
+  finally {
+    memberDiscountLoading.value = false
+  }
+}
+
+watch([() => form.customerId, cart], () => {
+  loadMemberDiscountPreview()
+})
+
 async function onSubmit() {
   if (!tenantStore.currentTenantId || !tenantStore.currentStoreId) {
     useFaToast().warning('请先选择租户与门店')
@@ -208,6 +285,16 @@ async function onSubmit() {
   }
   if (cart.value.length === 0) {
     useFaToast().warning('请添加收费项目')
+    return
+  }
+  // P0-14:应付金额为 0 不允许结算(产品当前不支持挂账,须实收 > 0)
+  if (total.value <= 0) {
+    useFaToast().warning('应付金额为 0,请检查项目或折扣')
+    return
+  }
+  // P0-13:现金实收(客户递入金额)须覆盖应收,找零 = 实收 - 应收
+  if (payment.method === 'cash' && payment.amount < total.value) {
+    useFaToast().warning(`现金实收金额不足,应收金额为 ${formatMoney(total.value)}`)
     return
   }
 
@@ -234,6 +321,7 @@ async function onSubmit() {
       discountReason: form.discountReason || undefined,
       taxAmount: form.taxAmount,
       paymentMethod: payment.method,
+      applyMembershipDiscount: !!form.customerId && memberDiscount.value > 0,
     }, createKey)
 
     const invoiceId = (createRes as any).data?.invoiceId
@@ -244,21 +332,26 @@ async function onSubmit() {
     try {
       await apiBilling.confirmInvoice(invoiceId)
     }
-    catch {
-      useFaToast().warning('发票已创建,但需先完成大额折扣审批才能确认与支付')
-      resetCart()
+    catch (e: any) {
+      // P0-15:仅明确的审批错误进入 pending approval 流程;其他异常保留购物车与发票(草稿)允许重试
+      const code = e?.response?.data?.error?.code
+      if (code === 'DISCOUNT_APPROVAL_REQUIRED' || code === 'DISCOUNT_APPROVAL_PENDING') {
+        useFaToast().warning('发票已创建,但需先完成大额折扣审批才能确认与支付')
+        resetCart()
+        return
+      }
       return
     }
 
-    if (payment.amount > 0) {
-      const paymentKey = generateIdempotencyKey()
-      await apiBilling.processPayment({
-        invoiceId,
-        amount: payment.amount,
-        method: payment.method,
-        transactionNo: payment.transactionNo || undefined,
-      }, paymentKey)
-    }
+    // P0-13:应用支付金额 = 应收(total);找零(change)仅现金展示用,不传给 RPC
+    const appliedAmount = total.value
+    const paymentKey = generateIdempotencyKey()
+    await apiBilling.processPayment({
+      invoiceId,
+      amount: appliedAmount,
+      method: payment.method,
+      transactionNo: payment.transactionNo || undefined,
+    }, paymentKey)
 
     useFaToast().success('收银成功')
     await showReceipt(invoiceId)
@@ -294,10 +387,24 @@ function resetCart() {
   form.taxAmount = 0
   payment.amount = 0
   payment.transactionNo = ''
+  memberDiscount.value = 0
+  memberTierName.value = ''
   cashierGuard.setDirty(false)
 }
 
-onMounted(loadCatalog)
+// P0-06:切店后清空当前购物车并重载目录/支付方式(切店前 ToolbarStart 已做 dirty 确认)
+useStoreScopedPage({
+  load: async () => {
+    await loadCatalog()
+    await loadPaymentMethods()
+  },
+  reset: resetCart,
+})
+
+onMounted(async () => {
+  await loadCatalog()
+  await loadPaymentMethods()
+})
 </script>
 
 <template>
@@ -403,7 +510,7 @@ onMounted(loadCatalog)
               <FaSelect
                 v-model="payment.method"
                 class="w-full"
-                :options="Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => ({ label, value }))"
+                :options="paymentMethods.map(({ method, label }) => ({ label, value: method }))"
               />
             </FaLabel>
             <FaLabel label="交易号">
@@ -418,6 +525,9 @@ onMounted(loadCatalog)
       <template #left>
         <span class="text-sm text-muted-foreground">件数 <span class="text-foreground font-semibold">{{ cart.length }}</span></span>
         <span class="text-sm text-muted-foreground">应收 <span class="text-foreground font-semibold">{{ formatMoney(total) }}</span></span>
+        <span v-if="memberDiscount > 0" class="text-sm text-green-600">
+          会员折扣 -{{ formatMoney(memberDiscount) }}<span v-if="memberTierName">({{ memberTierName }})</span>
+        </span>
         <span class="text-sm text-muted-foreground">实收 <span class="text-foreground font-semibold">{{ formatMoney(payment.amount) }}</span></span>
         <span class="text-sm text-muted-foreground">找零 <span class="text-foreground font-semibold">{{ formatMoney(change) }}</span></span>
       </template>

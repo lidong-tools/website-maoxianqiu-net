@@ -72,6 +72,71 @@ export interface AdjustPointsInput {
   idempotencyKey?: string
 }
 
+// ===== 会员折扣规则(S3.1 会员中心产品化) =====
+
+/** 折扣来源:具体项目 > 目录类型 > 等级默认 */
+export type MembershipDiscountSource = 'catalog_item' | 'catalog_type' | 'tier_default'
+
+/** 会员折扣规则 */
+export interface MembershipDiscountRule {
+  id: string
+  tenant_id: string
+  tier_id: string
+  /** null = 全门店(tenant 级) */
+  store_id: string | null
+  /** null = 不限定具体项目 */
+  catalog_item_id: string | null
+  /** null = 不限定类型;否则匹配 billing_type */
+  catalog_type: string | null
+  /** 收取比例(100=不打折,90=9折),与 membership_tiers 语义一致 */
+  discount_percent: number
+  priority: number
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  tier?: Pick<MembershipTier, 'id' | 'code' | 'name'> | null
+}
+
+/** 客户会员(带客户姓名/手机 + 等级) */
+export interface CustomerMembershipWithCustomer extends CustomerMembership {
+  customer?: { id: string, name: string, phone: string | null } | null
+  tier?: Pick<MembershipTier, 'id' | 'code' | 'name' | 'discount_percent' | 'points_multiplier'> | null
+}
+
+/** 积分流水(带客户姓名/手机) */
+export interface PointTransactionWithCustomer extends PointTransaction {
+  customer?: { id: string, name: string, phone: string | null } | null
+}
+
+/** 会员定价预览请求项 */
+export interface MembershipPricingItemInput {
+  catalogItemId?: string | null
+  storeCatalogItemId?: string | null
+  catalogType?: string | null
+  name?: string
+  unitPrice: number
+  quantity: number
+}
+
+/** 会员定价预览单行结果 */
+export interface MembershipPricingItemResult {
+  catalog_item_id: string | null
+  name: string | null
+  unit_price: number
+  quantity: number
+  discount_percent: number
+  discount_amount: number
+  source: MembershipDiscountSource | null
+  tier_name: string | null
+}
+
+/** 会员定价预览汇总 */
+export interface MembershipPricingPreview {
+  items: MembershipPricingItemResult[]
+  memberDiscountTotal: number
+  amountTotal: number
+}
+
 // ===== MXQ-12003 消息模板 =====
 
 /** 消息渠道 */

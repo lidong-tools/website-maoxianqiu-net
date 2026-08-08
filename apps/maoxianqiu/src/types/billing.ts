@@ -165,6 +165,8 @@ export interface CreateInvoiceInput {
   taxAmount?: number
   paymentMethod?: PaymentMethod
   dueDate?: string
+  /** S3.1 会员折扣:true 时由服务端按会员规则权威计算并写入价格快照 */
+  applyMembershipDiscount?: boolean
 }
 
 /** 创建发票响应 */

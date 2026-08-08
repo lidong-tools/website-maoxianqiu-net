@@ -492,7 +492,7 @@ async function deleteDict(row: any) {
     content: `确认删除字典项「${row.label}」吗？`,
     onConfirm: async () => {
       try {
-        await apiSettings.deleteDictionaryItem(row.id)
+        await apiSettings.deleteDictionaryItem(row.id, tenantStore.currentTenantId)
         useFaToast().success('已删除')
         loadDict()
       }

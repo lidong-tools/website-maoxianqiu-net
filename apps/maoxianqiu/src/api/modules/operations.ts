@@ -3,9 +3,15 @@ import type {
   AdjustPointsResult,
   CreateImportTaskInput,
   CreatePrintJobInput,
+  CustomerMembershipWithCustomer,
   GenerateReportSnapshotInput,
   ImportTask,
+  MembershipDiscountRule,
+  MembershipPricingItemInput,
+  MembershipPricingPreview,
+  MembershipTier,
   MessageTemplate,
+  PointTransactionWithCustomer,
   PrintData,
   PrintJob,
   ReportDataPayload,
@@ -146,6 +152,124 @@ export default {
       referenceId: data.referenceId,
       referenceType: data.referenceType,
     }, { headers })
+  },
+
+  // ===== 会员中心产品化(S3.1) =====
+
+  /**
+   * 会员等级列表(走 Hono,membership.view)
+   */
+  async listMembershipTiersApi(params: { tenantId: string, onlyActive?: boolean }) {
+    return api.get<{ list: MembershipTier[], total: number }>('operations/membership-tiers', {
+      params: { tenantId: params.tenantId, ...(params.onlyActive ? { onlyActive: 'true' } : {}) },
+    })
+  },
+
+  /**
+   * 新建会员等级(走 Hono,membership.manage + 审计)
+   */
+  createMembershipTier(data: {
+    tenantId: string
+    code: string
+    name: string
+    discountPercent: number
+    pointsMultiplier: number
+    isActive?: boolean
+    sortOrder?: number
+  }) {
+    return api.post<MembershipTier>('operations/membership-tiers', data)
+  },
+
+  /**
+   * 更新会员等级(走 Hono,membership.manage)
+   */
+  updateMembershipTier(id: string, data: {
+    code?: string
+    name?: string
+    discountPercent?: number
+    pointsMultiplier?: number
+    isActive?: boolean
+    sortOrder?: number
+  }) {
+    return api.patch<MembershipTier>(`operations/membership-tiers/${id}`, data)
+  },
+
+  /**
+   * 客户会员列表(带客户姓名/手机/等级)
+   */
+  async listCustomerMemberships(params: { tenantId: string, keyword?: string, from?: number, limit?: number }) {
+    return api.get<{ list: CustomerMembershipWithCustomer[], total: number }>('operations/customer-memberships', { params })
+  },
+
+  /**
+   * 调整客户会员等级/有效期
+   */
+  updateCustomerMembership(id: string, data: { tierId?: string, expiresAt?: string | null }) {
+    return api.patch<CustomerMembershipWithCustomer>(`operations/customer-memberships/${id}`, data)
+  },
+
+  /**
+   * 积分流水列表(只读)
+   */
+  async listPointTransactionsApi(params: { tenantId: string, customerId?: string, from?: number, limit?: number }) {
+    return api.get<{ list: PointTransactionWithCustomer[], total: number }>('operations/point-transactions', { params })
+  },
+
+  /**
+   * 折扣规则列表
+   */
+  async listDiscountRules(params: { tenantId: string, tierId?: string }) {
+    return api.get<{ list: MembershipDiscountRule[], total: number }>('operations/discount-rules', { params })
+  },
+
+  /**
+   * 新建折扣规则
+   */
+  createDiscountRule(data: {
+    tenantId: string
+    tierId: string
+    storeId?: string | null
+    catalogItemId?: string | null
+    catalogType?: string | null
+    discountPercent: number
+    priority?: number
+    isActive?: boolean
+  }) {
+    return api.post<MembershipDiscountRule>('operations/discount-rules', data)
+  },
+
+  /**
+   * 更新折扣规则
+   */
+  updateDiscountRule(id: string, data: {
+    tierId?: string
+    storeId?: string | null
+    catalogItemId?: string | null
+    catalogType?: string | null
+    discountPercent?: number
+    priority?: number
+    isActive?: boolean
+  }) {
+    return api.patch<MembershipDiscountRule>(`operations/discount-rules/${id}`, data)
+  },
+
+  /**
+   * 删除折扣规则
+   */
+  deleteDiscountRule(id: string) {
+    return api.delete(`operations/discount-rules/${id}`)
+  },
+
+  /**
+   * 有效会员定价预览(走 RPC)
+   */
+  async previewMembershipPricing(data: {
+    tenantId: string
+    storeId: string
+    customerId: string
+    items: MembershipPricingItemInput[]
+  }) {
+    return api.post<MembershipPricingPreview>('operations/membership-pricing-preview', data)
   },
 
   // ===== MXQ-12003 消息模板 =====
