@@ -30,6 +30,11 @@ export default defineConfig(({ mode, command }) => {
           changeOrigin: command === 'serve' && env.VITE_ENABLE_PROXY,
           rewrite: path => path.replace(/\/proxy/, ''),
         },
+        // E2E/本地联调:Hono API 由 scripts/serve-api.ts 起在 8787,前端 /api 代理过去
+        '/api': {
+          target: process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8787',
+          changeOrigin: true,
+        },
       },
     },
     // 构建选项 https://cn.vitejs.dev/config/build-options

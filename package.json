@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "tsx scripts/cli.ts --mode=dev",
+    "dev:api": "tsx scripts/serve-api.ts",
     "build": "tsx scripts/cli.ts --mode=build",
     "serve": "tsx scripts/cli.ts --mode=serve",
     "db:push": "supabase db push",
@@ -36,6 +37,7 @@
     "@antfu/eslint-config": "catalog:",
     "@clack/prompts": "catalog:",
     "@fantastic-admin/themes": "workspace:*",
+    "@hono/node-server": "catalog:",
     "@iconify/json": "catalog:",
     "@playwright/test": "catalog:",
     "@stylistic/stylelint-config": "catalog:",

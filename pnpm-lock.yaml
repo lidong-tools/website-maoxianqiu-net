@@ -33,6 +33,9 @@ catalogs:
     '@faker-js/faker':
       specifier: ^10.5.0
       version: 10.5.0
+    '@hono/node-server':
+      specifier: ^2.1.0
+      version: 2.1.0
     '@iconify/json':
       specifier: ^2.2.507
       version: 2.2.507
@@ -387,6 +390,9 @@ importers:
       '@fantastic-admin/themes':
         specifier: workspace:*
         version: link:packages/themes
+      '@hono/node-server':
+        specifier: 'catalog:'
+        version: 2.1.0(hono@4.13.0)
       '@iconify/json':
         specifier: 'catalog:'
         version: 2.2.507
@@ -4026,6 +4032,12 @@ packages:
 
   '@henrygd/queue@1.2.0':
     resolution: {integrity: sha512-jW/BLSTpcvExDhqJGxtIPgGr2O0IFF8XUNDwEbfCfhrXT8a4xztQ9Lv6U/vbYzYC0xVWn+3zv6YnLUh3bEFUKA==}
+
+  '@hono/node-server@2.1.0':
+    resolution: {integrity: sha512-XovyyCCnBzW+zKu+z/zq8hwNs4KOR5rEMAOxo2f40Q5xoOI37IMm6MIg2COOUtUApo0i6850MTBKH2u4QLGIqg==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      hono: ^4
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -10763,6 +10775,10 @@ snapshots:
       - vue
 
   '@henrygd/queue@1.2.0': {}
+
+  '@hono/node-server@2.1.0(hono@4.13.0)':
+    dependencies:
+      hono: 4.13.0
 
   '@humanfs/core@0.19.2':
     dependencies:
