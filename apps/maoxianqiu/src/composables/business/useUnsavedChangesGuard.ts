@@ -54,3 +54,47 @@ export function useUnsavedChangesGuard() {
     confirmLeave,
   }
 }
+
+/**
+ * 页面级未保存离开保护(P0-07):
+ * - 注册 onBeforeRouteLeave(路由离开确认)与 beforeunload(刷新/关闭浏览器确认)
+ * - 组件卸载/停用时按 keepAlive 决定是否清理 dirty(KeepAlive 页面由页面自行管理)
+ * 用法:const { setDirty } = usePageUnsavedGuard('routeName');编辑时 setDirty(true),保存后 setDirty(false)
+ */
+export function usePageUnsavedGuard(pageId: string, opts?: { keepAlive?: boolean }) {
+  const { register, confirmLeave, isDirty } = useUnsavedChangesGuard()
+  const { setDirty } = register(pageId)
+
+  onBeforeRouteLeave(async () => {
+    const ok = await confirmLeave()
+    if (!ok) {
+      return false
+    }
+    setDirty(false)
+    return true
+  })
+
+  function onBeforeUnload(e: BeforeUnloadEvent) {
+    if (isDirty()) {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+  }
+
+  onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
+
+  onBeforeUnmount(() => {
+    window.removeEventListener('beforeunload', onBeforeUnload)
+    if (!opts?.keepAlive) {
+      setDirty(false)
+    }
+  })
+
+  onDeactivated(() => {
+    if (!opts?.keepAlive) {
+      setDirty(false)
+    }
+  })
+
+  return { setDirty }
+}

@@ -6,7 +6,7 @@ import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
 import { getRequestIdempotencyKey } from '../lib/idempotency'
 import { requireScopedPermission } from '../lib/permission'
-import { getContext, loadContext } from '../lib/request-context'
+import { loadContext, resolveRequestedTenant } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { parseJsonBody } from '../lib/validation'
@@ -638,7 +638,7 @@ inventoryRoutes.post('/reserve/release', async (c) => {
  */
 inventoryRoutes.post('/reserve/release-expired', async (c) => {
   // P0-02 scoped:租户作用域授权(tenantId 缺失时取调用者首个成员租户)
-  const tenantId = c.req.query('tenantId') ?? getContext(c).memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c, c.req.query('tenantId'))
   if (!tenantId) {
     throw err.forbidden('无法确定租户作用域')
   }
@@ -674,7 +674,7 @@ inventoryRoutes.post('/reserve/release-expired', async (c) => {
  */
 inventoryRoutes.get('/near-expiry', async (c) => {
   // P0-02 scoped:校验 tenant 归属(缺失取调用者默认租户),并强制按 scope.tenantId 过滤
-  const tenantId = c.req.query('tenantId') ?? getContext(c).memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c, c.req.query('tenantId'))
   const storeId = c.req.query('storeId')
   const warehouseId = c.req.query('warehouseId')
   const scope = await requireScopedPermission(c, {

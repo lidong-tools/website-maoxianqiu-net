@@ -45,7 +45,7 @@ const resultForm = ref<Record<string, ResultFormValue>>({})
 const resultBaseline = ref<Record<string, ResultFormValue>>({})
 
 /** P0-28:检验录入 Dirty Guard(切单/路由/门店均由它保护) */
-const labGuard = useUnsavedChangesGuard().register('diagnostics-lab')
+const labGuard = usePageUnsavedGuard('diagnostics-lab')
 const resultsDirty = computed(() => {
   const keys = Object.keys(resultForm.value)
   if (!keys.length) {
@@ -300,7 +300,7 @@ async function onPublishResults() {
       labOrderId: selectedOrder.value.id,
       results,
     })
-    useFaToast().success('结果已发布(自动触发危急值告警)')
+    useFaToast().success('结果已提交审核(自动触发危急值告警)')
     labGuard.setDirty(false)
     await Promise.all([loadLabOrders(), loadStats(), loadCriticalAlerts(), onShowDetail(selectedOrder.value)])
   }
@@ -611,7 +611,7 @@ const labForm = reactive({
                 </FaButton>
                 <FaButton v-if="selectedOrder.canPublish" size="sm" @click="onPublishResults">
                   <FaIcon name="i-lucide:upload" />
-                  {{ selectedOrder.workflowStage === 'rejected' ? '重新发布' : '发布结果' }}
+                  {{ selectedOrder.workflowStage === 'rejected' ? '重新提交审核' : '提交审核' }}
                 </FaButton>
                 <FaButton v-if="selectedOrder.canReview" size="sm" variant="outline" @click="onReview('approved')">
                   审核通过

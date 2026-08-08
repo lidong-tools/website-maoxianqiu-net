@@ -81,13 +81,17 @@ searchRoutes.get('/', async (c) => {
   })
   const service = createServiceClient()
   const allowed = scope.allowedStoreIds
+  // 审计 §78:优先按"当前工作门店"(query storeId 或 x-store-id 头)收敛;
+  // 未指定门店时才是授权范围(全院搜索)。请求门店已在 requireScopedPermission 校验为可访问。
+  const requestedStore = c.req.query('storeId') || c.req.header('x-store-id') || undefined
+  const scopeIds = requestedStore ? [requestedStore] : allowed
 
-  // 门店级实体:授权门店 或 租户级(null store)数据;租户级角色 allowedStoreIds = 全租户门店
+  // 门店级实体:工作门店 或 租户级(null store)数据;未指定门店时用授权门店集合
   const scopeStore = (query: any) => {
-    if (allowed.length === 0) {
+    if (scopeIds.length === 0) {
       return query
     }
-    return query.or(`store_id.in.(${allowed.join(',')}),store_id.is.null`)
+    return query.or(`store_id.in.(${scopeIds.join(',')}),store_id.is.null`)
   }
   const scopeTenant = (query: any) => query.eq('tenant_id', scope.tenantId)
 

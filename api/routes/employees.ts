@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
 import { requireScopedPermission } from '../lib/permission'
-import { getContext, loadContext } from '../lib/request-context'
+import { loadContext, resolveRequestedTenant } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { parseJsonBody } from '../lib/validation'
@@ -202,7 +202,7 @@ employeeRoutes.post('/assign-store', async (c) => {
   const service = createServiceClient()
 
   // P0-02 scoped: 以调用者默认租户为授权目标租户(平台管理员跨租户放行)
-  const tenantId = getContext(c).memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c)
   if (!tenantId) {
     throw err.forbidden('无权访问该租户的数据')
   }
@@ -311,7 +311,7 @@ employeeRoutes.post('/change-role', async (c) => {
   const service = createServiceClient()
 
   // P0-02 scoped: 以调用者默认租户为授权目标租户(平台管理员跨租户放行)
-  const tenantId = getContext(c).memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c)
   if (!tenantId) {
     throw err.forbidden('无权访问该租户的数据')
   }

@@ -25,7 +25,7 @@ const saving = ref(false)
 const lastSavedAt = ref<Date | null>(null)
 
 /** P0-25:全局未保存保护接入,切门店由 ToolbarStart confirmLeave 统一处理 */
-const workbenchGuard = useUnsavedChangesGuard().register('clinical-workbench')
+const workbenchGuard = usePageUnsavedGuard('clinical-workbench')
 /** 表单基线:最近一次加载/保存时的服务器值,用于 dirty 判定 */
 const baselineEncounter = ref<EncounterRecord | null>(null)
 /** P0-26:409 冲突弹窗 */

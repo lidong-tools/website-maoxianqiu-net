@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
 import { requireScopedPermission } from '../lib/permission'
-import { getContext, loadContext } from '../lib/request-context'
+import { loadContext, resolveRequestedTenant } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createPresignedDownloadUrl } from '../lib/r2'
 import { createServiceClient } from '../lib/supabase'
@@ -172,7 +172,7 @@ importsRoutes.get('/templates/:type', async (c) => {
     throw err.badRequest('不支持的导入类型')
   }
   const format = c.req.query('format') === 'csv' ? 'csv' : 'xlsx'
-  const tenantId = c.req.query('tenantId') || getContext(c).memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c, c.req.query('tenantId'))
   if (!tenantId) {
     throw err.badRequest('缺少租户标识')
   }
@@ -202,7 +202,7 @@ importsRoutes.get('/templates/:type', async (c) => {
  * - 权限:imports.view(dataScope 允许门店角色)
  */
 importsRoutes.get('/', async (c) => {
-  const tenantId = c.req.query('tenantId') || getContext(c).memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c, c.req.query('tenantId'))
   const storeId = c.req.query('storeId')
   const type = c.req.query('type') as ImportJobType | undefined
   const statusParam = c.req.query('status')

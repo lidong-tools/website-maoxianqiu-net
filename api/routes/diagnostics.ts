@@ -443,7 +443,7 @@ const labSampleListSchema = z.object({
  */
 diagnosticsRoutes.get('/lab-samples', async (c) => {
   const input = labSampleListSchema.parse(c.req.query())
-  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  const tenantId = input.tenantId ?? getContext(c).tenantId ?? getContext(c).memberships[0]?.tenant_id
   if (!tenantId) {
     throw err.forbidden('无法确定租户作用域')
   }
@@ -596,7 +596,7 @@ const criticalAlertListSchema = z.object({
  */
 diagnosticsRoutes.get('/critical-values', async (c) => {
   const input = criticalAlertListSchema.parse(c.req.query())
-  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  const tenantId = input.tenantId ?? getContext(c).tenantId ?? getContext(c).memberships[0]?.tenant_id
   if (!tenantId) {
     throw err.forbidden('无法确定租户作用域')
   }
@@ -733,7 +733,7 @@ diagnosticsRoutes.post('/critical-values/:id/ack', async (c) => {
 // ============================================================
 
 type LabWorkflowStage = 'awaiting_sample' | 'testing' | 'awaiting_review' | 'published' | 'rejected' | 'cancelled'
-type LabPrimaryAction = 'collect' | 'publish' | null
+type LabPrimaryAction = 'collect' | 'publish' | 'review' | null
 
 interface LabWorkflowDerived {
   workflowStage: LabWorkflowStage
@@ -743,10 +743,33 @@ interface LabWorkflowDerived {
   canPublish: boolean
 }
 
+/**
+ * 推导检验工作台统一业务状态(S3.1-Fix B1)
+ *
+ * 真实 RPC 语义:
+ *   - 录入结果 = publish_lab_results(写 resulted_at/resulted_by,collected→completed)
+ *   - 审核 = review_lab_results(要求至少一条 resulted_at,否则 NO_RESULTS_TO_REVIEW)
+ *
+ * 因此状态分支含义(P0-27 原实现将"无结果待提交"与"结果已提交待审核"混为一谈,导致死锁):
+ *   | order.status | 条件                              | workflowStage | primaryAction | canEditResult | canReview | canPublish |
+ *   |--------------|-----------------------------------|---------------|---------------|---------------|-----------|------------|
+ *   | collected    | 无 received/testing 标本          | awaiting_review | publish      | true          | false     | true       |
+ *   | collected    | 有 received/testing 标本(检测中)  | testing       | null          | true          | false     | false      |
+ *   | completed    | 无审核记录                         | awaiting_review | review       | true          | true      | false      |
+ *   | completed    | latestReview=rejected 且未重录    | rejected      | publish       | true          | false     | true       |
+ *   | completed    | latestReview=rejected 且已重录    | awaiting_review | review       | true          | true      | false      |
+ *   | completed    | latestReview=approved             | published     | null          | false         | false     | false      |
+ *
+ * @param order            检验申请行(须含 status)
+ * @param samples          该单标本行列表(仅取 status 字段)
+ * @param latestReview     最新一条审核记录(含 decision/reviewed_at),无审核时为 undefined
+ * @param latestResultedAt 该单最新一条结果的 resulted_at(重录后大于最近审核时间即视为"已重新提交")
+ */
 function deriveLabWorkflow(
   order: { status: string },
   samples: Array<{ status: string }>,
-  latestReview: { decision?: string } | undefined,
+  latestReview: { decision?: string, reviewed_at?: string } | undefined,
+  latestResultedAt?: string | null,
 ): LabWorkflowDerived {
   if (order.status === 'cancelled') {
     return { workflowStage: 'cancelled', primaryAction: null, canEditResult: false, canReview: false, canPublish: false }
@@ -760,23 +783,29 @@ function deriveLabWorkflow(
   }
   if (order.status === 'collected') {
     const hasTesting = samples.some(s => s.status === 'received' || s.status === 'testing')
-    return {
-      workflowStage: hasTesting ? 'testing' : 'awaiting_review',
-      primaryAction: 'publish',
-      canEditResult: true,
-      // 检测中不可审核,待审核/退回方可(双签须结果已就绪)
-      canReview: !hasTesting,
-      canPublish: true,
+    if (hasTesting) {
+      // 检测中:可编辑结果,但不可提交/审核(结果未就绪)
+      return { workflowStage: 'testing', primaryAction: null, canEditResult: true, canReview: false, canPublish: false }
     }
+    // 已采集且结果就绪:录入后通过 publish_lab_results 提交审核(修复 P0 死锁)
+    return { workflowStage: 'awaiting_review', primaryAction: 'publish', canEditResult: true, canReview: false, canPublish: true }
   }
   if (order.status === 'completed') {
     if (latestReview?.decision === 'rejected') {
-      return { workflowStage: 'rejected', primaryAction: 'publish', canEditResult: true, canReview: true, canPublish: true }
+      // 审核退回:若结果已在审核后重新录入(resulted_at > reviewed_at),回到待审核;否则允许重新提交
+      const reviewedAt = latestReview.reviewed_at ? new Date(latestReview.reviewed_at).getTime() : 0
+      const resultedAt = latestResultedAt ? new Date(latestResultedAt).getTime() : 0
+      if (latestResultedAt && latestReview.reviewed_at && resultedAt > reviewedAt) {
+        return { workflowStage: 'awaiting_review', primaryAction: 'review', canEditResult: true, canReview: true, canPublish: false }
+      }
+      // 退回未重录:编辑结果后重新提交审核
+      return { workflowStage: 'rejected', primaryAction: 'publish', canEditResult: true, canReview: false, canPublish: true }
     }
     if (latestReview?.decision === 'approved') {
       return { workflowStage: 'published', primaryAction: null, canEditResult: false, canReview: false, canPublish: false }
     }
-    return { workflowStage: 'awaiting_review', primaryAction: 'publish', canEditResult: true, canReview: true, canPublish: true }
+    // 结果已通过 publish 提交,待审核
+    return { workflowStage: 'awaiting_review', primaryAction: 'review', canEditResult: true, canReview: true, canPublish: false }
   }
   return { workflowStage: 'awaiting_sample', primaryAction: null, canEditResult: false, canReview: false, canPublish: false }
 }
@@ -807,7 +836,7 @@ const STAGE_TO_STATUS: Record<Exclude<LabWorkflowStage, 'cancelled'>, string[]> 
  */
 diagnosticsRoutes.get('/lab-workbench', async (c) => {
   const input = labWorkbenchSchema.parse(c.req.query())
-  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  const tenantId = input.tenantId ?? getContext(c).tenantId ?? getContext(c).memberships[0]?.tenant_id
   if (!tenantId) {
     throw err.forbidden('无法确定租户作用域')
   }
@@ -848,7 +877,9 @@ diagnosticsRoutes.get('/lab-workbench', async (c) => {
 
   const orderIds = (orders ?? []).map(o => o.id)
   const samplesMap = new Map<string, Array<{ status: string }>>()
-  const reviewMap = new Map<string, { decision?: string }>()
+  const reviewMap = new Map<string, { decision?: string, reviewed_at?: string }>()
+  // S3.1-Fix B1:每单最新一条结果的 resulted_at,用于区分"退回后已重录"与"退回未重录"
+  const resultedMap = new Map<string, string>()
   if (orderIds.length) {
     const { data: samples } = await service
       .from('lab_samples')
@@ -866,16 +897,29 @@ diagnosticsRoutes.get('/lab-workbench', async (c) => {
       .in('lab_order_id', orderIds)
       .order('reviewed_at', { ascending: false })
     const seen = new Set<string>()
-    reviews?.forEach((r: { lab_order_id: string, decision: string }) => {
+    reviews?.forEach((r: { lab_order_id: string, decision: string, reviewed_at: string }) => {
       if (!seen.has(r.lab_order_id)) {
         seen.add(r.lab_order_id)
-        reviewMap.set(r.lab_order_id, { decision: r.decision })
+        reviewMap.set(r.lab_order_id, { decision: r.decision, reviewed_at: r.reviewed_at })
+      }
+    })
+
+    // S3.1-Fix B1:仅取已录结果的 resulted_at,每单保留最新一条
+    const { data: analytes } = await service
+      .from('lab_order_analytes')
+      .select('lab_order_id, resulted_at')
+      .in('lab_order_id', orderIds)
+      .not('resulted_at', 'is', null)
+    analytes?.forEach((a: { lab_order_id: string, resulted_at: string }) => {
+      const prev = resultedMap.get(a.lab_order_id)
+      if (!prev || a.resulted_at > prev) {
+        resultedMap.set(a.lab_order_id, a.resulted_at)
       }
     })
   }
 
   let rows = (orders ?? []).map((o: any) => {
-    const wf = deriveLabWorkflow(o, samplesMap.get(o.id) ?? [], reviewMap.get(o.id))
+    const wf = deriveLabWorkflow(o, samplesMap.get(o.id) ?? [], reviewMap.get(o.id), resultedMap.get(o.id))
     return {
       ...o,
       workflowStage: wf.workflowStage,
@@ -901,7 +945,8 @@ diagnosticsRoutes.get('/lab-workbench', async (c) => {
 // 影像工作流(PRD §12.3):imaging_orders / imaging_reports
 // 状态机:
 //   order: requested→scheduled→in_progress→performed→reported→reviewed→published; 任意非终态→cancelled
-//   report: draft→submitted→reviewed→published; 已发布修订→新版本行(draft)
+//   report: draft→submitted→reviewed→published; submitted 退回→draft; 已发布修订→新版本行(draft)
+//   create report 前置:order 须已 performed(performed/reported/reviewed/published 才允许创建)
 // 权限:imaging.view / imaging.order / imaging.perform / imaging.report / imaging.review / imaging.publish
 // 附件:复用 files/attachments/R2,entity_type = imaging_order | imaging_report
 // ============================================================
@@ -940,7 +985,7 @@ const imagingOrderListSchema = z.object({
  */
 diagnosticsRoutes.get('/imaging/orders', async (c) => {
   const input = imagingOrderListSchema.parse(c.req.query())
-  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  const tenantId = input.tenantId ?? getContext(c).tenantId ?? getContext(c).memberships[0]?.tenant_id
   if (!tenantId) {
     throw err.forbidden('无法确定租户作用域')
   }
@@ -969,9 +1014,35 @@ diagnosticsRoutes.get('/imaging/orders', async (c) => {
     throw err.internal(`查询影像申请列表失败: ${error.message}`)
   }
 
+  // S3.1-Fix B4(审计 41 节):每单最新报告行(draft 优先),用于"修订待处理"标记
+  const orderIds = (orders ?? []).map((o: any) => o.id)
+  const latestReportMap = new Map<string, { status: string }>()
+  if (orderIds.length) {
+    const { data: reports } = await service
+      .from('imaging_reports')
+      .select('imaging_order_id, status')
+      .in('imaging_order_id', orderIds)
+    const PRIORITY: Record<string, number> = { draft: 0, submitted: 1, reviewed: 2, published: 3 }
+    reports?.forEach((r: { imaging_order_id: string, status: string }) => {
+      const prev = latestReportMap.get(r.imaging_order_id)
+      if (!prev || (PRIORITY[r.status] ?? 9) < (PRIORITY[prev.status] ?? 9)) {
+        latestReportMap.set(r.imaging_order_id, { status: r.status })
+      }
+    })
+  }
+
   let rows = (orders ?? []).map((o: any) => {
     const mapped = IMAGING_STAGE_MAP[o.status] ?? { workflowStage: o.status, primaryAction: null }
-    return { ...o, workflowStage: mapped.workflowStage, primaryAction: mapped.primaryAction }
+    const latest = latestReportMap.get(o.id)
+    // 最新报告为 draft 且订单未取消 → 存在待处理报告/修订(已发布后创建 V2 draft 时订单主状态仍为 published)
+    const revisionPending = !!latest && latest.status === 'draft' && o.status !== 'cancelled'
+    return {
+      ...o,
+      workflowStage: mapped.workflowStage,
+      primaryAction: mapped.primaryAction,
+      latestReportStatus: latest?.status ?? null,
+      revisionPending,
+    }
   })
   if (input.stage) {
     rows = rows.filter(r => r.workflowStage === input.stage)
@@ -1006,6 +1077,51 @@ diagnosticsRoutes.post('/imaging/orders', async (c) => {
 
   const service = createServiceClient()
   const user = c.get('user')
+
+  // P0-13:实体关系链校验(service role 绕过 RLS,必须显式证明同租户/同关系)
+  const { data: customer } = await service
+    .from('customers')
+    .select('id')
+    .eq('id', input.customerId)
+    .eq('tenant_id', scope.tenantId)
+    .maybeSingle()
+  if (!customer) {
+    throw err.badRequest('客户不属于当前租户')
+  }
+  const { data: pet } = await service
+    .from('pets')
+    .select('id')
+    .eq('id', input.petId)
+    .eq('tenant_id', scope.tenantId)
+    .eq('customer_id', input.customerId)
+    .maybeSingle()
+  if (!pet) {
+    throw err.badRequest('宠物与客户不匹配或不属于当前租户')
+  }
+  if (input.encounterId) {
+    const { data: enc } = await service
+      .from('encounters')
+      .select('id, store_id')
+      .eq('id', input.encounterId)
+      .eq('tenant_id', scope.tenantId)
+      .eq('pet_id', input.petId)
+      .maybeSingle()
+    if (!enc || (enc.store_id && enc.store_id !== scope.storeId)) {
+      throw err.badRequest('就诊记录与宠物/门店不匹配')
+    }
+  }
+  if (input.catalogItemId) {
+    const { data: ci } = await service
+      .from('catalog_items')
+      .select('id')
+      .eq('id', input.catalogItemId)
+      .eq('tenant_id', scope.tenantId)
+      .maybeSingle()
+    if (!ci) {
+      throw err.badRequest('目录项目不属于当前租户')
+    }
+  }
+
   const orderNo = genImagingOrderNo()
   const { data, error } = await service
     .from('imaging_orders')
@@ -1069,16 +1185,21 @@ diagnosticsRoutes.post('/imaging/orders/:id/schedule', async (c) => {
     throw err.conflict('仅待预约状态的影像申请可排程')
   }
 
-  const { data, error } = await service
+  // P0-14:条件更新(status=expected),并发下仅一方成功,避免两请求同时通过预检查
+  const { data: rows, error } = await service
     .from('imaging_orders')
     .update({ status: 'scheduled', scheduled_at: input.scheduledAt, updated_at: new Date().toISOString() })
     .eq('id', id)
+    .eq('status', 'requested')
     .select('*')
-    .single()
 
   if (error) {
     throw err.internal(`影像排程失败: ${error.message}`)
   }
+  if (!rows || rows.length === 0) {
+    throw err.conflict('影像申请状态已变更,请刷新后重试')
+  }
+  const data = rows[0]
 
   await writeAudit(c, {
     action: 'imaging.order.schedule',
@@ -1113,16 +1234,21 @@ diagnosticsRoutes.post('/imaging/orders/:id/start', async (c) => {
     throw err.conflict('仅已排程状态的影像可开始执行')
   }
 
-  const { data, error } = await service
+  // P0-14:条件更新(status=expected),并发防重
+  const { data: rows, error } = await service
     .from('imaging_orders')
     .update({ status: 'in_progress', updated_at: new Date().toISOString() })
     .eq('id', id)
+    .eq('status', 'scheduled')
     .select('*')
-    .single()
 
   if (error) {
     throw err.internal(`开始影像执行失败: ${error.message}`)
   }
+  if (!rows || rows.length === 0) {
+    throw err.conflict('影像申请状态已变更,请刷新后重试')
+  }
+  const data = rows[0]
 
   await writeAudit(c, {
     action: 'imaging.perform.start',
@@ -1158,16 +1284,21 @@ diagnosticsRoutes.post('/imaging/orders/:id/perform', async (c) => {
     throw err.conflict('仅执行中状态的影像可标记完成')
   }
 
-  const { data, error } = await service
+  // P0-14:条件更新(status=expected),并发防重
+  const { data: rows, error } = await service
     .from('imaging_orders')
     .update({ status: 'performed', performed_at: new Date().toISOString(), performed_by: user.id, updated_at: new Date().toISOString() })
     .eq('id', id)
+    .eq('status', 'in_progress')
     .select('*')
-    .single()
 
   if (error) {
     throw err.internal(`完成影像执行失败: ${error.message}`)
   }
+  if (!rows || rows.length === 0) {
+    throw err.conflict('影像申请状态已变更,请刷新后重试')
+  }
+  const data = rows[0]
 
   await writeAudit(c, {
     action: 'imaging.perform.complete',
@@ -1203,16 +1334,21 @@ diagnosticsRoutes.post('/imaging/orders/:id/cancel', async (c) => {
     throw err.conflict('仅待预约/已排程状态的影像可取消')
   }
 
-  const { data, error } = await service
+  // P0-14:条件更新(status ∈ 可取消),并发防重
+  const { data: rows, error } = await service
     .from('imaging_orders')
     .update({ status: 'cancelled', updated_at: new Date().toISOString() })
     .eq('id', id)
+    .in('status', ['requested', 'scheduled'])
     .select('*')
-    .single()
 
   if (error) {
     throw err.internal(`取消影像申请失败: ${error.message}`)
   }
+  if (!rows || rows.length === 0) {
+    throw err.conflict('影像申请状态已变更,请刷新后重试')
+  }
+  const data = rows[0]
 
   await writeAudit(c, {
     action: 'imaging.order.cancel',
@@ -1326,8 +1462,10 @@ diagnosticsRoutes.post('/imaging/orders/:id/reports', async (c) => {
   }
   await requireScopedPermission(c, { code: 'imaging.report', tenantId: order.tenant_id, storeId: order.store_id ?? undefined })
 
-  if (order.status === 'cancelled') {
-    throw err.conflict('已取消的影像申请不可新增报告')
+  // S3.1-Fix B4(审计 40 节):requested/scheduled/in_progress 阶段不允许提前出现 Report,
+  // 仅执行完成(performed)之后的申请可创建报告(draft 亦在 performed 之后)
+  if (!['performed', 'reported', 'reviewed', 'published'].includes(order.status)) {
+    throw err.conflict('仅执行完成后的影像申请可创建报告')
   }
 
   // 计算版本号:max(version) + 1
@@ -1461,16 +1599,21 @@ diagnosticsRoutes.post('/imaging/reports/:id/submit', async (c) => {
     throw err.conflict('仅草稿状态的报告可提交审核')
   }
 
-  const { data, error } = await service
+  // S3.1-Fix B4(审计 40 节):条件更新(status=expected),并发下仅一方成功,避免"先 SELECT 后 UPDATE"竞态
+  const { data: rows, error } = await service
     .from('imaging_reports')
     .update({ status: 'submitted', updated_at: new Date().toISOString() })
     .eq('id', id)
+    .eq('status', 'draft')
     .select('*')
-    .single()
 
   if (error) {
     throw err.internal(`提交影像报告失败: ${error.message}`)
   }
+  if (!rows || rows.length === 0) {
+    throw err.conflict('影像报告状态已变更,请刷新后重试')
+  }
+  const data = rows[0]
 
   await writeAudit(c, {
     action: 'imaging.report.submit',
@@ -1517,7 +1660,8 @@ diagnosticsRoutes.post('/imaging/reports/:id/review', async (c) => {
   }
 
   const nextStatus = input.decision === 'approved' ? 'reviewed' : 'draft'
-  const { data, error } = await service
+  // S3.1-Fix B4(审计 40 节):条件更新(status=expected),并发下仅一方成功,避免"先 SELECT 后 UPDATE"竞态
+  const { data: rows, error } = await service
     .from('imaging_reports')
     .update({
       status: nextStatus,
@@ -1525,12 +1669,16 @@ diagnosticsRoutes.post('/imaging/reports/:id/review', async (c) => {
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
+    .eq('status', 'submitted')
     .select('*')
-    .single()
 
   if (error) {
     throw err.internal(`审核影像报告失败: ${error.message}`)
   }
+  if (!rows || rows.length === 0) {
+    throw err.conflict('影像报告状态已变更,请刷新后重试')
+  }
+  const data = rows[0]
 
   // 审核通过 → 申请单推进到 reviewed;退回 → 回到 reported
   const orderStatus = input.decision === 'approved' ? 'reviewed' : 'reported'

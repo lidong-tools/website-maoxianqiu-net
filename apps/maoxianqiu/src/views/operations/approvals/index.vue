@@ -224,6 +224,14 @@ async function submitDecision() {
 }
 
 onMounted(load)
+
+// P0-06:切店后重置分页并重载审批列表(避免旧租户/旧门店数据残留)
+useStoreScopedPage({
+  load,
+  reset: () => {
+    onCurrentChange(1)
+  },
+})
 </script>
 
 <template>

@@ -310,7 +310,7 @@ export interface LabOrderListResult {
 export type LabWorkflowStage = 'awaiting_sample' | 'testing' | 'awaiting_review' | 'published' | 'rejected' | 'cancelled'
 
 /** 工作台主动作 */
-export type LabPrimaryAction = 'collect' | 'publish' | null
+export type LabPrimaryAction = 'collect' | 'publish' | 'review' | null
 
 /** lab-workbench 端点返回的带业务状态的行 */
 export interface LabWorkbenchRecord extends LabOrderRecord {
@@ -382,6 +382,10 @@ export interface ImagingOrderRecord {
 export interface ImagingOrderWorkbenchRecord extends ImagingOrderRecord {
   workflowStage: ImagingOrderStage
   primaryAction: 'schedule' | 'perform' | 'report' | 'review' | null
+  /** S3.1-Fix B4:每单最新报告行状态(draft 优先);无报告时为 null */
+  latestReportStatus?: ImagingReportStatus | null
+  /** S3.1-Fix B4:最新报告为 draft 且订单未取消(已发布报告存在修订待处理) */
+  revisionPending?: boolean
 }
 
 /** imaging_reports 表记录(版本化) */

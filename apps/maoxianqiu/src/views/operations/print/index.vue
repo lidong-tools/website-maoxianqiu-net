@@ -127,6 +127,14 @@ onMounted(async () => {
   getDataList()
 })
 
+// P0-06:切店后重置门店筛选并重载(避免旧门店打印任务残留)
+useStoreScopedPage({
+  load: getDataList,
+  reset: () => {
+    search.value.storeId = tenantStore.currentStoreId || ''
+  },
+})
+
 function onSearch() {
   getDataList()
 }

@@ -2,7 +2,7 @@ import type { AppEnv } from '../lib/types'
 import { Hono } from 'hono'
 import { err } from '../lib/errors'
 import { requireScopedPermission } from '../lib/permission'
-import { getContext, loadContext } from '../lib/request-context'
+import { loadContext, resolveRequestedTenant } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { authMiddleware, loadCaller } from '../middlewares/auth'
@@ -551,7 +551,7 @@ reportDataRoutes.get('/:reportCode', async (c) => {
   // dataScope 模式:允许门店级角色查看其被授权门店的报表数据(审计 5.2)
   const scope = await requireScopedPermission(c, {
     code: 'reports.view',
-    tenantId: tenantId ?? (getContext(c).memberships[0]?.tenant_id ?? ''),
+    tenantId: resolveRequestedTenant(c, tenantId) ?? '',
     storeId: storeId ?? undefined,
     dataScope: true,
   })

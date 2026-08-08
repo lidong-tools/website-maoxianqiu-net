@@ -44,3 +44,24 @@ export function requireTenant(c: Context<AppEnv>): string {
   }
   return context.tenantId
 }
+
+/**
+ * 解析请求级租户作用域。
+ * 优先级:显式 API 参数 → X-Tenant-Id 请求头(context.tenantId) → legacy memberships[0] 兼容兜底。
+ * 审计 S3.1 §9-11:多租户用户切换顶部 Tenant 后 X-Tenant-Id 与 memberships[0] 可能不一致
+ * (UI Context=B,API Default=A),因此业务路由统一走本 helper,memberships[0] 仅作最后兜底。
+ */
+export function resolveRequestedTenant(c: Context<AppEnv>, explicitTenantId?: string | null | undefined): string | undefined {
+  const context = getContext(c)
+  return explicitTenantId || context.tenantId || context.memberships[0]?.tenant_id || undefined
+}
+
+/**
+ * 解析请求级门店作用域。
+ * 优先级:显式 API 参数 → X-Store-Id 请求头(context.storeId)。
+ * 门店头缺失时返回 undefined,不做 memberships 兼容兜底(store 无 legacy 默认值)。
+ */
+export function resolveRequestedStore(c: Context<AppEnv>, explicitStoreId?: string | null | undefined): string | undefined {
+  const context = getContext(c)
+  return explicitStoreId || context.storeId || undefined
+}

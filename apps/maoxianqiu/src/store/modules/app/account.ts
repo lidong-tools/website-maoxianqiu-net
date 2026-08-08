@@ -6,6 +6,9 @@ export const useAppAccountStore = defineStore('appAccount', () => {
   const appTabbarStore = useAppTabbarStore()
   const appRouteStore = useAppRouteStore()
   const appMenuStore = useAppMenuStore()
+  // 审计 P0:权限唯一事实来源 = tenantStore.effectivePermissions(useAppAuth 直接消费)。
+  // 此处引用 tenant store 仅为同步 account.permissions 快照,向后兼容仍读取该字段的页面。
+  const appTenantStore = useAppTenantStore()
 
   // 账号信息
   const token = ref(localStorage.getItem('token') ?? '')
@@ -118,7 +121,11 @@ export const useAppAccountStore = defineStore('appAccount', () => {
 
   // 找回密码(浏览器直连 Supabase,发送重置邮件)
   async function resetPassword(account: string) {
-    const { error } = await supabase.auth.resetPasswordForEmail(account)
+    // P0-08:显式指定 redirectTo,确保邮件回跳进入密码重置页(而非默认站点根)
+    const redirectTo = `${window.location.origin}/auth/reset-password`
+    const { error } = await supabase.auth.resetPasswordForEmail(account, {
+      redirectTo,
+    })
     if (error) {
       throw new Error(error.message)
     }
@@ -199,13 +206,24 @@ export const useAppAccountStore = defineStore('appAccount', () => {
   }
 
   // 获取权限(P0-01:唯一事实来源 = /api/me/context,不再浏览器直查 store_members/roles)
+  // P0-04:使用当前工作上下文有效权限(当前门店/租户),而非跨租户门店的全局并集
   async function getPermissions() {
     const appTenantStore = useAppTenantStore()
     if (!appTenantStore.isReady) {
       await appTenantStore.initContext()
     }
-    permissions.value = appTenantStore.permissions
+    permissions.value = appTenantStore.effectivePermissions
   }
+
+  // 审计 P0:切换租户/门店后同步 account.permissions 快照。
+  // useAppAuth 已直接读 tenantStore.effectivePermissions(响应式,切换即生效),
+  // 此处 watch 仅保证仍读取 account.permissions 的页面/逻辑不拿到过期权限。
+  watch(
+    [() => appTenantStore.currentTenantId, () => appTenantStore.currentStoreId],
+    () => {
+      permissions.value = appTenantStore.effectivePermissions
+    },
+  )
 
   // 初始化会话(应用启动时同步已登录状态)
   async function initSession() {

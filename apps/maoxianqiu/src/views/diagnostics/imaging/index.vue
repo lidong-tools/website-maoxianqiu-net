@@ -535,6 +535,10 @@ onMounted(async () => {
                   </span>
                 </div>
                 <EntityStatusTag :label="IMAGING_STAGE_LABELS[row.workflowStage]" :variant="stageVariant(row.workflowStage)" :dot="false" class="ml-auto" />
+                <span v-if="row.revisionPending" class="text-[10px] text-amber-700 font-medium px-1 rounded bg-amber-100 inline-flex gap-0.5 items-center">
+                  <FaIcon name="i-lucide:rotate-ccw" class="size-2.5" />
+                  修订待处理
+                </span>
               </div>
             </button>
             <EmptyState v-if="!loading && dataList.length === 0" compact title="当前队列无影像申请" />

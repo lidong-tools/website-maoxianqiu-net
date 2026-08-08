@@ -159,6 +159,11 @@ function onCancel(row: ReminderRow) {
 onMounted(async () => {
   await loadReminders()
 })
+
+// P0-06:切店后重载到期提醒(避免旧门店数据残留)
+useStoreScopedPage({
+  load: loadReminders,
+})
 </script>
 
 <template>

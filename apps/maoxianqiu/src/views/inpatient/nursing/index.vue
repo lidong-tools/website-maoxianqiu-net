@@ -263,6 +263,14 @@ async function onSkipTask(row: NursingTask) {
 onMounted(() => {
   // 不预加载,等用户填写住院 ID 后查询
 })
+
+// P0-06:切店后重置所选住院记录并清空列表(避免跨门店数据残留)
+useStoreScopedPage({
+  load: loadData,
+  reset: () => {
+    selectedAdmissionId.value = ''
+  },
+})
 </script>
 
 <template>

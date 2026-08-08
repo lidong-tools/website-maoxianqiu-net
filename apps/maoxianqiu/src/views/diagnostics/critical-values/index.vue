@@ -108,6 +108,15 @@ onMounted(async () => {
   getDataList()
 })
 
+// P0-06:切店后重置分页与门店筛选并重载(避免旧门店危急值残留)
+useStoreScopedPage({
+  load: getDataList,
+  reset: () => {
+    search.value.storeId = tenantStore.currentStoreId
+    onCurrentChange(1)
+  },
+})
+
 function sizeChange(size: number) {
   onSizeChange(size).then(() => getDataList())
 }

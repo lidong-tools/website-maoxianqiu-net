@@ -67,6 +67,7 @@ declare global {
   const toValue: typeof import('vue').toValue
   const triggerRef: typeof import('vue').triggerRef
   const unref: typeof import('vue').unref
+  const useAnalyticsContext: typeof import('../composables/business/useAnalyticsContext').useAnalyticsContext
   const useAppAccountStore: typeof import('../store/modules/app/account').useAppAccountStore
   const useAppAuth: typeof import('../composables/app/auth').useAppAuth
   const useAppKeepAliveStore: typeof import('../store/modules/app/keepAlive').useAppKeepAliveStore
@@ -88,6 +89,7 @@ declare global {
   const useId: typeof import('vue').useId
   const useLink: typeof import('vue-router').useLink
   const useModel: typeof import('vue').useModel
+  const usePageUnsavedGuard: typeof import('../composables/business/useUnsavedChangesGuard').usePageUnsavedGuard
   const usePagination: typeof import('@fantastic-admin/composables').usePagination
   const useRoute: typeof import('vue-router').useRoute
   const useRouter: typeof import('vue-router').useRouter
@@ -108,6 +110,9 @@ declare global {
   // @ts-ignore
   export type { ContextStore, ContextTenant, TenantContext, ContextMode } from '../store/modules/app/tenant'
   import('../store/modules/app/tenant')
+  // @ts-ignore
+  export type { AnalyticsContext, AnalyticsContextReturn } from '../composables/business/useAnalyticsContext'
+  import('../composables/business/useAnalyticsContext')
   // @ts-ignore
   export type { StoreScopedPageOptions } from '../composables/business/useStoreScopedPage'
   import('../composables/business/useStoreScopedPage')

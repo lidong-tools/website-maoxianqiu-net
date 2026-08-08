@@ -969,10 +969,11 @@ operationsRoutes.get('/reports', async (c) => {
   const category = c.req.query('category')
   const onlyActive = c.req.query('onlyActive') === 'true'
 
-  // 租户归属校验:tenantId 由客户端提供时必须属于调用者(防止跨租户直查)
+  // 租户归属校验:tenantId 由客户端提供时必须属于调用者(防止跨租户直查);
+  // 未提供时优先取请求上下文租户(getContext(c).tenantId),仅兜底回退 memberships[0]
   const scope = await requireScopedPermission(c, {
     code: 'reports.view',
-    tenantId: tenantId ?? (getContext(c).memberships[0]?.tenant_id ?? ''),
+    tenantId: tenantId ?? getContext(c).tenantId ?? (getContext(c).memberships[0]?.tenant_id ?? ''),
   })
 
   const service = createServiceClient()
@@ -1010,10 +1011,11 @@ operationsRoutes.get('/security-events', async (c) => {
   const from = Number(c.req.query('from') ?? 0)
   const limit = Math.min(Number(c.req.query('limit') ?? 20), 100)
 
-  // 租户归属校验:tenantId 由客户端提供时必须属于调用者(防止跨租户直查)
+  // 租户归属校验:tenantId 由客户端提供时必须属于调用者(防止跨租户直查);
+  // 未提供时优先取请求上下文租户(getContext(c).tenantId),仅兜底回退 memberships[0]
   const scope = await requireScopedPermission(c, {
     code: 'security.view',
-    tenantId: tenantId ?? (getContext(c).memberships[0]?.tenant_id ?? ''),
+    tenantId: tenantId ?? getContext(c).tenantId ?? getContext(c).memberships[0]?.tenant_id ?? '',
   })
 
   const service = createServiceClient()
@@ -1248,6 +1250,54 @@ operationsRoutes.get('/customer-memberships', async (c) => {
   return ok(c, { list: data ?? [], total: count ?? 0 })
 })
 
+/**
+ * 会员/折扣规则引用同租户校验(审计 34-35)
+ *
+ * service role 绕过 RLS,仅靠 FK 只能证明 UUID 存在、不能证明属于当前租户,
+ * 因此 Create 与 Patch 都必须显式校验引用的 tier/store/catalogItem 属于 scope.tenantId。
+ * 对每个「非 null 且非 undefined」的引用做校验;null(显式清空)时跳过。
+ * 错误文案与 Create 保持一致。
+ */
+async function validateMembershipReferenceScope(
+  service: ReturnType<typeof createServiceClient>,
+  tenantId: string,
+  refs: { tierId?: string | null, storeId?: string | null, catalogItemId?: string | null },
+): Promise<void> {
+  if (refs.tierId) {
+    const { data: tier } = await service
+      .from('membership_tiers')
+      .select('id')
+      .eq('id', refs.tierId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle()
+    if (!tier) {
+      throw err.badRequest('会员等级不属于当前租户')
+    }
+  }
+  if (refs.storeId) {
+    const { data: store } = await service
+      .from('stores')
+      .select('id')
+      .eq('id', refs.storeId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle()
+    if (!store) {
+      throw err.badRequest('门店不属于当前租户')
+    }
+  }
+  if (refs.catalogItemId) {
+    const { data: ci } = await service
+      .from('catalog_items')
+      .select('id')
+      .eq('id', refs.catalogItemId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle()
+    if (!ci) {
+      throw err.badRequest('目录项目不属于当前租户')
+    }
+  }
+}
+
 const customerMembershipPatchSchema = z.object({
   tierId: z.string().uuid('等级 id 格式错误').optional(),
   expiresAt: z.string().nullable().optional(),
@@ -1271,6 +1321,11 @@ operationsRoutes.patch('/customer-memberships/:id', async (c) => {
     throw err.notFound('客户会员关系不存在')
   }
   const scope = await requireScopedPermission(c, { code: 'membership.manage', tenantId: existing.tenant_id })
+
+  // 审计 34-35:更新 tierId 时重新校验等级属于当前租户(service role 绕过 RLS,FK 不足以保证同租户)
+  if (input.tierId !== undefined) {
+    await validateMembershipReferenceScope(service, scope.tenantId, { tierId: input.tierId })
+  }
 
   const { data, error } = await service
     .from('customer_memberships')
@@ -1383,6 +1438,14 @@ operationsRoutes.post('/discount-rules', async (c) => {
   const input = await parseJsonBody(c, discountRuleSchema)
   const scope = await requireScopedPermission(c, { code: 'membership.manage', tenantId: input.tenantId })
   const service = createServiceClient()
+
+  // P0-11 + 审计 34-35:跨租户实体校验(service role 绕过 RLS,必须显式证明同租户;Create 与 Patch 共用)
+  await validateMembershipReferenceScope(service, scope.tenantId, {
+    tierId: input.tierId,
+    storeId: input.storeId,
+    catalogItemId: input.catalogItemId,
+  })
+
   const { data, error } = await service
     .from('membership_discount_rules')
     .insert({
@@ -1438,6 +1501,14 @@ operationsRoutes.patch('/discount-rules/:id', async (c) => {
     throw err.notFound('折扣规则不存在')
   }
   const scope = await requireScopedPermission(c, { code: 'membership.manage', tenantId: existing.tenant_id })
+
+  // 审计 34-35:更新 tierId/storeId/catalogItemId 时重新做与 Create 一致的同租户校验
+  // (storeId/catalogItemId 传 null 表示显式清空,校验函数内部对 null 跳过)
+  await validateMembershipReferenceScope(service, scope.tenantId, {
+    tierId: input.tierId,
+    storeId: input.storeId,
+    catalogItemId: input.catalogItemId,
+  })
 
   const { data, error } = await service
     .from('membership_discount_rules')

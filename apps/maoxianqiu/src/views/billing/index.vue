@@ -214,6 +214,14 @@ function onGotoCashier() {
   useRouter().push({ name: 'billingCashier' })
 }
 
+// P0-06:切店后重置门店筛选并重载发票列表(避免旧门店数据残留)
+useStoreScopedPage({
+  load: getDataList,
+  reset: () => {
+    search.value.storeId = ''
+  },
+})
+
 onMounted(getDataList)
 </script>
 

@@ -32,9 +32,11 @@ export function useStoreScopedPage(options: StoreScopedPageOptions) {
       const currentRun = ++runId
       options.reset?.()
       await options.load()
-      // 新切换已触发新一轮 reset+load,丢弃本轮(防止旧数据覆盖)
+      // 审计 P0-06:旧请求完成时可能已把数据写入 state,发现 runId 过期后
+      // 再按"当前门店"重新 reset+load 一次,避免旧门店数据残留覆盖新门店。
       if (currentRun !== runId) {
-        return
+        options.reset?.()
+        await options.load()
       }
     },
   )

@@ -10,7 +10,7 @@ import {
   generatePrivateObjectKey,
   headObject,
 } from '../lib/r2'
-import { getContext, loadContext } from '../lib/request-context'
+import { loadContext, resolveRequestedTenant } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { parseJsonBody } from '../lib/validation'
@@ -122,9 +122,8 @@ const uploadIntentSchema = z.object({
 fileCommandRoutes.post('/upload-intents', async (c) => {
   const input = await parseJsonBody(c, uploadIntentSchema)
 
-  // 租户归属校验:tenantId 缺失时回退到调用者首个成员关系,仍不匹配则拒绝
-  const context = getContext(c)
-  const tenantId = input.tenantId ?? context.memberships[0]?.tenant_id
+  // 租户归属校验:tenantId 缺失时回退到 X-Tenant-Id / 调用者首个成员关系,仍不匹配则拒绝
+  const tenantId = resolveRequestedTenant(c, input.tenantId)
   if (!tenantId) {
     throw err.badRequest('缺少租户标识')
   }

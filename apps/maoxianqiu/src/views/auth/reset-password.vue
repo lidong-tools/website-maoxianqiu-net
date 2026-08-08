@@ -50,6 +50,15 @@ function onSubmit(values: ResetPasswordModel) {
 }
 
 onMounted(() => {
+  const route = useRoute()
+  // P0-08:仅接受真实密码找回链接。Supabase 重置邮件回跳 URL 携带 type=recovery(或 token);
+  // 普通已登录会话不再被当作 recovery。
+  const isRecoveryLink = route.query.type === 'recovery' || !!route.query.token
+  if (isRecoveryLink) {
+    recovered.value = true
+    checking.value = false
+    return
+  }
   // 邮件重置链接回跳时 Supabase 触发 PASSWORD_RECOVERY 事件并建立 recovery session
   const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
     if (event === 'PASSWORD_RECOVERY') {
@@ -57,13 +66,14 @@ onMounted(() => {
       checking.value = false
     }
   })
-  // 事件可能在挂载前已触发,兜底从会话判断
-  supabase.auth.getSession().then(({ data }) => {
-    if (data.session) {
-      recovered.value = true
-    }
-    checking.value = false
-  })
+  // 审计 S3.1 §27:不再依赖 user_metadata.recovery(不是稳定的 Recovery 判断依据)。
+  // supabase.ts 全局监听 PASSWORD_RECOVERY 时已写入 sessionStorage 标志,
+  // 事件即使在本页监听注册前已触发(PKCE ?code= 回跳),这里也能兜底识别。
+  const recoveryPending = sessionStorage.getItem('mxq:recovery-pending') === '1'
+  if (recoveryPending) {
+    recovered.value = true
+  }
+  checking.value = false
   onUnmounted(() => subscription.unsubscribe())
 })
 </script>

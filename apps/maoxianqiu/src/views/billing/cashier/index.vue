@@ -40,8 +40,13 @@ const catalogList = ref<CatalogRow[]>([])
 const cart = ref<CartItem[]>([])
 const keyword = ref('')
 
+// C1(审计 29-30):记录「已创建但未完成确认/支付」的发票 id。
+// 结算重试时若存在该值,跳过 Create 直接重试 Confirm,避免重复生成多个草稿发票。
+// 页面加载/重置时初始为 null;支付成功或用户清空购物车(草稿废弃)时清空。
+const pendingInvoiceId = ref<string | null>(null)
+
 // 未保存保护:购物车/已选客户被视为 dirty(在 form 声明后 watch)
-const cashierGuard = useUnsavedChangesGuard().register('billing-cashier')
+const cashierGuard = usePageUnsavedGuard('billing-cashier')
 
 const form = reactive({
   customerId: '',
@@ -72,21 +77,27 @@ const receiptLoading = ref(false)
 
 // P0-16:支付方式来自系统设置(payment_contexts),不再前端静态硬编码
 const paymentMethods = ref<Array<{ method: PaymentMethod, label: string }>>([])
+// P0-10:加载成功但 0 个启用支付方式时置 true,禁止结算并提示联系管理员
+const paymentMethodsDisabled = ref(false)
 const PAYMENT_METHOD_FALLBACK = (Object.entries(PAYMENT_METHOD_LABELS) as Array<[PaymentMethod, string]>)
   .map(([method, label]) => ({ method, label }))
 
 async function loadPaymentMethods() {
   if (!tenantStore.currentTenantId || !tenantStore.currentStoreId) {
     paymentMethods.value = PAYMENT_METHOD_FALLBACK
+    paymentMethodsDisabled.value = false
     return
   }
   try {
     const list: any[] = await apiSettings.listPaymentContexts(tenantStore.currentTenantId, tenantStore.currentStoreId)
     const active = list.filter(c => c.is_active)
     if (active.length === 0) {
-      paymentMethods.value = PAYMENT_METHOD_FALLBACK
+      // P0-10:加载成功但 0 个启用 → 不允许结算,不回退静态默认(管理员可能已停用现金)
+      paymentMethods.value = []
+      paymentMethodsDisabled.value = true
       return
     }
+    paymentMethodsDisabled.value = false
     paymentMethods.value = active.map(c => ({ method: c.method as PaymentMethod, label: c.label }))
     const def = active.find(c => c.is_default)
     if (def) {
@@ -97,7 +108,9 @@ async function loadPaymentMethods() {
     }
   }
   catch {
+    // 仅加载失败(网络/异常)才回退静态默认;成功但停用全部不回退
     paymentMethods.value = PAYMENT_METHOD_FALLBACK
+    paymentMethodsDisabled.value = false
   }
 }
 
@@ -226,7 +239,24 @@ const discountPercent = computed(() => {
   return (Number(form.discountAmount || 0) / subtotal.value) * 100
 })
 
-const needsApproval = computed(() => discountPercent.value > 10)
+// P0-10:审批阈值从生效配置读取(UI 提示用),不再硬编码 10%;最终判定由服务端 create_invoice 执行
+const approvalThreshold = ref(10)
+
+async function loadApprovalThreshold() {
+  try {
+    const eff = await apiSettings.getEffectiveSettings(tenantStore.currentTenantId, tenantStore.currentStoreId || undefined, 'business')
+    const items = (eff as any)?.items ?? []
+    const hit = items.find((i: any) => i.key === 'discount.approval.threshold')
+    if (hit && Number(hit.value) > 0) {
+      approvalThreshold.value = Number(hit.value)
+    }
+  }
+  catch {
+    // 读取失败用默认 10,不影响主流程
+  }
+}
+
+const needsApproval = computed(() => discountPercent.value > approvalThreshold.value)
 
 const change = computed(() => {
   if (payment.method !== 'cash') {
@@ -299,34 +329,41 @@ async function onSubmit() {
   }
 
   submitting.value = true
-  const createKey = generateIdempotencyKey()
   try {
-    const createRes = await apiBilling.createInvoice({
-      tenantId: tenantStore.currentTenantId,
-      storeId: tenantStore.currentStoreId,
-      customerId: form.customerId || undefined,
-      petId: form.petId || undefined,
-      encounterId: form.encounterId || undefined,
-      items: cart.value.map(item => ({
-        catalogItemId: item.catalogItemId,
-        name: item.name,
-        unitPrice: item.unitPrice,
-        quantity: item.quantity,
-        discountAmount: item.discountAmount,
-        amount: item.amount,
-        sortOrder: item.sortOrder,
-        category: item.category,
-      })),
-      discountAmount: form.discountAmount,
-      discountReason: form.discountReason || undefined,
-      taxAmount: form.taxAmount,
-      paymentMethod: payment.method,
-      applyMembershipDiscount: !!form.customerId && memberDiscount.value > 0,
-    }, createKey)
-
-    const invoiceId = (createRes as any).data?.invoiceId
+    // C1(审计 29-30):已有未完成确认的草稿发票时,跳过 Create 直接重试 Confirm(不重新 Create,避免多个草稿发票)
+    let invoiceId = pendingInvoiceId.value
     if (!invoiceId) {
-      throw new Error('创建发票失败')
+      const createKey = generateIdempotencyKey()
+      const createRes = await apiBilling.createInvoice({
+        tenantId: tenantStore.currentTenantId,
+        storeId: tenantStore.currentStoreId,
+        customerId: form.customerId || undefined,
+        petId: form.petId || undefined,
+        encounterId: form.encounterId || undefined,
+        items: cart.value.map(item => ({
+          catalogItemId: item.catalogItemId,
+          name: item.name,
+          unitPrice: item.unitPrice,
+          quantity: item.quantity,
+          discountAmount: item.discountAmount,
+          amount: item.amount,
+          sortOrder: item.sortOrder,
+          category: item.category,
+        })),
+        discountAmount: form.discountAmount,
+        discountReason: form.discountReason || undefined,
+        taxAmount: form.taxAmount,
+        paymentMethod: payment.method,
+        // P0-10:已选客户即交由服务端判断是否应用会员折扣,避免前端 Preview 决定真实收费
+        applyMembershipDiscount: !!form.customerId,
+      }, createKey)
+
+      invoiceId = (createRes as any).data?.invoiceId
+      if (!invoiceId) {
+        throw new Error('创建发票失败')
+      }
+      // C1:Create 成功后记录待确认发票 id,后续 Confirm 失败时保留,供下次结算重试 Confirm
+      pendingInvoiceId.value = invoiceId
     }
 
     try {
@@ -336,10 +373,13 @@ async function onSubmit() {
       // P0-15:仅明确的审批错误进入 pending approval 流程;其他异常保留购物车与发票(草稿)允许重试
       const code = e?.response?.data?.error?.code
       if (code === 'DISCOUNT_APPROVAL_REQUIRED' || code === 'DISCOUNT_APPROVAL_PENDING') {
+        // 审批 pending:发票已进入审批流,草稿由收银台在审批通过后重新结算,此发票不再复用 → 清空并重置
         useFaToast().warning('发票已创建,但需先完成大额折扣审批才能确认与支付')
         resetCart()
         return
       }
+      // C1:Confirm 网络/500 等失败:保留 pendingInvoiceId 与购物车,提示可重试确认,不重新 Create
+      useFaToast().warning('发票已创建(草稿),可重试确认')
       return
     }
 
@@ -353,6 +393,8 @@ async function onSubmit() {
       transactionNo: payment.transactionNo || undefined,
     }, paymentKey)
 
+    // C1:Confirm 成功且支付成功 → 发票已闭环,清空 pendingInvoiceId(草稿不再需要)
+    pendingInvoiceId.value = null
     useFaToast().success('收银成功')
     await showReceipt(invoiceId)
     resetCart()
@@ -381,6 +423,10 @@ async function showReceipt(invoiceId: string) {
 }
 
 function resetCart() {
+  // C1(审计 29-30):清空购物车视为明确废弃当前草稿发票(支付成功/审批 pending/用户手动清空均走此处),
+  // 一并清空 pendingInvoiceId,避免下次结算复用已进入审批或已作废的发票。
+  // 注意:仅「Confirm 网络/500 失败」路径不调用 resetCart,从而保留 pendingInvoiceId 供重试。
+  pendingInvoiceId.value = null
   cart.value = []
   form.discountAmount = 0
   form.discountReason = ''
@@ -404,6 +450,7 @@ useStoreScopedPage({
 onMounted(async () => {
   await loadCatalog()
   await loadPaymentMethods()
+  await loadApprovalThreshold()
 })
 </script>
 
@@ -456,7 +503,7 @@ onMounted(async () => {
         <div class="px-4 py-2.5 border-b flex items-center justify-between">
           <span class="text-sm font-medium">结算清单({{ cart.length }} 项)</span>
           <span v-if="needsApproval" class="text-xs text-amber-600">
-            折扣 {{ discountPercent.toFixed(2) }}% 超 10% 需审批
+            折扣 {{ discountPercent.toFixed(2) }}% 超 {{ approvalThreshold }}% 需审批
           </span>
         </div>
         <div class="p-4 flex-1">
@@ -498,7 +545,7 @@ onMounted(async () => {
               <FaInputNumber v-model="form.discountAmount" :min="0" :precision="2" class="w-full" />
             </FaLabel>
             <FaLabel label="折扣原因">
-              <FaInput v-model="form.discountReason" placeholder="折扣理由(>10% 需审批)" class="w-full" />
+              <FaInput v-model="form.discountReason" :placeholder="`折扣理由(>${approvalThreshold}% 需审批)`" class="w-full" />
             </FaLabel>
             <FaLabel label="税费">
               <FaInputNumber v-model="form.taxAmount" :min="0" :precision="2" class="w-full" />
@@ -512,6 +559,9 @@ onMounted(async () => {
                 class="w-full"
                 :options="paymentMethods.map(({ method, label }) => ({ label, value: method }))"
               />
+              <span v-if="paymentMethodsDisabled" class="text-xs text-destructive mt-1 inline-block">
+                当前门店没有可用支付方式,请联系管理员。
+              </span>
             </FaLabel>
             <FaLabel label="交易号">
               <FaInput v-model="payment.transactionNo" placeholder="外部交易号(可选)" class="w-full" />
@@ -535,7 +585,7 @@ onMounted(async () => {
         <FaButton size="sm" variant="outline" @click="resetCart">
           清空
         </FaButton>
-        <FaButton size="sm" :loading="submitting" @click="onSubmit">
+        <FaButton size="sm" :loading="submitting" :disabled="paymentMethodsDisabled" @click="onSubmit">
           <FaIcon name="i-lucide:banknote" />
           结算
         </FaButton>

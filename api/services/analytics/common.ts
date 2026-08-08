@@ -14,7 +14,7 @@ import type { Context } from 'hono'
 import type { AppEnv } from '../../lib/types'
 import { err } from '../../lib/errors'
 import { requireScopedPermission, type AccessScope } from '../../lib/permission'
-import { getContext } from '../../lib/request-context'
+import { resolveRequestedTenant } from '../../lib/request-context'
 import { createServiceClient } from '../../lib/supabase'
 import type { AnalyticsGroupBy, AnalyticsPeriod } from './types'
 
@@ -167,10 +167,7 @@ export async function resolveAnalyticsScope(
   c: Context<AppEnv>,
   opts: { tenantId?: string; storeId?: string },
 ): Promise<AnalyticsScopeResult> {
-  const ctx = getContext(c)
-  const tenantId = opts.tenantId
-    ?? ctx.tenantId
-    ?? ctx.memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c, opts.tenantId)
   if (!tenantId) {
     throw err.badRequest('缺少租户标识')
   }

@@ -36,6 +36,41 @@ const form = reactive({
   followUpDate: '',
 })
 
+/**
+ * S3.1-Fix B3(审计 23 节):病历详情为表单式编辑,接入页面级未保存离开保护
+ * - 编辑态(form 与加载快照不一致)置 dirty,路由离开/刷新/关闭前弹确认
+ * - 保存成功后同步快照并清除 dirty
+ */
+const encounterGuard = usePageUnsavedGuard('clinical-encounter-detail')
+const formBaseline = reactive({
+  chiefComplaint: '',
+  historyPresent: '',
+  examFindings: '',
+  diagnosisText: '',
+  treatmentPlan: '',
+  followUpDate: '',
+})
+const encounterDirty = computed(() =>
+  form.chiefComplaint !== formBaseline.chiefComplaint
+  || form.historyPresent !== formBaseline.historyPresent
+  || form.examFindings !== formBaseline.examFindings
+  || form.diagnosisText !== formBaseline.diagnosisText
+  || form.treatmentPlan !== formBaseline.treatmentPlan
+  || form.followUpDate !== formBaseline.followUpDate,
+)
+watch(encounterDirty, (d) => encounterGuard.setDirty(d), { immediate: true })
+
+/** 将当前表单值同步为未保存快照(加载/保存成功后调用) */
+function syncFormBaseline() {
+  formBaseline.chiefComplaint = form.chiefComplaint
+  formBaseline.historyPresent = form.historyPresent
+  formBaseline.examFindings = form.examFindings
+  formBaseline.diagnosisText = form.diagnosisText
+  formBaseline.treatmentPlan = form.treatmentPlan
+  formBaseline.followUpDate = form.followUpDate
+  encounterGuard.setDirty(false)
+}
+
 /** 签署弹窗(S30-R04:签署人强制为当前登录用户,无手选) */
 const signVisible = ref(false)
 const signDoctorName = ref('')
@@ -155,6 +190,8 @@ async function loadData() {
     form.diagnosisText = encounter.value.diagnosis_text ?? ''
     form.treatmentPlan = encounter.value.treatment_plan ?? ''
     form.followUpDate = encounter.value.follow_up_date ?? ''
+    // S3.1-Fix B3:加载完成后同步未保存快照,避免初次进入即误判 dirty
+    syncFormBaseline()
 
     const petRes = await supabase.from('pets').select('*').eq('id', encounter.value.pet_id).maybeSingle()
     pet.value = (petRes.data ?? null) as PetRecord | null
@@ -219,6 +256,8 @@ async function onSave() {
       expectedVersion: encounter.value.version,
     })
     encounter.value = res.data
+    // S3.1-Fix B3:保存成功后同步快照并清除 dirty
+    syncFormBaseline()
     useFaToast().success('病历已保存')
   }
   catch (e: any) {

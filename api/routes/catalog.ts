@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
 import { requireScopedPermission } from '../lib/permission'
-import { getContext, loadContext } from '../lib/request-context'
+import { loadContext, resolveRequestedTenant } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { parseJsonBody } from '../lib/validation'
@@ -107,7 +107,7 @@ catalogRoutes.get('/intake-questions', async (c) => {
   // P0-02 scoped:校验 tenant 归属,缺失时取调用者默认租户
   const scope = await requireScopedPermission(c, {
     code: 'catalog.view',
-    tenantId: input.tenantId ?? (getContext(c).memberships[0]?.tenant_id ?? ''),
+    tenantId: resolveRequestedTenant(c, input.tenantId) ?? '',
   })
 
   const service = createServiceClient()
@@ -299,7 +299,7 @@ catalogRoutes.get('/diagnosis-dict', async (c) => {
   // P0-02 scoped:校验 tenant 归属,缺失时取调用者默认租户
   const scope = await requireScopedPermission(c, {
     code: 'catalog.view',
-    tenantId: input.tenantId ?? (getContext(c).memberships[0]?.tenant_id ?? ''),
+    tenantId: resolveRequestedTenant(c, input.tenantId) ?? '',
   })
 
   const service = createServiceClient()
@@ -497,7 +497,7 @@ catalogRoutes.get('/lab-panels', async (c) => {
   // P0-02 scoped:校验 tenant 归属,缺失时取调用者默认租户
   const scope = await requireScopedPermission(c, {
     code: 'catalog.view',
-    tenantId: input.tenantId ?? (getContext(c).memberships[0]?.tenant_id ?? ''),
+    tenantId: resolveRequestedTenant(c, input.tenantId) ?? '',
   })
 
   const service = createServiceClient()
@@ -690,7 +690,7 @@ catalogRoutes.get('/lab-analytes', async (c) => {
   // P0-02 scoped:无 tenantId 参数,以调用者默认租户做作用域授权
   await requireScopedPermission(c, {
     code: 'catalog.view',
-    tenantId: getContext(c).memberships[0]?.tenant_id ?? '',
+    tenantId: resolveRequestedTenant(c) ?? '',
   })
 
   const service = createServiceClient()

@@ -9,6 +9,8 @@ import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { parseJsonBody } from '../lib/validation'
 import { authMiddleware, loadCaller } from '../middlewares/auth'
+// C5(审计 37):回访「今天/逾期」按租户时区切日,复用 S32 报表的纯 Intl 时区工具,不引入 dayjs 依赖
+import { dayKeyInTz, localDateToUTC, resolveTenantTimezone } from '../services/analytics/common'
 
 /**
  * 客户 CRM 路由(MXQ-5002 / MXQ-5009 / MXQ-5010)
@@ -44,10 +46,10 @@ const listSchema = z.object({
 customerRoutes.get('/', async (c) => {
   const input = listSchema.parse(c.req.query())
 
-  // P0-02 scoped:tenantId 缺失时取调用者默认租户,强制按授权租户过滤
+  // P0-02 scoped:tenantId 缺失时优先取请求上下文租户(getContext(c).tenantId),仅兜底回退 memberships[0]
   const scope = await requireScopedPermission(c, {
     code: 'customer.view',
-    tenantId: getContext(c).memberships[0]?.tenant_id ?? '',
+    tenantId: getContext(c).tenantId ?? getContext(c).memberships[0]?.tenant_id ?? '',
     storeId: input.storeId,
   })
 
@@ -107,6 +109,29 @@ const followupSelect = [
  */
 function followupTable(service: ReturnType<typeof createServiceClient>) {
   return service.from('followup_tasks') as any
+}
+
+/**
+ * C5(审计 37):解析回访查询时区。
+ * 优先门店时区(stores.timezone,未设置则为 NULL),否则沿用租户时区(tenants.timezone,默认 Asia/Shanghai)。
+ */
+async function resolveFollowupTimezone(
+  service: ReturnType<typeof createServiceClient>,
+  tenantId: string,
+  storeId?: string,
+): Promise<string> {
+  if (storeId) {
+    const { data } = await service
+      .from('stores')
+      .select('timezone')
+      .eq('id', storeId)
+      .maybeSingle()
+    const tz = (data as { timezone?: string | null } | null)?.timezone
+    if (tz) {
+      return tz
+    }
+  }
+  return resolveTenantTimezone(service, tenantId)
 }
 
 const followupDatetime = (msg = '时间格式错误') => z
@@ -171,9 +196,10 @@ const followupListSchema = z.object({
 customerRoutes.get('/followups', async (c) => {
   const input = followupListSchema.parse(c.req.query())
 
+  // C4(审计 36):tenantId 缺失时优先取请求上下文租户(getContext(c).tenantId),仅兜底回退 memberships[0]
   const scope = await requireScopedPermission(c, {
     code: 'followup.view',
-    tenantId: getContext(c).memberships[0]?.tenant_id ?? '',
+    tenantId: getContext(c).tenantId ?? getContext(c).memberships[0]?.tenant_id ?? '',
     storeId: input.storeId,
   })
 
@@ -209,11 +235,14 @@ customerRoutes.get('/followups', async (c) => {
     query = query.in('customer_id', ids)
   }
 
+  // C5(审计 37):「今天/逾期/未来」按租户时区切日,不再用 Server Local Time。
+  // 门店无独立时区字段(或未设置)时沿用租户时区(默认 Asia/Shanghai)。
+  const tz = await resolveFollowupTimezone(service, scope.tenantId, input.storeId)
   const now = new Date()
-  const dayStart = new Date(now)
-  dayStart.setHours(0, 0, 0, 0)
-  const dayEnd = new Date(dayStart)
-  dayEnd.setDate(dayEnd.getDate() + 1)
+  const todayKey = dayKeyInTz(now, tz)
+  const [ty, tm, td] = todayKey.split('-').map(Number)
+  const dayStart = localDateToUTC(tz, ty, tm, td, now)
+  const dayEnd = new Date(dayStart.getTime() + 86_400_000)
 
   let statusFilter: string[] | null = null
   if (input.status) {
@@ -298,11 +327,36 @@ customerRoutes.post('/followups', async (c) => {
   if (customer.status === 'archived' || customer.status === 'merged') {
     throw err.conflict('客户已归档或已合并,不可创建回访')
   }
+  // P0-16:宠物必须属于同一客户与租户(不能只凭 UUID 存在)
+  if (input.petId) {
+    const { data: pet } = await service
+      .from('pets')
+      .select('id, customer_id')
+      .eq('id', input.petId)
+      .eq('customer_id', input.customerId)
+      .maybeSingle()
+    if (!pet) {
+      throw err.badRequest('宠物与客户不匹配')
+    }
+  }
   const scope = await requireScopedPermission(c, {
     code: 'followup.manage',
     tenantId: customer.tenant_id,
     storeId: input.storeId ?? customer.store_id ?? undefined,
   })
+
+  // C6(审计 38):负责人必须属于当前租户(service role 绕过 RLS,仅 FK 不能证明同租户)
+  if (input.assigneeEmployeeId) {
+    const { data: emp } = await service
+      .from('employees')
+      .select('id')
+      .eq('id', input.assigneeEmployeeId)
+      .eq('tenant_id', scope.tenantId)
+      .maybeSingle()
+    if (!emp) {
+      throw err.badRequest('负责人不属于当前租户')
+    }
+  }
 
   const user = c.get('user')
   const { data, error: insertError } = await followupTable(service)
@@ -403,6 +457,19 @@ customerRoutes.patch('/followups/:id', async (c) => {
   })
   if (existing.status !== 'pending') {
     throw err.conflict('仅待处理回访可修改,请先取消或完成后重新创建')
+  }
+
+  // C6(审计 38):改负责人时重新校验其属于当前租户;传 null 表示清空负责人,跳过校验
+  if (input.assigneeEmployeeId !== undefined && input.assigneeEmployeeId !== null) {
+    const { data: emp } = await service
+      .from('employees')
+      .select('id')
+      .eq('id', input.assigneeEmployeeId)
+      .eq('tenant_id', existing.tenant_id)
+      .maybeSingle()
+    if (!emp) {
+      throw err.badRequest('负责人不属于当前租户')
+    }
   }
 
   const patch: Record<string, any> = { updated_at: new Date().toISOString() }

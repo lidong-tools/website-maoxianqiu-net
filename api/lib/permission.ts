@@ -336,11 +336,11 @@ export async function resolveScopedAccess(
   }
 
   // ===== 2) 普通租户作用域 =====
-  // 2a-0) 停用租户拦截(S3.1-A):平台管理员已在分支 1 提前放行(可执行停用/恢复管理),
-  //       普通租户员工在目标租户停用后,所有 Command 一律无法继续。
+  // 2a-0) 租户业务可用拦截(审计 P0-03 统一模型):平台管理员已在分支 1 提前放行。
+  //       active / trial(未过期) → 正常;trial 已过期 / suspended → 拒绝。
   const { data: tenantRow, error: tenantStatusErr } = await service
     .from('tenants')
-    .select('status')
+    .select('status, trial_ends_at')
     .eq('id', requirement.tenantId)
     .maybeSingle()
   if (tenantStatusErr) {
@@ -349,8 +349,10 @@ export async function resolveScopedAccess(
   if (!tenantRow) {
     throw err.forbidden('无权访问该租户的数据')
   }
-  if (tenantRow.status === 'suspended') {
-    throw err.forbidden('该租户已停用,无法继续操作')
+  const tenantBusinessActive = tenantRow.status === 'active'
+    || (tenantRow.status === 'trial' && (!tenantRow.trial_ends_at || new Date(tenantRow.trial_ends_at).getTime() > Date.now()))
+  if (!tenantBusinessActive) {
+    throw err.forbidden(tenantRow.status === 'suspended' ? '该租户已停用,无法继续操作' : '该租户试用已到期,无法继续操作')
   }
 
   // 2a) 查目标租户下 active employee

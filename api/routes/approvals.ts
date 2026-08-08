@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
 import { requireScopedPermission } from '../lib/permission'
-import { getContext, loadContext } from '../lib/request-context'
+import { loadContext, resolveRequestedTenant } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { authMiddleware, loadCaller } from '../middlewares/auth'
@@ -268,7 +268,7 @@ async function countForFilter(
 
 /** P0-18:三个 Tab 的独立计数,避免拉全量列表只为算数字 */
 async function loadCounts(c: Parameters<typeof requireScopedPermission>[0]) {
-  const tenantId = c.req.query('tenantId') ?? (getContext(c).memberships[0]?.tenant_id ?? '')
+  const tenantId = resolveRequestedTenant(c, c.req.query('tenantId')) ?? ''
   const scope = await requireScopedPermission(c, {
     code: 'approval.inbox.view',
     tenantId,
@@ -289,7 +289,7 @@ async function loadInbox(
   page = 1,
   pageSize = 20,
 ) {
-  const tenantId = c.req.query('tenantId') ?? (getContext(c).memberships[0]?.tenant_id ?? '')
+  const tenantId = resolveRequestedTenant(c, c.req.query('tenantId')) ?? ''
   const scope = await requireScopedPermission(c, {
     code: 'approval.inbox.view',
     tenantId,

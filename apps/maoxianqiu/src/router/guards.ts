@@ -72,7 +72,8 @@ function setupRoutes(router: Router) {
       }
     }
     else {
-      if (to.name !== 'login') {
+      // P0-08:密码找回回调页为匿名可进入(与登录页并列),避免 recovery 会话未初始化被先跳登录
+      if (to.name !== 'login' && to.name !== 'authResetPassword') {
         return {
           name: 'login',
           query: {

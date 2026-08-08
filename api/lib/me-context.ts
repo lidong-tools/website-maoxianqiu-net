@@ -31,6 +31,7 @@ export interface MeContextTenant {
   id: string
   name: string
   roles: string[]
+  permissions: string[]
   primaryStoreId?: string
   stores: MeContextStore[]
 }
@@ -142,13 +143,15 @@ export async function resolveMeContext(c: Context<AppEnv>): Promise<MeContext> {
     const { permissions } = await loadPlatformAdminPermissions(service, user.id)
     const { data: tenantRows, error: tErr } = await service
       .from('tenants')
-      .select('id, name')
-      .eq('status', 'active')
+      .select('id, name, status, trial_ends_at')
       .order('created_at', { ascending: true })
     if (tErr) {
       throw err.internal(`查询租户失败: ${tErr.message}`)
     }
-    const tenants = (tenantRows as { id: string, name: string }[] | null) ?? []
+    // 业务可用租户:active 或 trial 未过期(审计 P0-03 统一模型)
+    const tenants = ((tenantRows as Array<{ id: string, name: string, status: string, trial_ends_at: string | null }> | null) ?? [])
+      .filter(t => t.status === 'active'
+        || (t.status === 'trial' && (!t.trial_ends_at || new Date(t.trial_ends_at).getTime() > Date.now())))
     const tenantIds = tenants.map(t => t.id)
     let stores: StoreRow[] = []
     if (tenantIds.length > 0) {
@@ -170,6 +173,7 @@ export async function resolveMeContext(c: Context<AppEnv>): Promise<MeContext> {
         id: t.id,
         name: t.name,
         roles: [],
+        permissions: [],
         stores: stores
           .filter(s => s.tenant_id === t.id)
           .map(s => ({
@@ -205,19 +209,20 @@ export async function resolveMeContext(c: Context<AppEnv>): Promise<MeContext> {
     }
   }
 
-  // 停用租户拦截(S3.1-A):租户 status != 'active' 时其员工档案不进入工作上下文
+  // 租户业务可用拦截(审计 P0-03):active 或 trial 未过期 → 进入上下文;trial 过期/suspended → 排除
   const activeTenantIds = await (async () => {
     const ids = [...new Set(employees.map(e => e.tenant_id))]
     const { data: tenantRows, error: tErr } = await service
       .from('tenants')
-      .select('id, status')
+      .select('id, status, trial_ends_at')
       .in('id', ids)
     if (tErr) {
       throw err.internal(`查询租户状态失败: ${tErr.message}`)
     }
     return new Set(
-      ((tenantRows as Array<{ id: string, status: string }> | null) ?? [])
-        .filter(t => t.status === 'active')
+      ((tenantRows as Array<{ id: string, status: string, trial_ends_at: string | null }> | null) ?? [])
+        .filter(t => t.status === 'active'
+          || (t.status === 'trial' && (!t.trial_ends_at || new Date(t.trial_ends_at).getTime() > Date.now())))
         .map(t => t.id),
     )
   })()
@@ -374,6 +379,8 @@ export async function resolveMeContext(c: Context<AppEnv>): Promise<MeContext> {
         .filter(r => r.tenant_id === tenantId && empIdSet.has(r.employee_id) && tenantWideRoleIds.includes(r.role_id))
         .map(r => asSingle(r.roles)?.code)
         .filter((x): x is string => !!x))],
+      // 审计 P0-04:租户级(tenant-wide)权限,供前端计算"当前门店有效权限"而非全局并集
+      permissions: [...tenantWidePerms],
       primaryStoreId,
       stores,
     })

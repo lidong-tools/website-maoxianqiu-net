@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
 import { requireScopedPermission } from '../lib/permission'
-import { getContext, loadContext } from '../lib/request-context'
+import { loadContext, resolveRequestedTenant } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { parseJsonBody } from '../lib/validation'
@@ -79,7 +79,7 @@ function assertTemplateSafe(templateHtml: string): void {
  * - 返回当前租户可见模板(系统 + 租户 + 门店覆盖),并标注 level
  */
 documentsRoutes.get('/templates', async (c) => {
-  const tenantId = c.req.query('tenantId') ?? (getContext(c).memberships[0]?.tenant_id ?? '')
+  const tenantId = resolveRequestedTenant(c, c.req.query('tenantId')) ?? ''
   const storeId = c.req.query('storeId') || undefined
   const documentType = c.req.query('documentType') || undefined
   const onlyActive = c.req.query('onlyActive') === 'true'
@@ -480,7 +480,7 @@ documentsRoutes.post('/print', async (c) => {
  * - 权限:documents.view(dataScope)
  */
 documentsRoutes.get('/history', async (c) => {
-  const tenantId = c.req.query('tenantId') ?? (getContext(c).memberships[0]?.tenant_id ?? '')
+  const tenantId = resolveRequestedTenant(c, c.req.query('tenantId')) ?? ''
   const storeId = c.req.query('storeId') || undefined
   const documentType = c.req.query('documentType') || undefined
   const from = Number(c.req.query('from') ?? 0)

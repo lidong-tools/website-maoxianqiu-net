@@ -70,6 +70,9 @@ function mapRpcError(error: { message: string }) {
   if (msg.includes('BOARDING_INPUT_REQUIRED')) {
     return err.badRequest('缺少必要入参')
   }
+  if (msg.includes('CAGE_REQUIRED')) {
+    return err.badRequest('入住时须选择笼位')
+  }
   if (msg.includes('BOARDING_NOT_CHECK_INABLE')) {
     return err.conflict('当前状态不可办理入住')
   }
@@ -494,7 +497,8 @@ const progressNoteListSchema = z.object({
  */
 inpatientRoutes.get('/progress-notes', async (c) => {
   const input = progressNoteListSchema.parse(c.req.query())
-  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  // P0-02 scoped:优先请求上下文租户(X-Tenant-Id),memberships[0] 仅作兼容兜底
+  const tenantId = input.tenantId ?? getContext(c).tenantId ?? getContext(c).memberships[0]?.tenant_id
   if (!tenantId) {
     throw err.forbidden('无法确定租户作用域')
   }
@@ -966,7 +970,8 @@ const boardingBookSchema = z.object({
   storeId: z.string().uuid('门店 id 格式错误'),
   customerId: z.string().uuid('客户 id 格式错误'),
   petId: z.string().uuid('宠物 id 格式错误'),
-  cageId: z.string().uuid('笼位 id 格式错误'),
+  // C7(审计 42-44):预约(planned)阶段笼位可选——不绑定笼位,入住(check-in)时再选择并锁定
+  cageId: z.string().uuid('笼位 id 格式错误').optional(),
   expectedCheckOutAt: z.string().optional(),
   checkInAt: z.string().optional(),
   dietNotes: z.string().max(2000).optional(),
@@ -980,7 +985,8 @@ const boardingBookSchema = z.object({
 /**
  * 预约寄养入住
  * - 权限:boarding.manage
- * - 行为:boarding_book_stay RPC 创建 planned 寄养单(不锁笼位)
+ * - 行为:boarding_book_stay RPC 创建 planned 寄养单。
+ * - C7(审计 42-44):预约阶段 cageId 可空,不绑定笼位;入住(check-in)时才要求并锁定笼位。
  */
 inpatientRoutes.post('/boarding/book', async (c) => {
   const input = await parseJsonBody(c, boardingBookSchema)
@@ -997,7 +1003,7 @@ inpatientRoutes.post('/boarding/book', async (c) => {
     p_store_id: scope.storeId ?? null,
     p_customer_id: input.customerId,
     p_pet_id: input.petId,
-    p_cage_id: input.cageId,
+    p_cage_id: input.cageId ?? null,
     p_expected_check_out_at: input.expectedCheckOutAt ?? null,
     p_check_in_at: input.checkInAt ?? null,
     p_diet_notes: input.dietNotes ?? null,
@@ -1021,7 +1027,7 @@ inpatientRoutes.post('/boarding/book', async (c) => {
     metadata: {
       customerId: input.customerId,
       petId: input.petId,
-      cageId: input.cageId,
+      cageId: input.cageId ?? null,
       expectedCheckOutAt: input.expectedCheckOutAt,
     },
   })

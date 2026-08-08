@@ -96,6 +96,11 @@ function statusTagVariant(status: CageStatusView['cage_status']) {
 }
 
 onMounted(loadCageStatus)
+
+// P0-06:切店后重载房态看板(避免旧门店笼位数据残留)
+useStoreScopedPage({
+  load: loadCageStatus,
+})
 </script>
 
 <template>

@@ -28,6 +28,14 @@ api.interceptors.request.use(
         request.headers.Authorization = `Bearer ${appAccountStore.token}`
         request.headers.Token = appAccountStore.token
       }
+      // P0-05:发送当前工作上下文(仅提示,非权限依据;服务端继续 requireScopedPermission 校验)
+      const tenantStore = useAppTenantStore()
+      if (tenantStore.currentTenantId) {
+        request.headers['X-Tenant-Id'] = tenantStore.currentTenantId
+      }
+      if (tenantStore.currentStoreId) {
+        request.headers['X-Store-Id'] = tenantStore.currentStoreId
+      }
     }
     return request
   },

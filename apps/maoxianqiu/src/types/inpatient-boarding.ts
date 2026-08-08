@@ -24,7 +24,8 @@ export interface BoardingStay {
   boarding_no: string
   customer_id: string
   pet_id: string
-  cage_id: string
+  /** C7(审计 42-44):planned 预约阶段笼位可空,入住(确认入住)时才选择锁定 */
+  cage_id: string | null
   check_in_at: string | null
   expected_check_out_at: string | null
   checked_out_at: string | null
@@ -115,7 +116,8 @@ export interface BoardingBookInput {
   storeId: string
   customerId: string
   petId: string
-  cageId: string
+  /** C7(审计 42-44):预约阶段笼位可选,入住时再选择锁定 */
+  cageId?: string
   expectedCheckOutAt?: string
   checkInAt?: string
   dietNotes?: string
@@ -219,6 +221,8 @@ export interface BoardingCheckoutResult {
   totalCharge: number
   status: BoardingStayStatus
   checkedOutAt: string
+  /** C8(审计 45):离店生成的待支付账单 id(无应收时为 null) */
+  invoiceId?: string | null
 }
 
 /** 寄养状态机转换矩阵 */

@@ -14,6 +14,7 @@ export default {
       id: string
       name: string
       roles: string[]
+      permissions: string[]
       primaryStoreId?: string
       stores: Array<{
         id: string

@@ -5,7 +5,7 @@ import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
 import { autoCreateFollowup } from '../lib/followup'
 import { requireScopedPermission } from '../lib/permission'
-import { getContext, loadContext } from '../lib/request-context'
+import { loadContext, resolveRequestedTenant } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { parseJsonBody } from '../lib/validation'
@@ -52,7 +52,7 @@ const appointmentListSchema = z.object({
 clinicalRoutes.get('/appointments', async (c) => {
   const input = appointmentListSchema.parse(c.req.query())
   // P0-02 scoped:租户作用域授权(tenantId 缺失时取调用者首个成员租户)
-  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c, input.tenantId)
   if (!tenantId) {
     throw err.forbidden('无法确定租户作用域')
   }
@@ -106,7 +106,7 @@ clinicalRoutes.get('/appointments', async (c) => {
 clinicalRoutes.get('/appointments/waiting', async (c) => {
   const storeId = c.req.query('storeId')
   // P0-02 scoped:租户作用域授权(缺失时取调用者首个成员租户)
-  const tenantId = getContext(c).memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c)
   if (!tenantId) {
     throw err.forbidden('无法确定租户作用域')
   }
@@ -371,7 +371,7 @@ const encounterListSchema = z.object({
 clinicalRoutes.get('/encounters', async (c) => {
   const input = encounterListSchema.parse(c.req.query())
   // P0-02 scoped:租户作用域授权(tenantId 缺失时取调用者首个成员租户)
-  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c, input.tenantId)
   if (!tenantId) {
     throw err.forbidden('无法确定租户作用域')
   }
@@ -758,7 +758,7 @@ clinicalRoutes.get('/prescriptions', async (c) => {
   const petId = c.req.query('petId')
   const status = c.req.query('status')
   // P0-02 scoped:租户作用域授权(tenantId 缺失时取调用者首个成员租户)
-  const tenantId = tenantIdParam ?? getContext(c).memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c, tenantIdParam)
   if (!tenantId) {
     throw err.forbidden('无法确定租户作用域')
   }
@@ -1093,7 +1093,7 @@ const nurseTaskListSchema = z.object({
 clinicalRoutes.get('/nurse-tasks', async (c) => {
   const input = nurseTaskListSchema.parse(c.req.query())
   // P0-02 scoped:租户作用域授权(tenantId 缺失时取调用者首个成员租户)
-  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c, input.tenantId)
   if (!tenantId) {
     throw err.forbidden('无法确定租户作用域')
   }
@@ -1330,7 +1330,7 @@ const medicalOrderListSchema = z.object({
  */
 clinicalRoutes.get('/medical-orders', async (c) => {
   const input = medicalOrderListSchema.parse(c.req.query())
-  const tenantId = input.tenantId ?? getContext(c).memberships[0]?.tenant_id
+  const tenantId = resolveRequestedTenant(c, input.tenantId)
   if (!tenantId) {
     throw err.forbidden('无法确定租户作用域')
   }

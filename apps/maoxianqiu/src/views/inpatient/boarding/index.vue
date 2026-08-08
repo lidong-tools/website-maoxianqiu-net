@@ -1,19 +1,22 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
 import type { CustomerRecord, PetRecord } from '@/types/customer'
-import type { BoardingCageStatusView, BoardingStay, BoardingStayStatus } from '@/types/inpatient-boarding'
+import type { BoardingBookInput, BoardingCageStatusView, BoardingStay, BoardingStayStatus } from '@/types/inpatient-boarding'
 import apiBoarding, { generateBoardingIdempotencyKey } from '@/api/modules/inpatient-boarding'
 import CustomerPicker from '@/components/business/CustomerPicker/index.vue'
 import PetPicker from '@/components/business/PetPicker/index.vue'
 import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { BOARDING_STATUS_LABELS } from '@/types/inpatient-boarding'
+import { useRouter } from 'vue-router'
 
 defineOptions({
   name: 'InpatientBoarding',
 })
 
 const tenantStore = useAppTenantStore()
+// C8(审计 45):离店生成待付账单后跳转收银台
+const router = useRouter()
 const loading = ref(false)
 const activeTab = ref('cages')
 
@@ -137,8 +140,13 @@ async function onFormSubmit() {
     useFaToast().warning('请先选择工作门店')
     return
   }
-  if (!form.customerId || !form.petId || !form.cageId) {
-    useFaToast().warning('请选择客户、宠物与笼位')
+  if (!form.customerId || !form.petId) {
+    useFaToast().warning('请选择客户与宠物')
+    return
+  }
+  // C7(审计 42-44):预约(planned)阶段笼位可选,入住时再分配;直接入住必须选定笼位
+  if (formMode.value === 'checkin' && !form.cageId) {
+    useFaToast().warning('办理入住请选择笼位')
     return
   }
   submitting.value = true
@@ -157,14 +165,18 @@ async function onFormSubmit() {
       },
     }
     if (formMode.value === 'book') {
-      await apiBoarding.bookStay({
+      // C7:预约阶段笼位可选(不选则创建无笼位预约,入住时分配)
+      const payload: BoardingBookInput = {
         tenantId: tenantStore.currentTenantId,
         storeId: tenantStore.currentStoreId,
         customerId: form.customerId,
         petId: form.petId,
-        cageId: form.cageId,
         ...common,
-      })
+      }
+      if (form.cageId) {
+        payload.cageId = form.cageId
+      }
+      await apiBoarding.bookStay(payload)
       useFaToast().success('预约成功')
     }
     else {
@@ -196,9 +208,52 @@ function onConfirmPlanned(stay: BoardingStay) {
     useFaToast().warning('请先选择工作门店')
     return
   }
+  // C7(审计 42-44):预约未绑定笼位时,确认入住须先选择并锁定笼位
+  if (!stay.cage_id) {
+    const candidates = availableCages.value
+    if (candidates.length === 0) {
+      useFaToast().warning('当前没有可用笼位,无法确认入住')
+      return
+    }
+    let selectedCageId = ''
+    useFaModal().create({
+      title: '确认入住',
+      content: () => h('div', { class: 'py-2 space-y-2' }, [
+        h('p', { class: 'text-sm' }, `确认将 ${petName(stay.pet_id)} 办理入住吗？请选择并锁定笼位:`),
+        h('select', {
+          class: 'w-full border rounded p-2',
+          onChange: (e: Event) => {
+            selectedCageId = (e.target as HTMLSelectElement).value
+          },
+        }, candidates.map(c => h('option', { value: c.cage_id }, `${c.cage_name} (${c.cage_code}) · ${c.room_name ?? ''}`))),
+      ]),
+      onConfirm: async () => {
+        if (!selectedCageId) {
+          useFaToast().warning('请选择笼位')
+          return Promise.reject(new Error('no cage selected'))
+        }
+        try {
+          await apiBoarding.checkInBoarding({
+            tenantId: stay.tenant_id,
+            storeId: stay.store_id,
+            stayId: stay.id,
+            cageId: selectedCageId,
+          }, generateBoardingIdempotencyKey())
+          useFaToast().success('已入住')
+          await load()
+        }
+        catch {
+          // 已由拦截器提示
+        }
+      },
+    }).open()
+    return
+  }
+  // 预约已绑定笼位:直接确认,文案展示具体笼位
+  const cage = cageStatusList.value.find(c => c.cage_id === stay.cage_id)
   useFaModal().confirm({
     title: '确认入住',
-    content: `确认将 ${petName(stay.pet_id)} 入住笼位吗？将锁定笼位并开始计费。`,
+    content: `确认将 ${petName(stay.pet_id)} 入住笼位 ${cage ? `${cage.cage_name} (${cage.cage_code})` : ''}吗？将锁定笼位并开始计费。`,
     onConfirm: async () => {
       try {
         await apiBoarding.checkInBoarding({
@@ -285,8 +340,13 @@ async function onCheckout(stay: BoardingStay) {
     content: `${petName(stay.pet_id)} 寄养 ${prepared.stayDays} 天,应收 ¥${prepared.totalCharge.toFixed(2)}。确认离店并释放笼位？`,
     onConfirm: async () => {
       try {
-        await apiBoarding.checkoutBoarding(stay.id, generateBoardingIdempotencyKey())
-        useFaToast().success('已离店')
+        const res = await apiBoarding.checkoutBoarding(stay.id, generateBoardingIdempotencyKey())
+        useFaToast().success('已办理离店')
+        // C8(审计 45):离店生成待付账单后,提示并跳转收银台完成支付
+        if (res.invoiceId) {
+          useFaToast().info('待支付账单已生成,可前往收银台完成支付')
+          router.push('/billing/cashier')
+        }
         await load()
       }
       catch {
@@ -437,8 +497,13 @@ const plannedColumns = computed<TableColumn<BoardingStay>[]>(() => [
     accessorKey: 'cage_id',
     header: '笼位',
     cell: (info: any) => {
-      const cage = cageStatusList.value.find(c => c.cage_id === info.getValue())
-      return cage ? `${cage.cage_name} (${cage.cage_code})` : String(info.getValue()).slice(0, 8)
+      // C7(审计 42-44):预约未绑定笼位时显示"未分配"
+      const cageId = info.getValue() as string | null
+      if (!cageId) {
+        return h('span', { class: 'text-muted-foreground' }, '未分配')
+      }
+      const cage = cageStatusList.value.find(c => c.cage_id === cageId)
+      return cage ? `${cage.cage_name} (${cage.cage_code})` : cageId.slice(0, 8)
     },
   },
   {
@@ -804,6 +869,10 @@ onMounted(load)
           <div class="text-sm font-medium mb-2">
             选择笼位({{ availableCages.length }} 可用)
           </div>
+          <!-- C7(审计 42-44):预约阶段笼位可选,入住时再分配 -->
+          <p v-if="formMode === 'book'" class="text-xs text-muted-foreground mb-2">
+            预约阶段可不选笼位,入住时分配
+          </p>
           <div class="gap-2 grid grid-cols-2 max-h-56 overflow-auto sm:grid-cols-3">
             <button
               v-for="c in availableCages"

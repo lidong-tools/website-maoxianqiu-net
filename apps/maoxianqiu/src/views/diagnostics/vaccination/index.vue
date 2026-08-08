@@ -250,6 +250,13 @@ function onIssueCertificate(row: VaccinationRow) {
 onMounted(async () => {
   await Promise.all([loadVaccinations(), loadCertificates()])
 })
+
+// P0-06:切店后重载疫苗接种列表与证明(避免旧门店数据残留)
+useStoreScopedPage({
+  load: async () => {
+    await Promise.all([loadVaccinations(), loadCertificates()])
+  },
+})
 </script>
 
 <template>

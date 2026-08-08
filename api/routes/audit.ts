@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { writeAudit } from '../lib/audit'
 import { err } from '../lib/errors'
 import { requireScopedPermission } from '../lib/permission'
-import { getContext, loadContext } from '../lib/request-context'
+import { loadContext, resolveRequestedTenant } from '../lib/request-context'
 import { ok } from '../lib/result'
 import { createServiceClient } from '../lib/supabase'
 import { authMiddleware, loadCaller } from '../middlewares/auth'
@@ -60,7 +60,7 @@ auditRoutes.get('/audit-logs', async (c) => {
 
   const scope = await requireScopedPermission(c, {
     code: 'audit.view',
-    tenantId: tenantId ?? (getContext(c).memberships[0]?.tenant_id ?? ''),
+    tenantId: resolveRequestedTenant(c, tenantId) ?? '',
   })
 
   const service = createServiceClient()

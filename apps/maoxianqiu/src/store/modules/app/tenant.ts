@@ -25,6 +25,7 @@ export interface ContextTenant {
   id: string
   name: string
   roles: string[]
+  permissions: string[]
   primaryStoreId?: string
   stores: ContextStore[]
 }
@@ -152,6 +153,7 @@ export const useAppTenantStore = defineStore('appTenant', () => {
         id: t.id,
         name: t.name ?? '',
         roles: t.roles ?? [],
+        permissions: t.permissions ?? [],
         primaryStoreId: t.primaryStoreId,
         stores: (t.stores ?? []).map((s: any) => ({
           id: s.id,
@@ -213,9 +215,34 @@ export const useAppTenantStore = defineStore('appTenant', () => {
       localStorage.removeItem(storageKeys(cachedUserId).tenant)
       localStorage.removeItem(storageKeys(cachedUserId).store)
     }
+    // 审计 P0:登出必须清零缓存用户 id,否则同 SPA 生命周期内 A 登出、B 登录时
+    // getUserId() 仍返回 A,导致 B 的上下文偏好写入 mxq:{A}:tenant/store。
+    cachedUserId = ''
     setTenant('')
     setStore('')
   }
+
+  /**
+   * 审计 P0-04:当前工作上下文的有效权限,而非跨租户/门店的全局并集。
+   * 平台模式 → 平台权限;租户模式 → 当前门店权限(已含 tenant-wide);未选门店 → 租户级权限。
+   */
+  const effectivePermissions = computed(() => {
+    if (!isReady.value) {
+      return permissions.value
+    }
+    if (mode.value === 'platform') {
+      return permissions.value
+    }
+    const tenant = context.value?.tenants.find(t => t.id === currentTenantId.value)
+    if (!tenant) {
+      return permissions.value
+    }
+    const store = tenant.stores.find(s => s.id === currentStoreId.value)
+    if (store) {
+      return store.permissions
+    }
+    return tenant.permissions ?? permissions.value
+  })
 
   return {
     currentTenantId,
@@ -225,6 +252,7 @@ export const useAppTenantStore = defineStore('appTenant', () => {
     mode,
     platformRoles,
     permissions,
+    effectivePermissions,
     setTenant,
     setStore,
     switchStore,
