@@ -1,6 +1,21 @@
 # 已知缺口（KNOWN_GAPS）
 
-> 本文件记录当前已知的技术债、未验证项与后续待办，随交付持续更新。缺口按严重程度分级：P0（阻断发布）、P1（发布后尽快修复）、P2（优化）。
+> 本文件记录当前已知的技术债、未验证项与后续待办，随交付持续更新（Stage-04 Agent-09 Final Integrator 重写为当前事实）。
+> 缺口分级：P0（阻断发布）、P1（发布后尽快修复）、P2（优化）。
+
+## Stage-04 未验证项（runtime_pending，须 staging 环境验证）
+
+| 项目 | 说明 | 关联 |
+| --- | --- | --- |
+| Stage-04 migration 200~285 升级演练 | 空库从 0 到 285 及旧库升级（含 285 appointments_source_check 幂等重建、Agent-03~08 RPC revoke/grant）未在真实 DB 执行 | Stage-04 全部 Agent |
+| Stage-04 RLS / RPC 矩阵 | `supabase/tests/stage04_rls_matrix.sql`（Agent-01）未在 staging 执行；新表 RLS（stored_value / medication rules / coupons / packages / campaigns / insurance packs / portal identities）未实测 | Agent-01/03/04/05/06/08 |
+| 钱包 ↔ 计费原子性 | stored_value 扣减与 process_payment/process_refund 同事务（migration 203）未实测：失败回滚、幂等重试、发票金额一致性 | Agent-03 |
+| 用药安全服务端 hook | issue_prescription / dispense_prescription 阻塞 hook + override 审批链（reason + audit）未在真实 DB 验证 | Agent-04 |
+| 采购退货库存写 | purchase_return → inventory_movements（幂等 + 批次 + warehouse scope）未实测；导入消费者（employee/opening-stock）领域 apply 未运行验证 | Agent-07 |
+| 门户预约与 OTP | create_portal_appointment 幂等 + source='customer_portal'（migration 285 修复后）；OTP 速率限制 / 验证码生命周期未实测 | Agent-08 / Agent-09 |
+| Messaging Webhook | 验签 → 解析 → apply_provider_event 幂等 → CAS 状态推进链路未以真实 Provider 回调验证 | Agent-08 |
+| 前端新模块 UI | 营销增长 / 客户门户 / 钱包 / 用药安全 / 保险 / 采购请求与退货 / 导入消费者 页面联调未执行（人工测试） | Stage-04 前端 |
+| check:rpc-manifest 当前口径 | manifest 现有 **170 个** service-role-only 函数（含 Stage-04 新增 39 个）；本批次未重跑脚本（用户约束：不执行语法检查/编译），需 Agent-01 或 CI 在 staging 阶段执行确认 PASS | Agent-09 / Agent-01 |
 
 ## P1 — 发布后尽快修复
 
@@ -18,7 +33,7 @@
 
 ### P1-06 Pilot 前待决项（Full12 审计确认，均非阻断）
 - **Messaging stale「结果未知」语义**：`sending` 超时后由扫描器置 `failed/retry`（依据 `sending_claimed_at ?? updated_at` 判定），但「超过阈值仍无法判定结果」时是否应进入人工确认队列，需产品决策（当前未实现人工确认 UI）。
-- **Import Consumer 未实现**：employee/opening-stock 的 `awaiting_domain_apply` 终态对应 Consumer（IAM 邀请 / 库存期初）尚未实现，入口已隐藏；若 Pilot 需要该能力，须先完成 Consumer 再放开入口。
+- **Import Consumer 未实现**：employee/opening-stock 的 `awaiting_domain_apply` 终态对应 Consumer（IAM 邀请 / 库存期初）尚未完成，入口已隐藏（`IMPORT_TYPES_ENABLED`）；若 Pilot 需要该能力，须先完成 Consumer 再放开入口。
 - **Analytics 时区（DST）**：revenue/inventory 报表按 `created_at` 日期分组（Asia/Shanghai 基准），DST 切换期与会计月度边界未做显式处理，Pilot 前可选优化。
 
 ### P1-07 Secret 凭据轮换风险提示（Full12 审计 §3/§4）
@@ -29,26 +44,26 @@
 - **E2E 本地降级**：Playwright Chromium 官方源在本机网络不可达，需使用 npmmirror 镜像安装（见 `e2e/README.md`）。
 - **e2e 无独立 package.json**：e2e 直接复用根目录 `@playwright/test`，运行须从仓库根目录或 `pnpm --dir e2e exec`（README 已说明）。
 
-## 未验证项（须 staging 环境验证）
+## 历史未验证项（S3.x，仍须 staging）
 
 | 项目 | 说明 | 关联 |
 | --- | --- | --- |
-| migration 空库/旧库升级 | 仅本地开发库验证，未做空库从 0 到 27 及旧库升级演练（含 migration 26 scope 归一/触发器/存量修复、migration 27 platform_user_roles + RPC 全量 revoke） | S30-R01/R02/F01/F02 |
-| RLS / RPC 全量验证 | supabase/tests 未在 staging 执行（含新增 rls_inventory_reserve.sql、rls_scoped_permission.sql、rpc_security.sql Part1~3、9 个 RLS 夹具 platform_user_roles 改造） | DEV-000 / S30-R01~R03 / S30-F03 |
+| migration 空库/旧库升级（≤27） | 仅本地开发库验证，未做空库从 0 到 27 及旧库升级演练（含 migration 26 scope 归一/触发器/存量修复、migration 27 platform_user_roles + RPC 全量 revoke） | S30-R01/R02/F01/F02 |
+| RLS / RPC 全量验证（≤27） | supabase/tests 未在 staging 执行（含 rls_inventory_reserve.sql、rls_scoped_permission.sql、rpc_security.sql Part1~3、9 个 RLS 夹具） | DEV-000 / S30-R01~R03 / S30-F03 |
 | 并发 / 幂等 / 回滚 | reserve/confirm、admit/transfer/discharge 等并发场景未实测 | P0-08 / inpatient |
-| 闭环 A/B/C 真实执行 | 代码与 tsc 通过，未在真实环境跑通（closed-loop-a 已改 UI 建宠物 + UI 签署） | P0-09 / S30-R05 |
-| 多角色授权矩阵 | 仅 platform_admin 实测，store_manager / doctor / nurse 未逐角色验证；scoped permission（store→tenant 禁止）未在 staging 执行 | P0-01/P0-02 / S30-R01 |
+| 闭环 A/B/C 真实执行 | 代码与 tsc 通过，未在真实环境跑通 | P0-09 / S30-R05 |
+| 多角色授权矩阵 | 仅 platform_admin 实测，store_manager / doctor / nurse 未逐角色验证 | P0-01/P0-02 / S30-R01 |
 | R2 文件签名下载 | 新文件模型仅在开发环境验证 | P0-03 |
 | 报表口径核对 | report-data 聚合结果与账目核对未做 | P0-06 |
-| 监管 RPC 与门店权限自校验（migration 31~34） | migration 31~34 未进入任何共享环境：save_institution_license / save_epidemic_event / save_waste_record 函数签名（已修复 DEFAULT 后无默认参数，migration 32/34 一致，待 staging 执行确认）、generate_regulatory_report 兽医数（门店+时间有效性边界）、can_access_store store↔tenant 自校验，待 staging 空库/旧库升级 + SQL tests 验证 | S31-MERGE-FINAL |
-| S3.1 新闭环 E2E 缺失 | E2E 仅有闭环 A/B/C，无 Loop D（tenant init）/ Loop E（billing→closing→reconciliation）/ Loop F（admission→settlement→discharge）；真实执行依赖 staging | S31-INTEGRATION-D |
-| S3.1 并行新模块迁移未 staging | migration 54~73 + 90/91 未在真实 DB 演练（空库/旧库升级）；寄养→计费原子集成、租户停用拦截、回访自动生成均仅静态检查 | S3.1-PARALLEL |
-| 寄养离店 → 发票运行时未验证 | `boarding_checkout` 内嵌 `create_invoice` 同事务；发票失败回滚、幂等重试、金额一致性需 staging 实测 | S3.1-PARALLEL |
-| 自动回访生成未验证 | 病历随访日期 / 出院 → `autoCreateFollowup`（去重、best-effort）未运行时验证 | S3.1-PARALLEL |
-| DB 类型生成未执行 | `db:gen-types` 依赖在线 Supabase 项目，未在本地执行；前端 supabase client 未使用生成类型（动态查询），无编译影响 | S3.1 P1 |
-| Messaging 交付新链路未运行时验证 | migration 121（updated_at/sending_claimed_at + touch trigger）未在真实 DB 演练；CAS claim / 晚到丢弃 / 前端 sending 状态展示依赖 staging 实测 | S3.2-FINAL / Full12 §5~§9 |
+| 监管 RPC 与门店权限自校验（migration 31~34） | 未进入任何共享环境 | S31-MERGE-FINAL |
+| S3.1 新闭环 E2E | E2E 仅有闭环 A/B/C，无 Loop D/E/F | S31-INTEGRATION-D |
+| S3.1 并行新模块迁移（54~73 + 90/91） | 未在真实 DB 演练 | S3.1-PARALLEL |
+| 寄养离店 → 发票运行时 | `boarding_checkout` 内嵌 `create_invoice` 同事务未实测 | S3.1-PARALLEL |
+| 自动回访生成 | 病历随访日期 / 出院 → autoCreateFollowup 未运行时验证 | S3.1-PARALLEL |
+| DB 类型生成 | `db:gen-types` 依赖在线 Supabase，未在本地执行 | S3.1 P1 |
+| Messaging 新链路 | migration 121（updated_at/sending_claimed_at + touch trigger）未在真实 DB 演练 | S3.2-FINAL |
 
-## 已关闭缺口
+## 已关闭缺口（摘要）
 
 | 缺口 | 状态 | 关闭说明 |
 | --- | --- | --- |
@@ -56,36 +71,22 @@
 | 库存 confirm 不扣批次 / 无过期释放 | ✅ 已关闭 | P0-08 migration 25 |
 | 处方发药只转状态不扣库存 | ✅ 已关闭 | P0-08 clinical.ts |
 | 发票/处方取消不释放预留 | ✅ 已关闭 | P0-08 billing.ts |
-| 根 package.json 缺 test:e2e 脚本 | ✅ 已关闭 | P0-10 |
-| AGENTS.md 技术栈过时 | ✅ 已关闭 | P0-10 重写为毛线球规则 |
-| 前端 vue-tsc 遗留类型错误 | ✅ 已关闭 | S3.0 AUD-010：`vue-tsc -b` 全绿 |
-| scoped permission 作用域串用 | ✅ 已关闭 | S3.0 AUD-002：区分 tenant-wide / store-scoped 分配，`allowedStoreIds` 收敛 |
-| report-data 报表数据越权 | ✅ 已关闭 | S3.0 AUD-003：5 类报表按门店集合查询层强制过滤 |
-| 过期预留确认缺陷（自身过期不拒 + stale loop 自释放） | ✅ 已关闭 | S3.0 AUD-007：RESERVATION_EXPIRED + 排除当前 id，附回归测试 |
-| 正式表单手填 UUID / 误导性「XX ID」标签 | ✅ 已关闭 | S3.0 AUD-005：业务 Picker 全覆盖 |
-| 打印实体 ID 手填（lab_report/vaccine_certificate） | ✅ 已关闭 | S3.0 AUD-006：DiagnosticOrderPicker 收口 |
+| scoped permission 作用域串用 | ✅ 已关闭 | S3.0 AUD-002 |
+| report-data 报表数据越权 | ✅ 已关闭 | S3.0 AUD-003：allowedStoreIds 查询层过滤 |
+| 过期预留确认缺陷 | ✅ 已关闭 | S3.0 AUD-007：RESERVATION_EXPIRED + 排除当前 id |
+| 正式表单手填 UUID / 误导性标签 | ✅ 已关闭 | S3.0 AUD-005/006：业务 Picker 全覆盖 |
+| store role → tenant 权限提升 | ✅ 已关闭 | S30-R01：has_permission() scope 感知 |
+| 非法 role assignment | ✅ 已关闭 | S30-R02：validate_era_scope() 触发器 |
+| 浏览器直连高危 Command RPC | ✅ 已关闭 | S30-F02：migration 27 全量 revoke + manifest + CI |
+| 平台管理员可从租户角色推导 | ✅ 已关闭 | S30-F01：platform_user_roles 独立授权表 |
+| 病历签署可选任意员工 | ✅ 已关闭 | S30-R04：签署强制当前登录 user.id |
 | 核心 E2E 缺 seed 静默 skip | ✅ 已关闭 | S3.0 AUD-008：缺 seed = FAIL |
-| 闭环 A 先发药后收费（测试擅自决定） | ✅ 已关闭 | S3.0 AUD-009：按默认建议 prescription → invoice → payment → dispense |
-| store role → tenant 权限提升 | ✅ 已关闭 | S30-R01：has_permission() v3 scope 感知 + rls_scoped_permission.sql S3 负向测试 |
-| 非法 role assignment（scope=store+store_id NULL 等） | ✅ 已关闭 | S30-R02：validate_era_scope() 触发器（STORE_ROLE_REQUIRES_STORE / TENANT_ROLE_FORBIDS_STORE / ROLE_TENANT_MISMATCH）+ 存量修复 |
-| 浏览器直连高危 Command RPC | ✅ 已关闭 | S30-R03 首轮 revoke 约 35 个；S30-F02 补齐全部 11 个遗漏 + 审计 3 个，migration 27 对 55 个函数名（service-role-only manifest 全量）revoke public/anon/authenticated + grant service_role；前端改走 Hono；`check:rpc-manifest` CI 静态规则保证 routes 中 `service.rpc()` 调用（59 处，unique 52 个，**historical S3.0 baseline**）⊆ service-role-only manifest（55 个，含内部辅助 RPC 3 个，**historical S3.0 baseline**），全校验 PASS；当前合并源码口径：72 处调用 / 67 unique / 72 manifest / missing 0（见 IMPLEMENTATION_STATUS「S31-MERGE-FINAL」） |
-| 平台管理员可从租户角色推导（tenant/store employee role 产生 platform admin） | ✅ 已关闭 | S30-F01：新增 `platform_user_roles` 独立授权表；`is_system_admin()` 只读平台授权来源；ERA 禁止 scope='system'（SYSTEM_ROLE_FORBIDDEN_ERA）；tenant invite/change-role 拒绝 system role；租户角色管理 UI 过滤 scope='system'；legacy store_members 不自动升级 |
-| tenant admin 可升级为 platform admin（权限提升） | ✅ 已关闭 | S30-F01 + rpc_security.sql Part 3：P1 负向（authenticated 写 platform_user_roles 被 RLS 拒绝，自己/他人都拒）；P2 system role 禁止 ERA；P3/P5 无平台授权 is_system_admin()=false |
-| 病历签署可选任意员工（EmployeePicker） | ✅ 已关闭 | S30-R04：签署强制当前登录 user.id；EmployeePicker value-key 区分 employees.id / auth.users.id；字段语义 COMMENT 固化 |
-| E2E 宠物用 API 绕过 UI | ✅ 已关闭 | S30-R05：closed-loop-a 步骤 2 改 UI「新增宠物」建档 |
-| inventory receipt 预留手填商品、nursing/print 手填实体 | ✅ 已关闭 | S30-R06：BusinessCatalogItemPicker + value-key="user_id" + print 非可选取类型禁用 |
-| src 目录 .js 编译产物残留导致 vite build MISSING_EXPORT | ✅ 已关闭 | S31-INTEGRATION-D：清理 `apps/maoxianqiu/src` 下 276 个 .js 编译产物（rolldown 解析 `@/types/*` 优先命中旧 .js 产物）；产物未被 git 跟踪（根 `.gitignore` `**/*.js` 兜底）；清理后 vite build 35.46s PASS |
-| S3.1 医疗闭环 SQL 测试缺失 | ✅ 已关闭 | S3.1 审计收口：新增 `supabase/tests/medical_loop_s3_1.sql`，单事务 begin/rollback，断言矩阵 ML1~ML12（权限矩阵 / 入院 / 医嘱→护士任务 / 标本流转 / 危急值 / 病程签署不可变 / 出院结算 / 跨租户拒绝 / discharge_patient 笼位释放） |
-| seed.sql 角色权限数组缺口 | ✅ 已关闭 | S3.1 审计收口：`supabase/seed.sql` 角色权限数组与 permissions 目录表全量同步前端 `views/system/permissions.ts`（补齐 store_manager/doctor/nurse/tenant_owner 及 system_admin 新增域权限）；`nurse` 角色本就存在于 seed，缺口的"无 nurse 角色"描述为过时结论 |
-| progress_notes update RLS 未排除已签署行 | ✅ 已关闭 | S3.1 审计 P0-02：migration 115 重建 RLS（update/delete 要求 status='draft'）+ 触发器 `prevent_signed_progress_note_update/delete`（`app.allow_signed_note_update/delete` 显式放行），signed 病程不可变；ML9 测试覆盖 authenticated 0 行 / superuser 抛 `SIGNED_PROGRESS_NOTE_IMMUTABLE` / set_config 放行 |
-| seed.sql 角色权限数组缺口扩展 | ✅ 已关闭 | S3.1 审计收口：`supabase/seed.sql` 同步补齐 boarding/purchase/imaging/followup/analytics/documents/audit/approval/settings/platform.tenant 等新域权限码到对应角色数组与 permissions 目录表 |
-| 仓库 Secret Hygiene（tmp 测试文件含明文凭据） | ✅ 已关闭 | Full12 审计 §3/§4：删除 9 个被跟踪 tmp 文件（e2e/tmp-*、e2e/tests/tmp-debug-*、scripts/_tmp_*）；`.gitignore` 新增 `e2e/tmp-*`/`e2e/tests/tmp-*`/`scripts/_tmp_*` 规则；`scripts/e2e-setup.sh` 全环境变量化（E2E_USERNAME/E2E_PASSWORD/DATABASE_URL 用 `:?` 强校验，统一 e2e 栈命名，校验先于 db reset，移除把登录密码误当 PG 密码的 PGPASSWORD 前缀）；grep 验证 `Support@|maoxianqiu-app|supabase.co|postgres@` 0 匹配 |
-| message_deliveries 缺 updated_at 列（应用层用但 DB 无） | ✅ 已关闭 | Full12 §5：migration 121 补 `updated_at timestamptz not null default now()` + 复用 `touch_updated_at()` 触发器 + `sending_claimed_at` 列 + 存量 sending 行回填 |
-| Initial Send 未 CAS claim（重复发送风险） | ✅ 已关闭 | Full12 §6：`claimInitialSend()` CAS `queued/attempts=0 → sending/attempts=1` 唯一返回行才允许执行 Provider 副作用，claim 时写 `sending_claimed_at` |
-| recordAttempt 晚到覆盖（旧结果覆盖新结果） | ✅ 已关闭 | Full12 §8：UPDATE 加 `AND attempts=attemptNo AND status='sending'`，0 行则静默丢弃（console.warn），不再覆盖 |
-| 前端缺 sending 状态 / canRetry 过宽 | ✅ 已关闭 | Full12 §9：MessagingStatus 补 `sending`（发送中/结果未知）；canRetry 收紧为 `failed/retry && attempts<3` |
-| Refund many-to-one 被当数组处理 | ✅ 已关闭 | Full12 §11：revenue.ts refunds→invoices/payments 改为对象关系访问 + `as unknown as` 桥接过 tsc |
-| Catalog 收入对账缺口（明细→总账不一致） | ✅ 已关闭 | Full12 §12（用户确认方案 A）：`invoice.total` 与小计差异按各分类权重分摊进 gross，无明细发票归 unassigned |
-| Doctor 未归因边界（无 encounter 明细仍产出 gross） | ✅ 已关闭 | Full12 §13：未归因 gross 构造移出 `if (encounterIds.length>0)` 块，无明细时也稳定归入 unassigned |
-| Import 暴露未完成 Consumer 的入口（employee/opening-stock） | ✅ 已关闭 | Full12 §7（用户确认方案）：`IMPORT_TYPES_ENABLED` 隐藏 employee/opening-stock 新建入口，存量任务查看/历史不受影响 |
-| src 目录 .js 产物导致 vite build MISSING_EXPORT（复发） | ✅ 已关闭 | Full12 门禁：再次清理 `apps/maoxianqiu/src` + `packages/components/src` 下与 .ts/.tsx 同名的 .js 产物（254 个），`vite build` 1m41s PASS |
+| Secret Hygiene（tmp 文件含明文凭据） | ✅ 已关闭 | Full12 §3/§4：删除 9 个被跟踪 tmp 文件 + 全环境变量化 |
+| message_deliveries 缺 updated_at / sending_claimed_at | ✅ 已关闭 | Full12 §5：migration 121 |
+| Initial Send 未 CAS claim | ✅ 已关闭 | Full12 §6：claimInitialSend() |
+| recordAttempt 晚到覆盖 | ✅ 已关闭 | Full12 §8：attempts/status 条件更新，0 行静默丢弃 |
+| Refund many-to-one 被当数组 | ✅ 已关闭 | Full12 §11 |
+| Catalog 收入对账缺口 | ✅ 已关闭 | Full12 §12（方案 A：按分类权重分摊） |
+| Doctor 未归因边界 | ✅ 已关闭 | Full12 §13 |
+| Import 暴露未完成 Consumer 入口 | ✅ 已关闭 | Full12 §7：IMPORT_TYPES_ENABLED 隐藏 |
+| src 目录 .js 产物导致 build MISSING_EXPORT | ✅ 已关闭 | S31-INTEGRATION-D / Full12 门禁：清理编译产物 |

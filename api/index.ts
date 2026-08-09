@@ -14,18 +14,28 @@ import catalogRoutes from './routes/catalog.js'
 import clinicalRoutes from './routes/clinical.js'
 import closingRoutes from './routes/closing.js'
 import complianceRoutes from './routes/compliance.js'
+import crmGrowthRoutes from './routes/crm-growth.js'
 import customersRoutes from './routes/customers.js'
 import diagnosticsRoutes from './routes/diagnostics.js'
+import documentArtifactRoutes from './routes/document-artifacts.js'
 import documentsRoutes from './routes/documents.js'
 import employeeRoutes from './routes/employees.js'
 import fileCommandRoutes from './routes/files-v2.js'
+import importConsumerRoutes from './routes/import-consumers.js'
 import importsRoutes from './routes/imports.js'
 import inpatientRoutes from './routes/inpatient.js'
+import insuranceRoutes from './routes/insurance.js'
 import inventoryRoutes from './routes/inventory.js'
+import marketingRoutes from './routes/marketing.js'
 import meRoutes from './routes/me.js'
+import medicationSafetyRoutes from './routes/medication-safety.js'
 import messagingRoutes from './routes/messaging.js'
+import messagingWebhookRoutes from './routes/messaging-webhook.js'
 import operationsRoutes from './routes/operations.js'
 import petsRoutes from './routes/pets.js'
+import portalRoutes from './routes/portal.js'
+import purchaseRequestRoutes from './routes/purchase-requests.js'
+import purchaseReturnRoutes from './routes/purchase-returns.js'
 import regulatoryRoutes from './routes/regulatory.js'
 import reportDataRoutes from './routes/report-data.js'
 import roleRoutes from './routes/roles.js'
@@ -34,6 +44,7 @@ import settingsRoutes from './routes/settings.js'
 import storeRoutes from './routes/stores.js'
 import tenantRoutes from './routes/tenants.js'
 import userRoutes from './routes/user.js'
+import walletRoutes from './routes/wallet.js'
 
 /**
  * Vercel 函数路由唯一入口。vercel.json 将 /api/* 重写到此固定入口，
@@ -117,6 +128,12 @@ app.route('/pets', petsRoutes)
 app.route('/catalog', catalogRoutes)
 // MXQ-9001~9008:Inventory 仓库/批次/发药/盘点/调拨(不可变流水 + 幂等)
 app.route('/inventory', inventoryRoutes)
+// Stage04-07:采购申请 / 采购退货(挂载在 /inventory 之后,
+// inventoryRoutes 无动态段吞路径,保持与既有 /inventory/purchase-orders 同级约定)
+app.route('/inventory/purchase-requests', purchaseRequestRoutes)
+app.route('/inventory/purchase-returns', purchaseReturnRoutes)
+// Stage04-07:Import Consumer 命令收口(员工邀请/期初库存消费 Job)
+app.route('/import-consumers', importConsumerRoutes)
 // P0-06:统一报表真源(实时明细,服务端聚合,前端只渲染)
 // 注意:必须挂在 /operations 之前,否则会被 operationsRoutes 拦截
 app.route('/operations/report-data', reportDataRoutes)
@@ -129,7 +146,11 @@ app.route('/analytics', analyticsRoutes)
 // S32-C:业务文档与打印中心 V2(模板/预览/渲染/打印/历史;医疗文档按业务权限门二次校验)
 app.route('/documents', documentsRoutes)
 // S32-D:消息通知真实 Provider(模板/发送/投递/重试;webhook 本轮未实现,见 S32-D-HANDOFF)
+// 注意:webhook 回调入口必须挂在 /messaging 之前,避免被 messaging 前缀路由吞掉
+app.route('/messaging/webhook', messagingWebhookRoutes)
 app.route('/messaging', messagingRoutes)
+// Stage04-08:C 端门户(身份/预约/报告/会员权益)
+app.route('/portal', portalRoutes)
 // MXQ-7001~7011:Clinical 预约/候诊/就诊/病历签署/修订/处方/护士任务
 app.route('/clinical', clinicalRoutes)
 // MXQ-8001~8007:Billing 发票/折扣/支付/退款 RPC(幂等防重复)
@@ -144,6 +165,16 @@ app.route('/compliance', complianceRoutes)
 app.route('/regulatory', regulatoryRoutes)
 // S31-PARALLEL-B:日结与对账(日结/调整/渠道汇总/对账录入/差异确认)
 app.route('/closing', closingRoutes)
+// Stage04-03:储值钱包(账户/充值/调整/冻结/流水;收银 stored_value 原子扣款在 Billing RPC)
+app.route('/wallet', walletRoutes)
+// Stage04-04:用药安全(规则/药品档案/相互作用/评估/豁免;issue/dispense 服务端强制门禁)
+app.route('/medication-safety', medicationSafetyRoutes)
+// Stage04-05:CRM 增长(分层/流失/洞察)与营销(优惠券/套餐/活动/推荐)
+app.route('/crm-growth', crmGrowthRoutes)
+app.route('/marketing', marketingRoutes)
+// Stage04-06:保险理赔 + 通用 PDF 归档/电子签名
+app.route('/insurance', insuranceRoutes)
+app.route('/document-artifacts', documentArtifactRoutes)
 
 // 统一错误处理(MXQ-2001):业务错误带明确 HTTP 状态与错误码
 app.notFound((c) => {

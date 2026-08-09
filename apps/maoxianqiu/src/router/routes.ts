@@ -8,11 +8,16 @@ import BillingModule from './modules/billing'
 import CatalogModule from './modules/catalog'
 import ClinicalModule from './modules/clinical'
 import ClosingModule from './modules/closing'
+import CrmGrowthModule from './modules/crm-growth'
 import CrmModule from './modules/crm'
 import DiagnosticsModule from './modules/diagnostics'
 import InpatientModule from './modules/inpatient'
+import InsuranceModule from './modules/insurance'
 import InventoryModule from './modules/inventory'
+import MarketingModule from './modules/marketing'
+import MedicationSafetyModule from './modules/medication-safety'
 import OperationsModule from './modules/operations'
+import PortalModule from './modules/portal'
 import RegulatoryModule from './modules/regulatory'
 import SystemModule from './modules/system'
 
@@ -87,6 +92,17 @@ const asyncRoutes: RouteRecordMainRaw[] = [
     },
     children: [
       ...CrmModule,
+      ...CrmGrowthModule,
+    ],
+  },
+  {
+    meta: {
+      title: '营销增长',
+      shortTitle: '营销',
+      icon: 'i-carbon:marketing',
+    },
+    children: [
+      ...MarketingModule,
     ],
   },
   {
@@ -127,6 +143,7 @@ const asyncRoutes: RouteRecordMainRaw[] = [
     },
     children: [
       ...ClinicalModule,
+      ...MedicationSafetyModule,
     ],
   },
   {
@@ -157,6 +174,7 @@ const asyncRoutes: RouteRecordMainRaw[] = [
     },
     children: [
       ...OperationsModule,
+      ...InsuranceModule,
     ],
   },
   {
@@ -187,6 +205,16 @@ const asyncRoutes: RouteRecordMainRaw[] = [
     },
     children: [
       ...ClosingModule,
+    ],
+  },
+  {
+    meta: {
+      title: '客户门户',
+      shortTitle: '门户',
+      icon: 'i-carbon:chat',
+    },
+    children: [
+      ...PortalModule,
     ],
   },
   {

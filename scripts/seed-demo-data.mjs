@@ -1440,6 +1440,7 @@ async function seedFollowup() {
       tenant_id: ctx.tenantId, store_id: ctx.storeId,
       customer_id: ctx.custId[f.customer], pet_id: ctx.petId[f.pet],
       source_type: f.type === 'post_visit' ? 'encounter' : 'manual',
+      source_id: f.type === 'post_visit' ? ctx.encId['大黄-signed'] : null,
       task_type: f.type, scheduled_at: iso(f.offset, 14),
       assignee_employee_id: ctx.employeeId, channel: f.channel,
       status: f.status, created_by: ctx.userId,
@@ -1456,6 +1457,57 @@ async function seedFollowup() {
     return row
   }))
   track('followup_tasks', tasks)
+
+  // ===== 批量扩展:24 条回访任务(状态/任务类型/来源/渠道/结果全覆盖) =====
+  const namedPairs = [['张伟', '大黄'], ['陈静', '旺财'], ['周芳', '富贵'], ['李娜', '咪咪'], ['孙磊', '大圣']]
+  const genFollowPlan = Array.from({ length: 24 }, (_, i) => {
+    const gkey = 'G' + pad((i % 20) + 1)
+    // 状态轮换:completed/in_progress/pending/cancelled
+    const status = ['completed', 'in_progress', 'pending', 'cancelled'][i % 4]
+    const taskType = ['post_visit', 'post_discharge', 'medication', 'recheck', 'customer_care', 'other'][i % 6]
+    const channel = ['phone', 'wechat', 'sms', 'in_person', 'other'][i % 5]
+    // 偏移:待办→未来1-6天;进行中→今日;已完成/取消→过去1-12天
+    const offset = status === 'pending' ? 1 + (i % 6)
+      : status === 'in_progress' ? 0
+        : -(1 + (i % 12))
+    // 需要业务单据来源的任务(术后/出院)用生成客户+真实单据;其余轮换命名/生成客户
+    let sourceType = 'manual'
+    let sourceId = null
+    let pair = [gkey, gkey]
+    if (taskType === 'post_visit') {
+      sourceType = 'encounter'
+      sourceId = ctx.genEncs[i % ctx.genEncs.length]?.id ?? null
+    }
+    else if (taskType === 'post_discharge') {
+      sourceType = 'discharge'
+      sourceId = ctx.admId?.BD1 ?? null
+    }
+    else if (i % 3 === 0) {
+      sourceType = ['reminder', 'complaint'][i % 2]
+    }
+    if (taskType !== 'post_visit' && taskType !== 'post_discharge' && i % 3 === 0) {
+      pair = namedPairs[(i / 3) % namedPairs.length]
+    }
+    const row = {
+      tenant_id: ctx.tenantId, store_id: ctx.storeId,
+      customer_id: ctx.custId[pair[0]], pet_id: ctx.petId[pair[1]],
+      source_type: sourceType, source_id: sourceId,
+      task_type: taskType, scheduled_at: iso(offset, 9 + (i % 8)),
+      assignee_employee_id: ctx.employeeId, channel,
+      status, created_by: ctx.userId,
+    }
+    if (status === 'completed') {
+      row.result_code = ['contacted', 'contacted', 'unreachable', 'rescheduled', 'other'][i % 5]
+      row.result_note = '演示-回访完成登记'
+      row.started_at = iso(offset, 9)
+      row.completed_at = iso(offset, 10)
+      row.completed_by = ctx.userId
+    }
+    if (status === 'in_progress') row.started_at = iso(0, 9)
+    if (status === 'cancelled') row.cancel_reason = '演示-客户要求取消回访'
+    return row
+  })
+  track('followup_tasks', await ins('followup_tasks', genFollowPlan))
 }
 
 /* ============ 18. 会员/积分 Membership ============ */
