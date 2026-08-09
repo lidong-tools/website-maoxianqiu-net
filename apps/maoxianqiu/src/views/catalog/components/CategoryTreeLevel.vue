@@ -19,7 +19,6 @@ const emit = defineEmits<{
   move: [payload: { categoryId: string, parentId: string | null, position: number }]
 }>()
 
-const listRef = useTemplateRef<HTMLElement>('listRef')
 const expanded = reactive<Record<string, boolean>>({})
 const dropTarget = ref<{ id: string, placement: 'before' | 'inside' | 'after' } | null>(null)
 
@@ -150,7 +149,6 @@ function createChild(node: CatalogCategoryNode) {
 
 <template>
   <div
-    ref="listRef"
     class="category-tree-list flex flex-col gap-1 min-h-8"
     :class="level > 1 ? 'ml-4 border-l border-default pl-2' : ''"
     :data-parent-id="parentId ?? ''"

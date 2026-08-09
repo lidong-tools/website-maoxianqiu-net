@@ -37,7 +37,7 @@ const coupons = ref<Coupon[]>([])
 const couponTotal = ref(0)
 const couponPage = ref(1)
 const couponPageSize = ref(20)
-const couponType = ref('all')
+const couponType = ref<'all' | 'fixed' | 'percentage'>('all')
 const couponLoading = ref(false)
 
 /** 券额度文本(固定金额/折扣百分比) */
