@@ -52,15 +52,32 @@ export function fail(
 
 /** 将任意错误归一为统一失败响应(ApiError 保留状态码,未知错误为 500) */
 export function failError(c: Context<AppEnv>, e: unknown, customRequestId?: string) {
+  const resolvedRequestId = customRequestId ?? requestId(c)
   if (e instanceof ApiError) {
+    if (e.status >= 500) {
+      console.error('[api] request failed', {
+        requestId: resolvedRequestId,
+        method: c.req.method,
+        path: c.req.path,
+        code: e.code,
+        message: e.message,
+        stack: e.stack,
+      })
+    }
     return fail(c, e.status as ContentfulStatusCode, {
       code: e.code,
       message: e.message,
       fieldErrors: e.fieldErrors,
-    }, customRequestId)
+    }, resolvedRequestId)
   }
+  console.error('[api] unhandled request error', {
+    requestId: resolvedRequestId,
+    method: c.req.method,
+    path: c.req.path,
+    error: e,
+  })
   return fail(c, 500, {
     code: 'INTERNAL_ERROR',
     message: '服务器内部错误',
-  }, customRequestId)
+  }, resolvedRequestId)
 }

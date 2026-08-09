@@ -401,7 +401,7 @@ crmGrowthRoutes.get('/customers/:id/insights', async (c) => {
     }),
     service
       .from('coupon_issues')
-      .select('id, code, status, issued_at, expires_at, redeemed_at, coupons(id, name, type, value, min_spend, valid_from, valid_until)')
+      .select('id, coupon_id, code, status, issued_at, expires_at, redeemed_at')
       .eq('customer_id', customerId)
       .eq('tenant_id', customer.tenant_id)
       .in('status', ['available', 'redeemed'])
@@ -409,7 +409,7 @@ crmGrowthRoutes.get('/customers/:id/insights', async (c) => {
       .limit(20),
     service
       .from('customer_packages')
-      .select('id, total_quantity, remaining_quantity, valid_from, expires_at, status, service_packages(id, name, description, price, validity_days)')
+      .select('id, package_id, total_quantity, remaining_quantity, valid_from, expires_at, status')
       .eq('customer_id', customerId)
       .eq('tenant_id', customer.tenant_id)
       .order('created_at', { ascending: false })
@@ -429,16 +429,58 @@ crmGrowthRoutes.get('/customers/:id/insights', async (c) => {
   if (churnRes.error && !churnRes.error.message.includes('CUSTOMER_NOT_FOUND')) {
     throw err.internal(`评估流失失败: ${churnRes.error.message}`)
   }
-  if (couponsRes.error || packagesRes.error || campaignsRes.error) {
-    throw err.internal('查询客户权益聚合失败')
+  if (couponsRes.error) {
+    throw err.internal(`查询客户优惠券失败: ${couponsRes.error.message}`)
   }
+  if (packagesRes.error) {
+    throw err.internal(`查询客户套餐失败: ${packagesRes.error.message}`)
+  }
+  if (campaignsRes.error) {
+    throw err.internal(`查询客户活动历史失败: ${campaignsRes.error.message}`)
+  }
+
+  // coupon_issues.coupon_id 和 customer_packages.package_id 在旧库中没有外键，
+  // 显式查询并回填模板，避免 PostgREST 嵌套关联推断失败。
+  const couponIds = [...new Set((couponsRes.data ?? []).map(item => item.coupon_id))]
+  const packageIds = [...new Set((packagesRes.data ?? []).map(item => item.package_id))]
+  const [couponTemplatesRes, packageTemplatesRes] = await Promise.all([
+    couponIds.length
+      ? service
+          .from('coupons')
+          .select('id, name, type, value, min_spend, valid_from, valid_until')
+          .eq('tenant_id', customer.tenant_id)
+          .in('id', couponIds)
+      : Promise.resolve({ data: [], error: null }),
+    packageIds.length
+      ? service
+          .from('service_packages')
+          .select('id, name, description, price, validity_days')
+          .eq('tenant_id', customer.tenant_id)
+          .in('id', packageIds)
+      : Promise.resolve({ data: [], error: null }),
+  ])
+  if (couponTemplatesRes.error) {
+    throw err.internal(`查询优惠券模板失败: ${couponTemplatesRes.error.message}`)
+  }
+  if (packageTemplatesRes.error) {
+    throw err.internal(`查询套餐模板失败: ${packageTemplatesRes.error.message}`)
+  }
+
+  const couponTemplates = new Map((couponTemplatesRes.data ?? []).map(item => [item.id, item]))
+  const packageTemplates = new Map((packageTemplatesRes.data ?? []).map(item => [item.id, item]))
 
   return ok(c, {
     customerId,
     segments: segRes.error ? [] : (segRes.data?.segments ?? []),
     churn: churnRes.error ? null : churnRes.data,
-    activeCoupons: couponsRes.data ?? [],
-    packages: packagesRes.data ?? [],
+    activeCoupons: (couponsRes.data ?? []).map(item => ({
+      ...item,
+      coupons: couponTemplates.get(item.coupon_id) ?? null,
+    })),
+    packages: (packagesRes.data ?? []).map(item => ({
+      ...item,
+      service_packages: packageTemplates.get(item.package_id) ?? null,
+    })),
     campaignHistory: campaignsRes.data ?? [],
   })
 })
