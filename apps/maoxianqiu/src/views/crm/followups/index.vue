@@ -205,7 +205,7 @@ const tableColumns = computed<TableColumn<FollowupTaskRecord>[]>(() => [
     id: 'operation',
     header: '操作',
     width: 110,
-    align: 'right',
+    align: 'left',
     fixed: 'right',
   },
 ])
@@ -213,6 +213,8 @@ const tableColumns = computed<TableColumn<FollowupTaskRecord>[]>(() => [
 
 <template>
   <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="回访任务" description="客户回访 · 逾期跟踪 · 结果登记">
       <template #actions>
         <FaButton size="sm" @click="createVisible = true">
@@ -221,11 +223,12 @@ const tableColumns = computed<TableColumn<FollowupTaskRecord>[]>(() => [
         </FaButton>
       </template>
     </EntityPageHeader>
+    -->
 
     <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
       <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
         <div class="px-4 pt-3 border-b">
-          <FaTabs v-model="activeBucket" :list="BUCKETS" class="mb-2" @change="onBucketChange" />
+          <FaTabs v-model="activeBucket" :list="BUCKETS" class="mb-2" @update:model-value="onBucketChange" />
           <div class="flex flex-wrap gap-3 items-center pb-3">
             <FaInput
               v-model="search.keyword"
@@ -236,6 +239,10 @@ const tableColumns = computed<TableColumn<FollowupTaskRecord>[]>(() => [
               @clear="currentChange()"
             />
             <FaSelect v-model="search.storeId" :options="storeOptions" class="w-40" @change="currentChange()" />
+            <FaButton size="sm" @click="createVisible = true">
+              <FaIcon name="i-lucide:plus" />
+              新建回访
+            </FaButton>
             <div class="ml-auto flex gap-2 items-center">
               <FaButton size="sm" variant="outline" @click="searchReset">
                 重置
@@ -250,7 +257,7 @@ const tableColumns = computed<TableColumn<FollowupTaskRecord>[]>(() => [
 
         <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
           <FaTable
-            table-root-class="rounded-lg overflow-hidden"
+            table-root-class="overflow-hidden"
             row-key="id"
             stripe
             border

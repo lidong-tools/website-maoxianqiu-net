@@ -99,7 +99,7 @@ const asyncRoutes: RouteRecordMainRaw[] = [
     meta: {
       title: '营销增长',
       shortTitle: '营销',
-      icon: 'i-carbon:marketing',
+      icon: 'i-carbon:bullhorn',
     },
     children: [
       ...MarketingModule,

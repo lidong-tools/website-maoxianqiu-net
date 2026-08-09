@@ -89,6 +89,8 @@ onMounted(loadWorkbench)
 
 <template>
   <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="工作台" :description="`毛线球宠物医院管理系统 · ${appAccountStore.isLogin ? appAccountStore.account : '未登录'}`">
       <template #actions>
         <FaButton size="sm" variant="outline" :loading="loading" @click="loadWorkbench">
@@ -97,6 +99,7 @@ onMounted(loadWorkbench)
         </FaButton>
       </template>
     </EntityPageHeader>
+    -->
 
     <div v-loading="loading" class="p-4 flex flex-1 flex-col gap-3 min-h-0">
       <!-- KPI -->
@@ -210,12 +213,12 @@ onMounted(loadWorkbench)
           <div class="text-sm font-medium px-4 py-2.5 border-b">
             快捷操作
           </div>
-          <div class="p-3 flex-1 gap-2 grid grid-cols-2 min-h-0 overflow-auto">
+          <div class="p-3 gap-2 grid grid-cols-2">
             <button
               v-for="action in quickActions"
               :key="action.to"
               type="button"
-              class="p-3 border rounded-lg flex flex-col gap-1.5 transition items-center hover:bg-gray-50"
+              class="p-3 border rounded-lg flex flex-col gap-1.5 h-24 transition items-center justify-center hover:bg-gray-50"
               @click="router.push(action.to)"
             >
               <FaIcon :name="action.icon" class="text-xl text-primary" />

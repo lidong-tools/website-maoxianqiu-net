@@ -180,7 +180,7 @@ const tableColumns = computed<TableColumn<CustomerRow>[]>(() => [
     id: 'operation',
     header: '操作',
     width: 150,
-    align: 'right',
+    align: 'left',
     fixed: 'right',
   },
 ])
@@ -188,6 +188,8 @@ const tableColumns = computed<TableColumn<CustomerRow>[]>(() => [
 
 <template>
   <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="客户管理" description="客户档案 · 宠物数量 · 会员等级">
       <template #actions>
         <FaButton size="sm" variant="outline" @click="onImport">
@@ -200,6 +202,7 @@ const tableColumns = computed<TableColumn<CustomerRow>[]>(() => [
         </FaButton>
       </template>
     </EntityPageHeader>
+    -->
 
     <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
       <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
@@ -225,6 +228,14 @@ const tableColumns = computed<TableColumn<CustomerRow>[]>(() => [
               class="w-36"
               @change="currentChange()"
             />
+            <FaButton size="sm" variant="outline" @click="onImport">
+              <FaIcon name="i-lucide:upload" />
+              导入
+            </FaButton>
+            <FaButton size="sm" @click="router.push('/crm/customer/new')">
+              <FaIcon name="i-lucide:plus" />
+              新建客户
+            </FaButton>
             <div class="ml-auto flex gap-2 items-center">
               <FaButton size="sm" variant="outline" @click="searchReset">
                 重置
@@ -239,7 +250,7 @@ const tableColumns = computed<TableColumn<CustomerRow>[]>(() => [
 
         <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
           <FaTable
-            table-root-class="rounded-lg overflow-hidden"
+            table-root-class="overflow-hidden"
             row-key="id"
             stripe
             border
