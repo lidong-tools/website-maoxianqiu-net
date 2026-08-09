@@ -306,7 +306,7 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
     <EntityPageHeader compact title="出院结算" description="生成结算单 → 收款/减免 → 完成出院">
       <template #actions>
         <FaSelect v-model="search.storeId" :options="storeOptions" class="w-36" @change="currentChange()" />
@@ -329,9 +329,9 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
       </template>
     </EntityPageHeader>
 
-    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
       <!-- 状态摘要 -->
-      <div class="gap-4 grid grid-cols-3">
+      <div class="gap-4 grid grid-cols-3 shrink-0">
         <div class="p-3 border border-amber-200 rounded-lg bg-amber-50">
           <div class="text-2xl text-amber-600 font-semibold tabular-nums">
             {{ pendingSettleCount }}
@@ -358,9 +358,10 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
         </div>
       </div>
 
-      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
-        <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
           <FaTable
+            class="h-full min-h-0"
             table-root-class="rounded-lg overflow-hidden"
             row-key="id"
             stripe
@@ -385,7 +386,7 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
             </template>
           </FaTable>
         </div>
-        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2 px-4 pb-3" @page-change="currentChange" @size-change="sizeChange" />
+        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2 px-4 pb-3 shrink-0" @page-change="currentChange" @size-change="sizeChange" />
       </div>
     </div>
 

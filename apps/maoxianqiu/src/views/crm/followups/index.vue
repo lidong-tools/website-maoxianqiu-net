@@ -212,7 +212,7 @@ const tableColumns = computed<TableColumn<FollowupTaskRecord>[]>(() => [
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
     <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
     <!--
     <EntityPageHeader compact title="回访任务" description="客户回访 · 逾期跟踪 · 结果登记">
@@ -225,9 +225,9 @@ const tableColumns = computed<TableColumn<FollowupTaskRecord>[]>(() => [
     </EntityPageHeader>
     -->
 
-    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
-      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
-        <div class="px-4 pt-3 border-b">
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <div class="px-4 pt-3 border-b shrink-0">
           <FaTabs v-model="activeBucket" :list="BUCKETS" class="mb-2" @update:model-value="onBucketChange" />
           <div class="flex flex-wrap gap-3 items-center pb-3">
             <FaInput
@@ -255,8 +255,9 @@ const tableColumns = computed<TableColumn<FollowupTaskRecord>[]>(() => [
           </div>
         </div>
 
-        <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
           <FaTable
+            class="h-full min-h-0"
             table-root-class="overflow-hidden"
             row-key="id"
             stripe
@@ -276,7 +277,7 @@ const tableColumns = computed<TableColumn<FollowupTaskRecord>[]>(() => [
             </template>
           </FaTable>
         </div>
-        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2 px-4 pb-3" @page-change="currentChange" @size-change="sizeChange" />
+        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2 px-4 pb-3 shrink-0" @page-change="currentChange" @size-change="sizeChange" />
       </div>
     </div>
 

@@ -433,6 +433,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告) -->
+    <!--
     <EntityPageHeader compact title="医生工作台" description="今日候诊 · 病历编辑 · 医疗操作一站式完成">
       <template #actions>
         <FaButton v-if="activeEncounter" size="sm" variant="outline" @click="onOpenDetail">
@@ -441,8 +443,16 @@ onBeforeUnmount(() => {
         </FaButton>
       </template>
     </EntityPageHeader>
+    -->
 
     <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <!-- 工具栏:功能按钮 -->
+      <div class="flex items-center justify-end">
+        <FaButton v-if="activeEncounter" size="sm" variant="outline" @click="onOpenDetail">
+          <FaIcon name="i-lucide:file-text" />
+          病历详情
+        </FaButton>
+      </div>
       <PetSafetyBanner
         v-if="activePet"
         :risk-tags="activePet.risk_tags"

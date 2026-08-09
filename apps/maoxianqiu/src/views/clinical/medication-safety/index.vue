@@ -367,106 +367,119 @@ loadRules()
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告) -->
+    <!--
     <EntityPageHeader
       compact
       title="用药安全"
       description="用药安全规则引擎:规则配置 / 药品安全档案 / 药物相互作用禁忌(确定性、可解释、版本化、可审计)"
     />
-    <FaPageMain>
-      <FaTabs
-        v-model="tabActive"
-        :list="[
-          { label: '安全规则', value: 'rules' },
-          { label: '药品档案', value: 'profiles' },
-          { label: '相互作用', value: 'interactions' },
-        ]"
-        @change="onTabChange"
-      >
-        <!-- ==================== 规则 ==================== -->
-        <template #rules>
-          <FaTable
-            v-loading="ruleLoading"
-            table-root-class="rounded-lg overflow-hidden"
-            row-key="id"
-            stripe
-            border
-            :columns="ruleColumns"
-            :data="ruleList"
-          >
-            <template #toolbar>
-              <FaButton type="primary" @click="onCreateRule">
+    -->
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+        <!-- 工具栏:Tabs + 右功能按钮 -->
+        <div class="px-4 pt-3 border-b shrink-0">
+          <FaTabs
+            v-model="tabActive"
+            :list="[
+              { label: '安全规则', value: 'rules' },
+              { label: '药品档案', value: 'profiles' },
+              { label: '相互作用', value: 'interactions' },
+            ]"
+            class="mb-2"
+            @update:model-value="onTabChange"
+          />
+          <div class="pb-3 flex items-center justify-between flex-wrap gap-2">
+            <span class="text-sm text-muted-foreground">
+              共 {{ tabActive === 'rules' ? ruleList.length : tabActive === 'profiles' ? profileList.length : interactionList.length }} 条
+            </span>
+            <div class="flex gap-2 items-center">
+              <FaButton v-if="tabActive === 'rules'" size="sm" @click="onCreateRule">
                 <FaIcon name="i-ri:add-line" />
                 新增规则
               </FaButton>
-            </template>
-            <template #cell-operation="{ row }">
-              <div class="flex-center gap-2">
-                <FaButton variant="outline" size="icon-sm" @click="onEditRule(row.original)">
-                  <FaIcon name="i-ri:edit-line" />
-                </FaButton>
-                <FaButton variant="outline" size="icon-sm" @click="onToggleRule(row.original)">
-                  <FaIcon :name="row.original.active ? 'i-ri:pause-line' : 'i-ri:play-line'" />
-                </FaButton>
-              </div>
-            </template>
-          </FaTable>
-        </template>
-
-        <!-- ==================== 药品档案 ==================== -->
-        <template #profiles>
-          <FaTable
-            v-loading="profileLoading"
-            table-root-class="rounded-lg overflow-hidden"
-            row-key="id"
-            stripe
-            border
-            :columns="profileColumns"
-            :data="profileList"
-          >
-            <template #toolbar>
-              <FaButton type="primary" @click="onCreateProfile">
+              <FaButton v-else-if="tabActive === 'profiles'" size="sm" @click="onCreateProfile">
                 <FaIcon name="i-ri:add-line" />
                 新增药品档案
               </FaButton>
-            </template>
-            <template #cell-operation="{ row }">
-              <div class="flex-center gap-2">
-                <FaButton variant="outline" size="icon-sm" @click="onEditProfile(row.original)">
-                  <FaIcon name="i-ri:edit-line" />
-                </FaButton>
-              </div>
-            </template>
-          </FaTable>
-        </template>
-
-        <!-- ==================== 相互作用 ==================== -->
-        <template #interactions>
-          <FaTable
-            v-loading="interactionLoading"
-            table-root-class="rounded-lg overflow-hidden"
-            row-key="id"
-            stripe
-            border
-            :columns="interactionColumns"
-            :data="interactionList"
-          >
-            <template #toolbar>
-              <FaButton type="primary" @click="onCreateInteraction">
+              <FaButton v-else size="sm" @click="onCreateInteraction">
                 <FaIcon name="i-ri:add-line" />
                 新增相互作用
               </FaButton>
-            </template>
-            <template #cell-operation="{ row }">
-              <div class="flex-center gap-2">
-                <FaButton variant="outline" size="icon-sm" @click="onEditInteraction(row.original)">
-                  <FaIcon name="i-ri:edit-line" />
-                </FaButton>
-              </div>
-            </template>
-          </FaTable>
-        </template>
-      </FaTabs>
-    </FaPageMain>
+            </div>
+          </div>
+        </div>
+
+        <!-- 表格区 -->
+        <div class="flex-1 min-h-0 overflow-auto">
+          <!-- ==================== 规则 ==================== -->
+          <template v-if="tabActive === 'rules'">
+            <FaTable
+              v-loading="ruleLoading"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="ruleColumns"
+              :data="ruleList"
+            >
+              <template #cell-operation="{ row }">
+                <div class="flex-center gap-2">
+                  <FaButton variant="outline" size="icon-sm" @click="onEditRule(row.original)">
+                    <FaIcon name="i-ri:edit-line" />
+                  </FaButton>
+                  <FaButton variant="outline" size="icon-sm" @click="onToggleRule(row.original)">
+                    <FaIcon :name="row.original.active ? 'i-ri:pause-line' : 'i-ri:play-line'" />
+                  </FaButton>
+                </div>
+              </template>
+            </FaTable>
+          </template>
+
+          <!-- ==================== 药品档案 ==================== -->
+          <template v-else-if="tabActive === 'profiles'">
+            <FaTable
+              v-loading="profileLoading"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="profileColumns"
+              :data="profileList"
+            >
+              <template #cell-operation="{ row }">
+                <div class="flex-center gap-2">
+                  <FaButton variant="outline" size="icon-sm" @click="onEditProfile(row.original)">
+                    <FaIcon name="i-ri:edit-line" />
+                  </FaButton>
+                </div>
+              </template>
+            </FaTable>
+          </template>
+
+          <!-- ==================== 相互作用 ==================== -->
+          <template v-else>
+            <FaTable
+              v-loading="interactionLoading"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="interactionColumns"
+              :data="interactionList"
+            >
+              <template #cell-operation="{ row }">
+                <div class="flex-center gap-2">
+                  <FaButton variant="outline" size="icon-sm" @click="onEditInteraction(row.original)">
+                    <FaIcon name="i-ri:edit-line" />
+                  </FaButton>
+                </div>
+              </template>
+            </FaTable>
+          </template>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

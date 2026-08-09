@@ -250,16 +250,16 @@ onMounted(getDataList)
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
     <!-- 注释掉标题和描述区域(参考优惠券界面布局) -->
     <!--
     <EntityPageHeader compact title="发票列表" description="收费收银:发票状态机 draft → confirmed → paid → refunded;大额折扣需 manager 审批" />
     -->
-    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
       <!-- 主要内容卡片:工具栏(左筛选/搜索,右功能按钮) + 表格 + 分页 -->
-      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
         <!-- 工具栏 -->
-        <div class="px-4 pt-3 border-b">
+        <div class="px-4 pt-3 border-b shrink-0">
           <div class="pb-3 flex items-center justify-between">
             <div class="flex gap-2 items-center">
               <BusinessStorePicker v-model="search.storeId" class="w-44" placeholder="选择门店(可选)" @change="reload" />
@@ -283,8 +283,9 @@ onMounted(getDataList)
         </div>
 
         <!-- 表格区 -->
-        <div class="flex-1 min-h-0 overflow-auto">
+        <div class="flex-1 min-h-0 overflow-hidden">
           <FaTable
+            class="h-full min-h-0"
             v-loading="loading"
             table-root-class="overflow-hidden"
             row-key="id"
@@ -337,7 +338,7 @@ onMounted(getDataList)
           :page="page"
           :size="pageSize"
           :total="total"
-          class="mt-2 px-4 pb-3"
+          class="mt-2 px-4 pb-3 shrink-0"
           @page-change="p => { page = p }"
           @size-change="s => { pageSize = s; page = 1 }"
         />

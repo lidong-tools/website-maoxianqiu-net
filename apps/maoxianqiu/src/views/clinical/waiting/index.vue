@@ -153,6 +153,8 @@ function displayRow(row: WaitingRow) {
 
 <template>
   <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告) -->
+    <!--
     <EntityPageHeader compact title="候诊队列" description="实时队列 · 每 30 秒自动刷新">
       <template #actions>
         <FaSelect v-model="currentStoreId" :options="storeOptions" class="w-40" @change="loadData" />
@@ -162,6 +164,7 @@ function displayRow(row: WaitingRow) {
         </FaButton>
       </template>
     </EntityPageHeader>
+    -->
 
     <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
       <!-- 顶部统计 -->
@@ -192,51 +195,68 @@ function displayRow(row: WaitingRow) {
         </div>
       </div>
 
-      <!-- 候诊卡片流 -->
-      <div v-loading="loading" class="flex-1 gap-3 grid auto-rows-max grid-cols-1 min-h-0 overflow-auto xl:grid-cols-2">
-        <div
-          v-for="row in sortedList"
-          :key="row.id"
-          class="p-3 border rounded-lg flex gap-3 items-center justify-between"
-          :class="waitMinutes(row.scheduled_start) > 30 ? 'border-red-200 bg-red-50/50' : 'bg-card'"
-        >
-          <div class="min-w-0">
+      <!-- 候诊列表卡片 -->
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+        <!-- 工具栏:左筛选,右功能按钮 -->
+        <div class="px-4 pt-3 border-b">
+          <div class="pb-3 flex items-center justify-between flex-wrap gap-2">
             <div class="flex gap-2 items-center">
-              <span class="text-sm font-medium">{{ displayRow(row).petName }}</span>
-              <span v-if="displayRow(row).species" class="text-xs text-muted-foreground">{{ displayRow(row).species }}</span>
-              <span
-                class="text-xs font-medium"
-                :class="waitMinutes(row.scheduled_start) > 30 ? 'text-red-600' : 'text-amber-600'"
-              >
-                {{ waitMinutes(row.scheduled_start) }} min
-              </span>
+              <FaSelect v-model="currentStoreId" :options="storeOptions" class="w-40" @change="loadData" />
+              <span class="text-sm text-muted-foreground">候诊 {{ waitingCount }} · 超时 {{ overdueCount }}</span>
             </div>
-            <div class="text-xs text-muted-foreground mt-0.5 truncate">
-              {{ displayRow(row).customerName }}<template v-if="displayRow(row).phone">
-                · {{ displayRow(row).phone }}
-              </template>
-              <template v-if="displayRow(row).doctorName">
-                · 医生 {{ displayRow(row).doctorName }}
-              </template>
-            </div>
-            <div class="text-xs text-muted-foreground mt-0.5 truncate">
-              {{ row.reason ?? '未填写原因' }} · {{ APPOINTMENT_SOURCE_LABELS[row.source as keyof typeof APPOINTMENT_SOURCE_LABELS] ?? row.source }}
-            </div>
-            <div v-if="displayRow(row).risks.length" class="mt-1 flex flex-wrap gap-1">
-              <span v-for="r in displayRow(row).risks" :key="r" class="text-xs text-amber-700 font-medium px-1.5 py-0.5 rounded bg-amber-100 inline-flex gap-1 items-center">
-                <FaIcon name="i-lucide:triangle-alert" class="size-3" />
-                {{ r }}
-              </span>
-            </div>
-          </div>
-          <div class="shrink-0">
-            <FaButton size="sm" @click="onStartVisit(row)">
-              <FaIcon name="i-lucide:play" />
-              开始就诊
+            <FaButton size="sm" variant="outline" @click="loadData">
+              <FaIcon name="i-lucide:refresh-cw" />
+              刷新
             </FaButton>
           </div>
         </div>
-        <EmptyState v-if="!loading && sortedList.length === 0" compact title="当前无候诊宠物" description="有新预约报到后自动显示" />
+
+        <!-- 候诊卡片流 -->
+        <div v-loading="loading" class="flex-1 gap-3 grid auto-rows-max grid-cols-1 min-h-0 overflow-auto xl:grid-cols-2">
+          <div
+            v-for="row in sortedList"
+            :key="row.id"
+            class="p-3 border rounded-lg flex gap-3 items-center justify-between"
+            :class="waitMinutes(row.scheduled_start) > 30 ? 'border-red-200 bg-red-50/50' : 'bg-card'"
+          >
+            <div class="min-w-0">
+              <div class="flex gap-2 items-center">
+                <span class="text-sm font-medium">{{ displayRow(row).petName }}</span>
+                <span v-if="displayRow(row).species" class="text-xs text-muted-foreground">{{ displayRow(row).species }}</span>
+                <span
+                  class="text-xs font-medium"
+                  :class="waitMinutes(row.scheduled_start) > 30 ? 'text-red-600' : 'text-amber-600'"
+                >
+                  {{ waitMinutes(row.scheduled_start) }} min
+                </span>
+              </div>
+              <div class="text-xs text-muted-foreground mt-0.5 truncate">
+                {{ displayRow(row).customerName }}<template v-if="displayRow(row).phone">
+                  · {{ displayRow(row).phone }}
+                </template>
+                <template v-if="displayRow(row).doctorName">
+                  · 医生 {{ displayRow(row).doctorName }}
+                </template>
+              </div>
+              <div class="text-xs text-muted-foreground mt-0.5 truncate">
+                {{ row.reason ?? '未填写原因' }} · {{ APPOINTMENT_SOURCE_LABELS[row.source as keyof typeof APPOINTMENT_SOURCE_LABELS] ?? row.source }}
+              </div>
+              <div v-if="displayRow(row).risks.length" class="mt-1 flex flex-wrap gap-1">
+                <span v-for="r in displayRow(row).risks" :key="r" class="text-xs text-amber-700 font-medium px-1.5 py-0.5 rounded bg-amber-100 inline-flex gap-1 items-center">
+                  <FaIcon name="i-lucide:triangle-alert" class="size-3" />
+                  {{ r }}
+                </span>
+              </div>
+            </div>
+            <div class="shrink-0">
+              <FaButton size="sm" @click="onStartVisit(row)">
+                <FaIcon name="i-lucide:play" />
+                开始就诊
+              </FaButton>
+            </div>
+          </div>
+          <EmptyState v-if="!loading && sortedList.length === 0" compact title="当前无候诊宠物" description="有新预约报到后自动显示" />
+        </div>
       </div>
     </div>
   </div>

@@ -154,8 +154,8 @@ onMounted(async () => {
   loadStats()
 })
 
-function onTabChange(val: string) {
-  activeTab.value = val
+function onTabChange(val: string | number) {
+  activeTab.value = String(val)
   onCurrentChange(1).then(() => getDataList())
 }
 
@@ -367,7 +367,9 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告) -->
+    <!--
     <EntityPageHeader compact title="护士任务" description="按时间工作 · 完成/跳过/失败统一处理">
       <template #actions>
         <FaButton size="sm" variant="outline" @click="onScanOverdue()">
@@ -380,10 +382,11 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
         </FaButton>
       </template>
     </EntityPageHeader>
+    -->
 
-    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
       <!-- 顶部统计 -->
-      <div class="gap-4 grid grid-cols-3">
+      <div class="gap-4 grid grid-cols-3 shrink-0">
         <div class="p-3 border border-amber-200 rounded-lg bg-amber-50">
           <div class="text-2xl text-amber-600 font-semibold tabular-nums">
             {{ overdueCount }}
@@ -410,44 +413,47 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
         </div>
       </div>
 
-      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
-        <!-- 状态 Tabs + 筛选 -->
-        <div class="px-4 py-2 border-b flex flex-wrap gap-2 items-center">
-          <div class="flex gap-1 items-center">
-            <FaButton
-              v-for="tab in TABS"
-              :key="tab.value"
-              size="sm"
-              :variant="activeTab === tab.value ? 'default' : 'ghost'"
-              @click="onTabChange(tab.value)"
-            >
-              {{ tab.label }}
-            </FaButton>
-          </div>
-          <div class="ml-auto flex gap-2 items-center">
-            <FaSelect v-model="search.storeId" :options="storeOptions" class="w-36" @change="currentChange()" />
-            <FaSelect
-              v-model="search.taskType"
-              :options="[
-                { label: '全部类型', value: '' },
-                { label: '给药', value: 'medication' },
-                { label: '观察', value: 'observation' },
-                { label: '护理', value: 'care' },
-                { label: '采样', value: 'sample_collection' },
-                { label: '其他', value: 'other' },
-              ]"
-              class="w-32"
-              @change="currentChange()"
-            />
-            <FaButton size="sm" variant="outline" @click="searchReset">
-              重置
-            </FaButton>
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 工具栏:Tabs + 左筛选右功能按钮 -->
+        <div class="px-4 pt-3 border-b shrink-0">
+          <FaTabs v-model="activeTab" :list="TABS" class="mb-2" @update:model-value="onTabChange" />
+          <div class="pb-3 flex items-center justify-between flex-wrap gap-2">
+            <div class="flex gap-2 items-center">
+              <FaSelect v-model="search.storeId" :options="storeOptions" class="w-36" @change="currentChange()" />
+              <FaSelect
+                v-model="search.taskType"
+                :options="[
+                  { label: '全部类型', value: '' },
+                  { label: '给药', value: 'medication' },
+                  { label: '观察', value: 'observation' },
+                  { label: '护理', value: 'care' },
+                  { label: '采样', value: 'sample_collection' },
+                  { label: '其他', value: 'other' },
+                ]"
+                class="w-32"
+                @change="currentChange()"
+              />
+              <FaButton size="sm" variant="outline" @click="searchReset">
+                重置
+              </FaButton>
+              <span class="text-sm text-muted-foreground">共 {{ pagination.total }} 条</span>
+            </div>
+            <div class="flex gap-2 items-center">
+              <FaButton size="sm" variant="outline" @click="onScanOverdue()">
+                <FaIcon name="i-lucide:clock" />
+                超时扫描
+              </FaButton>
+              <FaButton size="sm" @click="createVisible = true">
+                <FaIcon name="i-lucide:plus" />
+                新建任务
+              </FaButton>
+            </div>
           </div>
         </div>
 
         <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
           <FaTable
-            table-root-class="rounded-lg overflow-hidden"
+            table-root-class="overflow-hidden"
             row-key="id"
             stripe
             border
@@ -464,7 +470,7 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
             </template>
           </FaTable>
         </div>
-        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2 px-4 pb-3" @page-change="currentChange" @size-change="sizeChange" />
+        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2 px-4 pb-3 shrink-0" @page-change="currentChange" @size-change="sizeChange" />
       </div>
     </div>
 
