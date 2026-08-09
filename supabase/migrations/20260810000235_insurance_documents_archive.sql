@@ -76,30 +76,8 @@ create table if not exists public.insurance_claim_pack_items (
 create index if not exists idx_insurance_pack_items_pack
   on public.insurance_claim_pack_items (pack_id, display_order);
 
--- ===== 3. insurance_claim_exports(导出快照,不可变) =====
-create table if not exists public.insurance_claim_exports (
-  id uuid primary key default gen_random_uuid(),
-  pack_id uuid not null references public.insurance_claim_packs(id) on delete cascade,
-  pack_version integer not null,
-  data_snapshot jsonb not null default '{}'::jsonb,   -- 必要字段快照(禁止存无边界医疗全文)
-  data_hash text not null,                            -- 快照 sha256
-  document_archive_id uuid references public.document_archives(id) on delete set null,
-  generated_by uuid references auth.users(id) on delete set null,
-  generated_at timestamptz not null default now(),
-  idempotency_key text,
-
-  constraint insurance_claim_exports_version_check check (pack_version >= 1),
-  constraint insurance_claim_exports_idem_unique unique (pack_id, idempotency_key)
-    where idempotency_key is not null
-);
-
-create index if not exists idx_insurance_exports_pack
-  on public.insurance_claim_exports (pack_id, pack_version desc);
-create index if not exists idx_insurance_exports_archive
-  on public.insurance_claim_exports (document_archive_id)
-  where document_archive_id is not null;
-
--- ===== 4. document_archives(不可变文档归档) =====
+-- ===== 3. document_archives(不可变文档归档) =====
+-- 注意:先建 document_archives,insurance_claim_exports 的 FK 引用它
 create table if not exists public.document_archives (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants(id) on delete restrict,
@@ -133,6 +111,32 @@ create index if not exists idx_document_archives_entity
 create index if not exists idx_document_archives_file
   on public.document_archives (file_id);
 
+-- ===== 4. insurance_claim_exports(导出快照,不可变) =====
+create table if not exists public.insurance_claim_exports (
+  id uuid primary key default gen_random_uuid(),
+  pack_id uuid not null references public.insurance_claim_packs(id) on delete cascade,
+  pack_version integer not null,
+  data_snapshot jsonb not null default '{}'::jsonb,   -- 必要字段快照(禁止存无边界医疗全文)
+  data_hash text not null,                            -- 快照 sha256
+  document_archive_id uuid references public.document_archives(id) on delete set null,
+  generated_by uuid references auth.users(id) on delete set null,
+  generated_at timestamptz not null default now(),
+  idempotency_key text,
+
+  constraint insurance_claim_exports_version_check check (pack_version >= 1)
+);
+
+-- 部分唯一索引(幂等键非空才唯一),表级约束不支持 where,故用 create unique index
+create unique index if not exists idx_insurance_exports_idem
+  on public.insurance_claim_exports (pack_id, idempotency_key)
+  where idempotency_key is not null;
+
+create index if not exists idx_insurance_exports_pack
+  on public.insurance_claim_exports (pack_id, pack_version desc);
+create index if not exists idx_insurance_exports_archive
+  on public.insurance_claim_exports (document_archive_id)
+  where document_archive_id is not null;
+
 -- ===== 5. signature_requests(签名请求生命周期) =====
 create table if not exists public.signature_requests (
   id uuid primary key default gen_random_uuid(),
@@ -156,10 +160,13 @@ create table if not exists public.signature_requests (
   ),
   constraint signature_requests_signer_type_check check (
     signer_type in ('customer', 'guardian', 'other')
-  ),
-  constraint signature_requests_idem_unique unique (tenant_id, idempotency_key)
-    where idempotency_key is not null
+  )
 );
+
+-- 部分唯一索引(幂等键非空才唯一),表级约束不支持 where,故用 create unique index
+create unique index if not exists idx_signature_requests_idem
+  on public.signature_requests (tenant_id, idempotency_key)
+  where idempotency_key is not null;
 
 create index if not exists idx_signature_requests_tenant_time
   on public.signature_requests (tenant_id, created_at desc);
@@ -538,10 +545,10 @@ $$;
 create or replace function public.create_insurance_claim_export(
   p_pack_id uuid,
   p_pack_version integer,
-  p_data_snapshot jsonb default '{}'::jsonb,
-  p_data_hash text default null,
   p_file_id uuid,
   p_sha256 text,
+  p_data_snapshot jsonb default '{}'::jsonb,
+  p_data_hash text default null,
   p_mime_type text default 'application/pdf',
   p_size_bytes bigint default 0,
   p_generated_by uuid default null,
@@ -620,8 +627,8 @@ $$;
 -- ============================================================
 create or replace function public.create_signature_request(
   p_tenant_id uuid,
-  p_store_id uuid default null,
   p_archive_id uuid,
+  p_store_id uuid default null,
   p_signer_type text default 'customer',
   p_signer_name text default null,
   p_signer_email text default null,
@@ -788,7 +795,7 @@ declare
     'create_insurance_claim_pack(uuid, uuid, uuid, uuid, uuid, uuid, uuid, text, jsonb)',
     'update_insurance_claim_pack_items(uuid, jsonb, uuid)',
     'transition_insurance_claim_pack(uuid, text, uuid)',
-    'create_insurance_claim_export(uuid, integer, jsonb, text, uuid, text, text, bigint, uuid, text)',
+    'create_insurance_claim_export(uuid, integer, uuid, text, jsonb, text, text, bigint, uuid, text)',
     'create_signature_request(uuid, uuid, uuid, text, text, text, text, text, uuid, text)',
     'transition_signature_request(uuid, text, uuid, text, text, text, jsonb, text)',
     'record_signature_event(uuid, text, jsonb, text)'

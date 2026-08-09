@@ -131,7 +131,7 @@ begin
   )
   values (
     v_tenant, p_provider, p_provider_event_id,
-    v_delivery_exists ? v_delivery.id : null,
+    case when v_delivery_exists then v_delivery.id else null end,
     p_provider_message_id, p_event_type,
     coalesce(p_payload, '{}'::jsonb),
     'received'
