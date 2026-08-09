@@ -1,4 +1,11 @@
-import { ProviderError, type MessagingProvider, type ProviderSendInput, type ProviderSendResult } from './types.js'
+import {
+  ProviderError,
+  type MessagingProvider,
+  type MessagingWebhookProvider,
+  type ProviderSendInput,
+  type ProviderSendResult,
+  type ProviderWebhookEvent,
+} from './types.js'
 
 /**
  * 真实邮件 Provider(S32-D)
@@ -14,8 +21,12 @@ import { ProviderError, type MessagingProvider, type ProviderSendInput, type Pro
  *
  * 状态约定:HTTP 202 Accepted → sent;SendGrid 无投递回执时不再伪装 delivered。
  * 失败时抛 ProviderError(携带 Provider 返回的错误码/信息,供 attempt 落库)。
+ *
+ * Webhook(Agent-08):实现 SendGrid Inbound/Event Webhook 的 ed25519 验签。
+ * 验签公钥配置:MESSAGING_EMAIL_WEBHOOK_PUBLIC_KEY(base64 SPKI)。
+ * 未配置公钥或验签失败一律拒收(宁可不收也不处理未验签事件,P0)。
  */
-export class EmailMessagingProvider implements MessagingProvider {
+export class EmailMessagingProvider implements MessagingProvider, MessagingWebhookProvider {
   readonly name = 'email'
 
   constructor(private readonly config: {
@@ -88,5 +99,77 @@ export class EmailMessagingProvider implements MessagingProvider {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;')
+  }
+
+  /**
+   * SendGrid Event Webhook 验签(ed25519):
+   * 签名 = base64(ed25519(私钥, `${timestamp}.${rawBody}`))
+   * 请求头:X-Twilio-Email-Event-Webhook-Signature / -Timestamp
+   * 公钥来自环境变量 MESSAGING_EMAIL_WEBHOOK_PUBLIC_KEY(base64 SPKI)。
+   */
+  async verifyWebhook(rawBody: string, headers: Record<string, string | undefined>): Promise<boolean> {
+    const pubKeyB64 = (process.env.MESSAGING_EMAIL_WEBHOOK_PUBLIC_KEY || '').trim()
+    const signature = headers['x-twilio-email-event-webhook-signature']
+      ?? headers['X-Twilio-Email-Event-Webhook-Signature']
+    const timestamp = headers['x-twilio-email-event-webhook-timestamp']
+      ?? headers['X-Twilio-Email-Event-Webhook-Timestamp']
+    if (!pubKeyB64 || !signature || !timestamp) {
+      return false
+    }
+    try {
+      const { createPublicKey, verify } = await import('node:crypto')
+      const publicKey = createPublicKey({
+        key: Buffer.from(pubKeyB64, 'base64'),
+        format: 'der',
+        type: 'spki',
+      })
+      const signed = `${timestamp}.${rawBody}`
+      return verify(
+        null,
+        Buffer.from(signed, 'utf-8'),
+        publicKey,
+        Buffer.from(signature, 'base64'),
+      )
+    }
+    catch {
+      return false
+    }
+  }
+
+  /**
+   * 解析 SendGrid Event Webhook 事件数组。
+   * 映射:event delivered→delivered;bounced/dropped/spamreport→bounced;其余→unknown。
+   * 事件幂等键 = sg_event_id(缺失时用 sg_message_id + event + timestamp 组合)。
+   */
+  async parseWebhook(rawBody: string, _headers: Record<string, string | undefined>): Promise<ProviderWebhookEvent[]> {
+    let body: unknown
+    try {
+      body = JSON.parse(rawBody)
+    }
+    catch {
+      return []
+    }
+    const list = Array.isArray(body) ? body : [body]
+    const events: ProviderWebhookEvent[] = []
+    for (const item of list) {
+      if (!item || typeof item !== 'object') continue
+      const record = item as Record<string, unknown>
+      const event = typeof record.event === 'string' ? record.event : 'unknown'
+      const sgMessageId = typeof record.sg_message_id === 'string' ? record.sg_message_id : null
+      const sgEventId = typeof record.sg_event_id === 'string' ? record.sg_event_id : null
+      const providerEventId = sgEventId ?? `${sgMessageId ?? 'msg'}-${event}-${String(record.timestamp ?? '')}`
+      let eventType: ProviderWebhookEvent['eventType'] = 'unknown'
+      if (event === 'delivered') eventType = 'delivered'
+      if (event === 'bounced' || event === 'dropped' || event === 'spamreport') eventType = 'bounced'
+      events.push({
+        provider: 'email',
+        providerEventId,
+        deliveryId: typeof record.deliveryId === 'string' ? record.deliveryId : null,
+        providerMessageId: sgMessageId ?? null,
+        eventType,
+        payload: record,
+      })
+    }
+    return events
   }
 }

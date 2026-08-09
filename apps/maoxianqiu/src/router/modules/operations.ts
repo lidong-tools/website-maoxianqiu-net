@@ -90,6 +90,17 @@ const routes: RouteRecordRaw[] = [
       auth: 'message.manage',
     },
   },
+  {
+    // Agent-03 Stage-04:储值账户(余额/充值/流水/调整/冻结)
+    path: '/operations/wallet',
+    name: 'operationsWallet',
+    component: () => import('@/views/operations/wallet/index.vue'),
+    meta: {
+      title: '储值账户',
+      icon: 'i-ri:wallet-3-line',
+      auth: 'wallet.view',
+    },
+  },
 ]
 
 export default routes

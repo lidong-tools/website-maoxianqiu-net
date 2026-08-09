@@ -276,7 +276,7 @@ const paymentContextSchema = z.object({
   id: z.string().uuid().optional(),
   tenantId: z.string().uuid('租户 id 格式错误'),
   storeId: z.string().uuid('门店 id 格式错误'),
-  method: z.enum(['cash', 'card', 'wechat', 'alipay', 'other']),
+  method: z.enum(['cash', 'card', 'wechat', 'alipay', 'other', 'stored_value']),
   label: z.string().min(1, '支付名称不能为空').max(50),
   isDefault: z.boolean().optional(),
   isActive: z.boolean().optional(),

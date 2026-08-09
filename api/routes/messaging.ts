@@ -4,7 +4,10 @@ import { z } from 'zod'
 import { writeAudit } from '../lib/audit.js'
 import { err } from '../lib/errors.js'
 import { getRequestIdempotencyKey } from '../lib/idempotency.js'
-import { requireScopedPermission } from '../lib/permission.js'
+import {
+  requireScopedPermission,
+  type AccessScope,
+} from '../lib/permission.js'
 import { getContext, loadContext } from '../lib/request-context.js'
 import { ok } from '../lib/result.js'
 import { createServiceClient } from '../lib/supabase.js'
@@ -33,13 +36,46 @@ import { listWhitelistVariables, validateTemplatePlaceholders } from '../service
  *   GET  /messaging/deliveries/:id   (投递详情 + 尝试历史)
  *   POST /messaging/deliveries/:id/retry  (人工重试,最多 3 次)
  *
- * 授权:统一复用已 seed 的 message.manage(S32-D 建议细粒度 messaging.* 权限,见 Handoff,
- * 由 S3.2 Integrator 负责权限 seed/manifest 后拆分为 messaging.view/send/template.manage/retry)。
+ * 授权(Agent-08 细粒度拆分,migration 267):
+ *   - GET /provider、/variables    任意已登录成员
+ *   - GET /templates、/deliveries  messaging.view(或兼容 message.manage)
+ *   - POST/PATCH /templates        messaging.template.manage(或兼容 message.manage)
+ *   - POST /send                   messaging.send(或兼容 message.manage)
+ *   - POST /deliveries/:id/retry   messaging.retry(或兼容 message.manage)
+ * 任一命中即放行;细粒度权限码已按 migration 267 自动授予原持有 message.manage 的角色。
  * 本文件不修改任何既有模块(permission/settings/billing 等),路由挂载由 S3.2 Integrator 在 api/index.ts 接入。
  */
 const messagingRoutes = new Hono<AppEnv>()
 
 messagingRoutes.use('*', authMiddleware(), loadCaller(), loadContext())
+
+/**
+ * 任一权限码通过即放行(Agent-08 细粒度拆分 + 兼容 message.manage)。
+ * 细粒度 messaging.* 与既有 message.manage 并存:只要命中其一即可,
+ * 全部未命中时抛最后一个(403 FORBIDDEN)。返回首个命中的授权作用域。
+ */
+async function requireAnyScopedPermission(
+  c: Parameters<typeof requireScopedPermission>[0],
+  codes: string[],
+  requirement: Omit<Parameters<typeof requireScopedPermission>[1], 'code'>,
+): Promise<AccessScope> {
+  let lastError: unknown
+  for (const code of codes) {
+    try {
+      return await requireScopedPermission(c, { ...requirement, code })
+    }
+    catch (e) {
+      lastError = e
+    }
+  }
+  throw lastError
+}
+
+/** Messaging 路由权限组(任一命中即放行,兼容旧 message.manage) */
+const PERM_VIEW = ['messaging.view', 'message.manage']
+const PERM_TEMPLATE = ['messaging.template.manage', 'message.manage']
+const PERM_SEND = ['messaging.send', 'message.manage']
+const PERM_RETRY = ['messaging.retry', 'message.manage']
 
 const CHANNELS = ['sms', 'email', 'wechat', 'work_wechat'] as const
 type Channel = (typeof CHANNELS)[number]
@@ -106,8 +142,7 @@ messagingRoutes.get('/templates', async (c) => {
   if (!parsed.success) {
     throw err.badRequest('参数校验失败', { tenantId: parsed.error.issues.map(i => i.message) })
   }
-  await requireScopedPermission(c, {
-    code: 'message.manage',
+  await requireAnyScopedPermission(c, PERM_VIEW, {
     tenantId: parsed.data.tenantId,
     dataScope: true,
   })
@@ -132,7 +167,7 @@ messagingRoutes.get('/templates', async (c) => {
 // ===== POST /messaging/templates =====
 messagingRoutes.post('/templates', async (c) => {
   const input = await parseJsonBody(c, templateSchema)
-  await requireScopedPermission(c, { code: 'message.manage', tenantId: input.tenantId })
+  await requireAnyScopedPermission(c, PERM_TEMPLATE, { tenantId: input.tenantId })
 
   // 白名单校验:body 与 subject 中的占位符必须命中白名单
   const used = new Set(validateTemplatePlaceholders(input.body))
@@ -184,7 +219,7 @@ messagingRoutes.patch('/templates/:id', async (c) => {
   const input = await parseJsonBody(c, templateSchema.partial().extend({
     tenantId: z.string().uuid('租户 id 格式错误'),
   }))
-  await requireScopedPermission(c, { code: 'message.manage', tenantId: input.tenantId })
+  await requireAnyScopedPermission(c, PERM_TEMPLATE, { tenantId: input.tenantId })
 
   const service = createServiceClient()
   // 先确认模板属于该租户(防止跨租户更新)
@@ -238,8 +273,7 @@ messagingRoutes.patch('/templates/:id', async (c) => {
 // ===== POST /messaging/send =====
 messagingRoutes.post('/send', async (c) => {
   const input = await parseJsonBody(c, sendSchema)
-  const scope = await requireScopedPermission(c, {
-    code: 'message.manage',
+  const scope = await requireAnyScopedPermission(c, PERM_SEND, {
     tenantId: input.tenantId,
     storeId: input.storeId ?? undefined,
   })
@@ -285,8 +319,7 @@ messagingRoutes.get('/deliveries', async (c) => {
     })
   }
   const input = parsed.data
-  const scope = await requireScopedPermission(c, {
-    code: 'message.manage',
+  const scope = await requireAnyScopedPermission(c, PERM_VIEW, {
     tenantId: input.tenantId,
     storeId: input.storeId,
     dataScope: true,
@@ -326,8 +359,7 @@ messagingRoutes.get('/deliveries/:id', async (c) => {
   const service = createServiceClient()
   const delivery = await loadDelivery(service, deliveryId)
   // 以投递自身 tenant/store 做作用域校验(防止跨租户读取)
-  await requireScopedPermission(c, {
-    code: 'message.manage',
+  await requireAnyScopedPermission(c, PERM_VIEW, {
     tenantId: delivery.tenant_id,
     storeId: delivery.store_id ?? undefined,
     dataScope: true,
@@ -349,8 +381,7 @@ messagingRoutes.post('/deliveries/:id/retry', async (c) => {
   const deliveryId = c.req.param('id')
   const service = createServiceClient()
   const existing = await loadDelivery(service, deliveryId)
-  await requireScopedPermission(c, {
-    code: 'message.manage',
+  await requireAnyScopedPermission(c, PERM_RETRY, {
     tenantId: existing.tenant_id,
     storeId: existing.store_id ?? undefined,
   })

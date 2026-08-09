@@ -71,6 +71,57 @@ const payment = reactive({
   transactionNo: '',
 })
 
+// Agent-03 储值支付:选择 stored_value 时展示客户储值余额与扣款预览(权威校验在服务端 process_payment)
+const walletBalance = ref(0)
+const walletLoading = ref(false)
+
+/**
+ * 加载当前客户储值余额(浏览器直连 supabase,RLS 租户成员可读;余额真源在服务端)
+ * 仅当客户已选且支付方式为 stored_value 时加载
+ */
+async function loadWalletBalance() {
+  walletBalance.value = 0
+  if (!tenantStore.currentTenantId || !form.customerId) {
+    return
+  }
+  walletLoading.value = true
+  try {
+    const { supabase } = await import('@/lib/supabase')
+    const { data, error } = await supabase
+      .from('stored_value_accounts')
+      .select('balance, status')
+      .eq('tenant_id', tenantStore.currentTenantId)
+      .eq('customer_id', form.customerId)
+      .eq('currency', 'CNY')
+      .maybeSingle()
+    if (error) {
+      throw new Error(error.message)
+    }
+    // 仅正常状态账户计入可用余额
+    walletBalance.value = data && data.status === 'active' ? Number(data.balance) : 0
+  }
+  catch {
+    walletBalance.value = 0
+  }
+  finally {
+    walletLoading.value = false
+  }
+}
+
+watch([() => form.customerId, () => payment.method], () => {
+  if (payment.method === 'stored_value') {
+    loadWalletBalance()
+  }
+})
+
+// 扣后余额 = 储值余额 - 应收(仅供展示,实际扣减由服务端权威计算)
+const walletBalanceAfter = computed(() => {
+  if (payment.method !== 'stored_value') {
+    return 0
+  }
+  return Math.max(walletBalance.value - total.value, 0)
+})
+
 const receiptVisible = ref(false)
 const receiptData = ref<ReceiptData | null>(null)
 const receiptLoading = ref(false)
@@ -327,6 +378,17 @@ async function onSubmit() {
     useFaToast().warning(`现金实收金额不足,应收金额为 ${formatMoney(total.value)}`)
     return
   }
+  // Agent-03 储值支付:须绑定客户且余额充足(权威校验在服务端 process_payment)
+  if (payment.method === 'stored_value') {
+    if (!form.customerId) {
+      useFaToast().warning('储值支付请先选择客户')
+      return
+    }
+    if (walletBalance.value + 0.01 < total.value) {
+      useFaToast().warning(`储值余额不足,当前余额 ${formatMoney(walletBalance.value)},应收 ${formatMoney(total.value)}`)
+      return
+    }
+  }
 
   submitting.value = true
   try {
@@ -433,6 +495,7 @@ function resetCart() {
   form.taxAmount = 0
   payment.amount = 0
   payment.transactionNo = ''
+  walletBalance.value = 0
   memberDiscount.value = 0
   memberTierName.value = ''
   cashierGuard.setDirty(false)
@@ -563,6 +626,23 @@ onMounted(async () => {
                 当前门店没有可用支付方式,请联系管理员。
               </span>
             </FaLabel>
+            <!-- Agent-03 储值支付:余额 / 本次扣款 / 扣后余额预览(权威校验在服务端) -->
+            <div v-if="payment.method === 'stored_value'" class="col-span-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+              <div v-loading="walletLoading" class="min-h-10 grid grid-cols-3 gap-2">
+                <div>
+                  <div class="text-xs text-muted-foreground">储值余额</div>
+                  <div class="font-bold text-primary">{{ formatMoney(walletBalance) }}</div>
+                </div>
+                <div>
+                  <div class="text-xs text-muted-foreground">本次扣款</div>
+                  <div class="font-bold">{{ formatMoney(total) }}</div>
+                </div>
+                <div>
+                  <div class="text-xs text-muted-foreground">扣后余额</div>
+                  <div class="font-bold">{{ formatMoney(walletBalanceAfter) }}</div>
+                </div>
+              </div>
+            </div>
             <FaLabel label="交易号">
               <FaInput v-model="payment.transactionNo" placeholder="外部交易号(可选)" class="w-full" />
             </FaLabel>

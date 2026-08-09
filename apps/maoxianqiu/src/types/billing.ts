@@ -18,7 +18,7 @@ export type InvoiceStatus
     | 'cancelled'
 
 /** 支付方式 */
-export type PaymentMethod = 'cash' | 'wechat' | 'alipay' | 'card' | 'other'
+export type PaymentMethod = 'cash' | 'wechat' | 'alipay' | 'card' | 'other' | 'stored_value'
 
 /** 发票明细分类(与 catalog_items.billing_type 对齐) */
 export type InvoiceItemCategory
@@ -336,6 +336,7 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   alipay: '支付宝',
   card: '银行卡',
   other: '其他',
+  stored_value: '储值',
 }
 
 /** 明细分类标签映射(UI 显示用) */

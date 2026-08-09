@@ -39,5 +39,16 @@ export interface AppEnv {
     validated: unknown
     /** S30-F01:平台管理员(platform_user_roles.role='platform_admin'),Hono 与 SQL is_system_admin() 同一授权来源 */
     isPlatformAdmin: boolean
+    /**
+     * Agent-08: C 端 Portal 会话(基于 customer_identities,与员工 IAM 完全分离)。
+     * 仅 /api/portal C 端路由由 portalSessionAuth 中间件写入。
+     */
+    portalIdentity?: {
+      sub: string
+      tenantId: string
+      customerId: string | null
+      exp: number
+      iat: number
+    }
   }
 }

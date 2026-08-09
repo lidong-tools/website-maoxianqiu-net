@@ -1,15 +1,14 @@
 /**
- * Messaging Provider 配置(S32-D)
+ * Messaging Provider 配置(Agent-08 多渠道扩展)
  *
- * S3.1 正在修复 Settings;本模块先从 Server Environment 读取,
- * 最终由 S3.2 Integrator 后续接入 System Settings。
- *
- * 环境变量:
- *   MESSAGING_PROVIDER  email | mock | real(real 为兼容旧变量,有 email 凭据时按 email 解析)
- *   MESSAGING_API_KEY   Email Provider API Key(仅服务端)
- *   MESSAGING_SENDER    Email 发件人(仅服务端)
- *   MESSAGING_API_URL   (可选)Email API 地址,默认 SendGrid v3
- *   兼容旧变量:MESSAGE_PROVIDER / MESSAGE_SENDER(见 isRealMessageProviderConfigured 的 MESSAGE_PROVIDER=real)
+ * 全部凭据只读自服务端环境变量,不下发前端:
+ *   MESSAGING_PROVIDER  email | mock(主通道兼容旧变量)
+ *   MESSAGING_API_KEY / MESSAGING_SENDER / MESSAGING_API_URL    Email(SendGrid)
+ *   MESSAGING_SMS_API_URL / MESSAGING_SMS_API_KEY / MESSAGING_SMS_SIGN   SMS
+ *   MESSAGING_WECHAT_APP_ID / MESSAGING_WECHAT_APP_SECRET        WeChat(预留)
+ *   MESSAGING_WEBHOOK_SECRET             Webhook 共享密钥(SMS 等通用通道)
+ *   MESSAGING_EMAIL_WEBHOOK_PUBLIC_KEY   SendGrid Event Webhook ed25519 公钥
+ * 兼容旧变量:MESSAGE_PROVIDER / MESSAGE_SENDER
  */
 
 export interface MessagingEnvConfig {
@@ -18,6 +17,15 @@ export interface MessagingEnvConfig {
     apiUrl: string
     apiKey: string
     sender: string
+  }
+  sms: {
+    apiUrl: string
+    apiKey: string
+    sign: string
+  }
+  wechat: {
+    appId: string
+    appSecret: string
   }
 }
 
@@ -32,10 +40,19 @@ export function loadMessagingConfig(): MessagingEnvConfig {
 
   // real 是旧变量语义(MESSAGE_PROVIDER=real):有 email 凭据则按 email,否则视为未配置回退 mock
   const wantsEmail = rawProvider === 'email' || (rawProvider === 'real' && Boolean(apiKey && sender))
-  if (wantsEmail) {
-    return { provider: 'email', email: { apiUrl, apiKey, sender } }
+  return {
+    provider: wantsEmail ? 'email' : 'mock',
+    email: { apiUrl, apiKey, sender },
+    sms: {
+      apiUrl: (process.env.MESSAGING_SMS_API_URL || '').trim(),
+      apiKey: (process.env.MESSAGING_SMS_API_KEY || '').trim(),
+      sign: (process.env.MESSAGING_SMS_SIGN || '').trim(),
+    },
+    wechat: {
+      appId: (process.env.MESSAGING_WECHAT_APP_ID || '').trim(),
+      appSecret: (process.env.MESSAGING_WECHAT_APP_SECRET || '').trim(),
+    },
   }
-  return { provider: 'mock', email: { apiUrl, apiKey, sender } }
 }
 
 /**
@@ -45,4 +62,9 @@ export function loadMessagingConfig(): MessagingEnvConfig {
 export function isRealProviderConfigured(): boolean {
   const cfg = loadMessagingConfig()
   return cfg.provider === 'email' && Boolean(cfg.email.apiKey && cfg.email.sender)
+}
+
+/** 生产环境判定(与 messaging engine 一致) */
+export function isProductionEnv(): boolean {
+  return process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production'
 }

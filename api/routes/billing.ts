@@ -74,6 +74,22 @@ function mapRpcError(error: { message: string }) {
   if (msg.includes('REFUND_REASON_REQUIRED')) {
     return err.badRequest('退款原因不能为空')
   }
+  // Agent-03 储值支付/退款集成错误映射
+  if (msg.includes('WALLET_ACCOUNT_NOT_FOUND')) {
+    return err.notFound('储值账户不存在')
+  }
+  if (msg.includes('WALLET_ACCOUNT_FROZEN')) {
+    return err.conflict('储值账户已冻结')
+  }
+  if (msg.includes('WALLET_ACCOUNT_CLOSED')) {
+    return err.conflict('储值账户已销户')
+  }
+  if (msg.includes('INSUFFICIENT_WALLET_BALANCE')) {
+    return err.conflict('储值余额不足')
+  }
+  if (msg.includes('INVOICE_NO_CUSTOMER')) {
+    return err.badRequest('储值支付须先为发票绑定客户')
+  }
   if (msg.includes('INVALID_AMOUNT') || msg.includes('INVALID_METHOD')) {
     return err.badRequest(msg.replace(/^ERROR:\s*/, ''))
   }
@@ -424,7 +440,7 @@ billingRoutes.post('/approvals/:id/decide', async (c) => {
 const paymentSchema = z.object({
   invoiceId: z.string().uuid('发票 id 格式错误'),
   amount: z.number().positive('支付金额必须大于 0'),
-  method: z.enum(['cash', 'wechat', 'alipay', 'card', 'other']),
+  method: z.enum(['cash', 'wechat', 'alipay', 'card', 'other', 'stored_value']),
   transactionNo: z.string().max(200).optional(),
   idempotencyKey: z.string().max(200).optional(),
 })
