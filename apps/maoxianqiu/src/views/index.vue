@@ -11,7 +11,6 @@ defineOptions({
 
 const router = useRouter()
 const tenantStore = useAppTenantStore()
-const appAccountStore = useAppAccountStore()
 
 const loading = ref(false)
 const todayCount = ref(0)
