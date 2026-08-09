@@ -170,8 +170,8 @@ export default {
   /**
    * 优惠券模板列表(走 Hono,marketing.view)
    */
-  async listCoupons(params: { tenantId: string }) {
-    return api.get<{ list: Coupon[] }>('marketing/coupons', { params })
+  async listCoupons(params: { tenantId: string, type?: 'fixed' | 'percentage', page?: number, pageSize?: number }) {
+    return api.get<{ list: Coupon[], total: number, page: number, pageSize: number }>('marketing/coupons', { params })
   },
 
   /**
@@ -243,8 +243,8 @@ export default {
   /**
    * 套餐模板列表(走 Hono,marketing.view)
    */
-  async listPackages(params: { tenantId: string }) {
-    return api.get<{ list: ServicePackage[] }>('marketing/packages', { params })
+  async listPackages(params: { tenantId: string, isActive?: 'true' | 'false', page?: number, pageSize?: number }) {
+    return api.get<{ list: ServicePackage[], total: number, page: number, pageSize: number }>('marketing/packages', { params })
   },
 
   /**
@@ -339,8 +339,8 @@ export default {
   /**
    * 活动列表(走 Hono,marketing.view)
    */
-  async listCampaigns(params: { tenantId: string, status?: string }) {
-    return api.get<{ list: Campaign[] }>('marketing/campaigns', { params })
+  async listCampaigns(params: { tenantId: string, status?: string, page?: number, pageSize?: number }) {
+    return api.get<{ list: Campaign[], total: number, page: number, pageSize: number }>('marketing/campaigns', { params })
   },
 
   /**

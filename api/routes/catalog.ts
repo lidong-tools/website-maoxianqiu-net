@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit.js'
 import { err } from '../lib/errors.js'
+import { getRequestIdempotencyKey } from '../lib/idempotency.js'
 import { requireScopedPermission } from '../lib/permission.js'
 import { loadContext, resolveRequestedTenant } from '../lib/request-context.js'
 import { ok } from '../lib/result.js'
@@ -16,7 +17,8 @@ import { authMiddleware, loadCaller } from '../middlewares/auth.js'
  * 分层:
  *   - 批量迁移(MXQ-6005):Hono Command + migrate_catalog_to_store RPC,跨表事务
  *   - 问诊问题库 / 诊断字典 / 检验 panel/analyte:Hono 聚合 CRUD(统一鉴权 + 审计)
- *   - 类目 / 统一目录 / 门店价格 / 药品疫苗扩展:前端直连,RLS 兜底,不走本路由
+ *   - 类目维护:Hono Command + PostgreSQL RPC(三级树约束、幂等、原子拖拽排序)
+ *   - 统一目录 / 门店价格 / 药品疫苗扩展:前端直连,RLS 兜底
  *
  * 状态机:
  *   - catalog_items.is_active:active ↔ inactive
@@ -25,6 +27,221 @@ import { authMiddleware, loadCaller } from '../middlewares/auth.js'
 const catalogRoutes = new Hono<AppEnv>()
 
 catalogRoutes.use('*', authMiddleware(), loadCaller(), loadContext())
+
+// ==================== MXQ-6001 三级类目树 ====================
+
+const categoryIdempotencySchema = z.object({
+  idempotencyKey: z.string().min(1).max(200).optional(),
+})
+
+/** 类目命令必须携带幂等键,避免重复点击造成重复节点或重复排序。 */
+function resolveCategoryIdempotencyKey(c: Parameters<typeof getRequestIdempotencyKey>[0], bodyKey?: string): string {
+  const key = getRequestIdempotencyKey(c) || bodyKey || ''
+  if (!key) {
+    throw err.badRequest('缺少幂等键(Idempotency-Key header 或 body.idempotencyKey)')
+  }
+  return key
+}
+
+/** 将类目 RPC 的业务异常转换为稳定的 HTTP 语义。 */
+function throwCategoryRpcError(message: string): never {
+  if (message.includes('CATEGORY_NOT_FOUND') || message.includes('PARENT_NOT_FOUND')) {
+    throw err.notFound('类目或父类目不存在')
+  }
+  if (message.includes('CATEGORY_CODE_EXISTS')) {
+    throw err.conflict('类目编码已存在')
+  }
+  if (message.includes('CATEGORY_NOT_EMPTY')) {
+    throw err.conflict('类目下仍有子类目或目录项,请先迁移或删除后再操作')
+  }
+  if (message.includes('CATEGORY_MAX_DEPTH')) {
+    throw err.unprocessable('类目最多支持三级,当前拖拽位置超出层级限制')
+  }
+  if (message.includes('CATEGORY_CYCLE')) {
+    throw err.unprocessable('不能将类目移动到自身或其子类目下')
+  }
+  if (message.includes('CATEGORY_TENANT_MISMATCH')) {
+    throw err.forbidden('父子类目必须属于同一租户')
+  }
+  throw err.internal(`维护类目失败: ${message}`)
+}
+
+const categoryListSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+})
+
+/** 查询租户类目,按父级与顺序返回扁平数据,由独立树组件组装。 */
+catalogRoutes.get('/categories', async (c) => {
+  const input = categoryListSchema.parse(c.req.query())
+  const scope = await requireScopedPermission(c, { code: 'catalog.view', tenantId: input.tenantId })
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('catalog_categories')
+    .select('*')
+    .eq('tenant_id', scope.tenantId)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true })
+  if (error) {
+    throw err.internal(`查询类目失败: ${error.message}`)
+  }
+  return ok(c, data ?? [])
+})
+
+const createCategorySchema = categoryIdempotencySchema.extend({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  code: z.string().trim().min(1, '编码不能为空').max(50).regex(/^[a-z0-9][\w-]*$/i, '编码仅支持字母、数字、下划线和连字符'),
+  name: z.string().trim().min(1, '名称不能为空').max(100),
+  parentId: z.string().uuid('父类目 id 格式错误').nullable().optional(),
+})
+
+/** 创建类目,层级和同租户约束由 RPC 在事务内校验。 */
+catalogRoutes.post('/categories', async (c) => {
+  const input = await parseJsonBody(c, createCategorySchema)
+  const scope = await requireScopedPermission(c, { code: 'catalog.manage', tenantId: input.tenantId })
+  const idempotencyKey = resolveCategoryIdempotencyKey(c, input.idempotencyKey)
+  const service = createServiceClient()
+  const user = c.get('user')
+  const { data, error } = await service.rpc('catalog_category_command', {
+    p_tenant_id: scope.tenantId,
+    p_action: 'create',
+    p_category_id: null,
+    p_code: input.code,
+    p_name: input.name,
+    p_parent_id: input.parentId ?? null,
+    p_is_active: null,
+    p_position: null,
+    p_idempotency_key: idempotencyKey,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throwCategoryRpcError(error.message)
+  }
+  const result = data as { id?: string }
+  await writeAudit(c, {
+    action: 'catalog.category.create',
+    entityType: 'catalog_categories',
+    entityId: result.id,
+    tenantId: scope.tenantId,
+    idempotencyKey,
+    metadata: { code: input.code, parentId: input.parentId ?? null },
+  })
+  return ok(c, result)
+})
+
+const updateCategorySchema = categoryIdempotencySchema.extend({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  name: z.string().trim().min(1, '名称不能为空').max(100).optional(),
+  isActive: z.boolean().optional(),
+}).refine(input => input.name !== undefined || input.isActive !== undefined, '至少提供一个需要修改的字段')
+
+/** 编辑类目基础信息;树位置统一通过 move 命令维护。 */
+catalogRoutes.patch('/categories/:id', async (c) => {
+  const id = z.string().uuid('类目 id 格式错误').parse(c.req.param('id'))
+  const input = await parseJsonBody(c, updateCategorySchema)
+  const scope = await requireScopedPermission(c, { code: 'catalog.manage', tenantId: input.tenantId })
+  const idempotencyKey = resolveCategoryIdempotencyKey(c, input.idempotencyKey)
+  const service = createServiceClient()
+  const user = c.get('user')
+  const { data, error } = await service.rpc('catalog_category_command', {
+    p_tenant_id: scope.tenantId,
+    p_action: 'update',
+    p_category_id: id,
+    p_code: null,
+    p_name: input.name ?? null,
+    p_parent_id: null,
+    p_is_active: input.isActive ?? null,
+    p_position: null,
+    p_idempotency_key: idempotencyKey,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throwCategoryRpcError(error.message)
+  }
+  await writeAudit(c, {
+    action: 'catalog.category.update',
+    entityType: 'catalog_categories',
+    entityId: id,
+    tenantId: scope.tenantId,
+    idempotencyKey,
+    metadata: input,
+  })
+  return ok(c, data)
+})
+
+const moveCategorySchema = categoryIdempotencySchema.extend({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  categoryId: z.string().uuid('类目 id 格式错误'),
+  parentId: z.string().uuid('父类目 id 格式错误').nullable(),
+  position: z.number().int().min(0),
+})
+
+/** 拖拽移动类目,在单个 RPC 事务中锁定并规范化新旧同级顺序。 */
+catalogRoutes.post('/categories/move', async (c) => {
+  const input = await parseJsonBody(c, moveCategorySchema)
+  const scope = await requireScopedPermission(c, { code: 'catalog.manage', tenantId: input.tenantId })
+  const idempotencyKey = resolveCategoryIdempotencyKey(c, input.idempotencyKey)
+  const service = createServiceClient()
+  const user = c.get('user')
+  const { data, error } = await service.rpc('catalog_category_command', {
+    p_tenant_id: scope.tenantId,
+    p_action: 'move',
+    p_category_id: input.categoryId,
+    p_code: null,
+    p_name: null,
+    p_parent_id: input.parentId,
+    p_is_active: null,
+    p_position: input.position,
+    p_idempotency_key: idempotencyKey,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throwCategoryRpcError(error.message)
+  }
+  await writeAudit(c, {
+    action: 'catalog.category.move',
+    entityType: 'catalog_categories',
+    entityId: input.categoryId,
+    tenantId: scope.tenantId,
+    idempotencyKey,
+    metadata: { parentId: input.parentId, position: input.position },
+  })
+  return ok(c, data)
+})
+
+/** 删除空类目;数据库 FK 与 RPC 双重阻止误删非空分支。 */
+catalogRoutes.delete('/categories/:id', async (c) => {
+  const id = z.string().uuid('类目 id 格式错误').parse(c.req.param('id'))
+  const input = await parseJsonBody(c, categoryIdempotencySchema.extend({
+    tenantId: z.string().uuid('租户 id 格式错误'),
+  }))
+  const scope = await requireScopedPermission(c, { code: 'catalog.manage', tenantId: input.tenantId })
+  const idempotencyKey = resolveCategoryIdempotencyKey(c, input.idempotencyKey)
+  const service = createServiceClient()
+  const user = c.get('user')
+  const { data, error } = await service.rpc('catalog_category_command', {
+    p_tenant_id: scope.tenantId,
+    p_action: 'delete',
+    p_category_id: id,
+    p_code: null,
+    p_name: null,
+    p_parent_id: null,
+    p_is_active: null,
+    p_position: null,
+    p_idempotency_key: idempotencyKey,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throwCategoryRpcError(error.message)
+  }
+  await writeAudit(c, {
+    action: 'catalog.category.delete',
+    entityType: 'catalog_categories',
+    entityId: id,
+    tenantId: scope.tenantId,
+    idempotencyKey,
+  })
+  return ok(c, data)
+})
 
 // ==================== MXQ-6005 批量迁移 ====================
 

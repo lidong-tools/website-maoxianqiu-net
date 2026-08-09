@@ -9,6 +9,7 @@ defineOptions({
 
 const props = defineProps<{
   variant?: TagVariants['variant']
+  size?: TagVariants['size']
   class?: HTMLAttributes['class']
   icon?: string
   closable?: boolean
@@ -24,7 +25,7 @@ function handleClose(event: MouseEvent) {
 </script>
 
 <template>
-  <Tag :variant :icon :closable :class="props.class" @close="handleClose">
+  <Tag :variant :size :icon :closable :class="props.class" @close="handleClose">
     <slot />
   </Tag>
 </template>

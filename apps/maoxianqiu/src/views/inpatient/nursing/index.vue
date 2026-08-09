@@ -334,9 +334,8 @@ useStoreScopedPage({
           <div class="mb-2 flex gap-2 items-center">
             <FaIcon name="i-ri:list-check" class="text-lg" />
             <span class="text-lg font-bold">护理计划</span>
-            <FaTag variant="outline" size="sm">
-              {{ plans.length }} 项
-            </FaTag>
+            <FaTag variant="outline" size="sm">{{ plans.length }}</FaTag>
+            <span class="text-xs text-muted-foreground">项</span>
           </div>
           <FaTable
             table-root-class="rounded-lg overflow-hidden"
@@ -381,9 +380,8 @@ useStoreScopedPage({
           <div class="mb-2 flex gap-2 items-center">
             <FaIcon name="i-ri:checkbox-multiple-line" class="text-lg" />
             <span class="text-lg font-bold">护理任务</span>
-            <FaTag variant="outline" size="sm">
-              {{ tasks.length }} 项
-            </FaTag>
+            <FaTag variant="outline" size="sm">{{ tasks.length }}</FaTag>
+            <span class="text-xs text-muted-foreground">项</span>
           </div>
           <FaTable
             table-root-class="rounded-lg overflow-hidden"

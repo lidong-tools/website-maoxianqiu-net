@@ -9,6 +9,7 @@ import Icon from '../../icon/index.vue'
 
 interface Props extends PrimitiveProps {
   variant?: TagVariants['variant']
+  size?: TagVariants['size']
   icon?: string
   closable?: boolean
   class?: HTMLAttributes['class']
@@ -32,7 +33,7 @@ function handleClose(event: MouseEvent) {
     data-slot="tag"
     :as="as"
     :as-child="asChild"
-    :class="cn(tagVariants({ variant }), props.class)"
+    :class="cn(tagVariants({ variant, size }), props.class)"
   >
     <Icon v-if="icon" :name="icon" class="size-3" />
     <slot />

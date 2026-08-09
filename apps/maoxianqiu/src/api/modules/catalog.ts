@@ -5,7 +5,8 @@ import api from '../index'
  * Catalog API 模块(MXQ-6001~6010)
  *
  * 设计原则:
- *   - 类目/统一目录/门店价格/药品疫苗扩展:浏览器直连,RLS 兜底
+ *   - 类目维护:走 Hono Command + PostgreSQL RPC(三级树约束与原子排序)
+ *   - 统一目录/门店价格/药品疫苗扩展:浏览器直连,RLS 兜底
  *   - 批量迁移(MXQ-6005):走 Hono Command + migrate_catalog_to_store RPC(跨表事务)
  *   - 问诊问题/诊断字典/检验 panel:走后端 Hono 聚合(统一鉴权 + 审计)
  *   - 状态机:catalog_items.is_active / store_catalog_items.is_active 双向切换
@@ -13,90 +14,47 @@ import api from '../index'
 export default {
   // ==================== 类目(MXQ-6001) ====================
 
-  /**
-   * 类目列表(直连,RLS 兜底)
-   * 返回扁平列表,前端组装为树
-   */
-  async listCategories(params: { tenantId: string }) {
-    const { data, error } = await supabase
-      .from('catalog_categories')
-      .select('*')
-      .eq('tenant_id', params.tenantId)
-      .order('sort_order', { ascending: true })
-      .order('created_at', { ascending: true })
-    if (error) {
-      throw new Error(error.message)
-    }
-    return { status: 1, error: '', data: data ?? [] }
-  },
+  /** 类目列表(走 Hono scoped authorization,返回扁平列表) */
+  listCategories: (params: { tenantId: string }) => api.get('catalog/categories', { params }),
 
-  /**
-   * 新增类目(直连,需 catalog.manage)
-   */
-  async createCategory(data: {
+  /** 新增类目(Hono + RPC,最多三级) */
+  createCategory: (data: {
     tenantId: string
     code: string
     name: string
     parentId?: string | null
-    sortOrder?: number
-  }) {
-    const { data: row, error } = await supabase
-      .from('catalog_categories')
-      .insert({
-        tenant_id: data.tenantId,
-        code: data.code,
-        name: data.name,
-        parent_id: data.parentId ?? null,
-        sort_order: data.sortOrder ?? 0,
-      })
-      .select()
-      .single()
-    if (error) {
-      throw new Error(error.message)
-    }
-    return { status: 1, error: '', data: row }
-  },
+    idempotencyKey: string
+  }) => api.post('catalog/categories', data, {
+    headers: { 'idempotency-key': data.idempotencyKey },
+  }),
 
-  /**
-   * 编辑类目(直连)
-   */
-  async updateCategory(data: {
+  /** 编辑类目名称/状态(Hono + RPC) */
+  updateCategory: (data: {
     id: string
+    tenantId: string
     name?: string
-    parentId?: string | null
-    sortOrder?: number
     isActive?: boolean
-  }) {
-    const patch: Record<string, string | number | boolean | null> = {}
-    if (data.name !== undefined) {
-      patch.name = data.name
-    }
-    if (data.parentId !== undefined) {
-      patch.parent_id = data.parentId
-    }
-    if (data.sortOrder !== undefined) {
-      patch.sort_order = data.sortOrder
-    }
-    if (data.isActive !== undefined) {
-      patch.is_active = data.isActive
-    }
-    const { error } = await supabase.from('catalog_categories').update(patch).eq('id', data.id)
-    if (error) {
-      throw new Error(error.message)
-    }
-    return { status: 1, error: '', data: { isSuccess: true } }
-  },
+    idempotencyKey: string
+  }) => api.patch(`catalog/categories/${data.id}`, data, {
+    headers: { 'idempotency-key': data.idempotencyKey },
+  }),
 
-  /**
-   * 删除类目(直连)
-   */
-  async deleteCategory(id: string) {
-    const { error } = await supabase.from('catalog_categories').delete().eq('id', id)
-    if (error) {
-      throw new Error(error.message)
-    }
-    return { status: 1, error: '', data: { isSuccess: true } }
-  },
+  /** 删除空类目(Hono + RPC;有子类目或目录项时拒绝) */
+  deleteCategory: (data: { id: string, tenantId: string, idempotencyKey: string }) => api.delete(`catalog/categories/${data.id}`, {
+    data: { tenantId: data.tenantId, idempotencyKey: data.idempotencyKey },
+    headers: { 'idempotency-key': data.idempotencyKey },
+  }),
+
+  /** 拖拽移动类目并原子重排新旧同级列表 */
+  moveCategory: (data: {
+    tenantId: string
+    categoryId: string
+    parentId: string | null
+    position: number
+    idempotencyKey: string
+  }) => api.post('catalog/categories/move', data, {
+    headers: { 'idempotency-key': data.idempotencyKey },
+  }),
 
   // ==================== 统一目录(MXQ-6002 / MXQ-6010) ====================
 

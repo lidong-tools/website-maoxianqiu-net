@@ -143,53 +143,59 @@ onMounted(() => {
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告) -->
+    <!--
     <EntityPageHeader compact title="流失预警">
       <template #description>
         规则 + 评分判断客户流失风险(默认按租户整体,不因当前门店误判);评分 >=60 高危 / >=35 中危,可解释原因。
       </template>
     </EntityPageHeader>
-    <FaPageMain>
-      <div class="mb-3 flex justify-between items-center">
-        <div class="flex gap-2 items-center">
-          <FaSelect
-            v-model="level"
-            :options="[
-              { label: '全部等级', value: '' },
-              { label: '高危', value: 'high' },
-              { label: '中危', value: 'medium' },
-              { label: '低危', value: 'low' },
-            ]"
-            class="w-36"
-            @change="page = 1; loadChurn()"
-          />
-          <span class="text-sm text-muted-foreground">
-            共 {{ total }} 位客户
-          </span>
+    -->
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+        <div class="px-4 py-3 border-b flex justify-between items-center">
+          <div class="flex gap-2 items-center">
+            <FaSelect
+              v-model="level"
+              :options="[
+                { label: '全部等级', value: '' },
+                { label: '高危', value: 'high' },
+                { label: '中危', value: 'medium' },
+                { label: '低危', value: 'low' },
+              ]"
+              class="w-36"
+              @change="page = 1; loadChurn()"
+            />
+            <span class="text-sm text-muted-foreground">
+              共 {{ total }} 位客户
+            </span>
+          </div>
+          <FaButton size="sm" variant="outline" :loading="refreshing" @click="refreshChurn">
+            <FaIcon name="i-ri:refresh-line" />
+            重算评分
+          </FaButton>
         </div>
-        <FaButton size="sm" variant="outline" :loading="refreshing" @click="refreshChurn">
-          <FaIcon name="i-ri:refresh-line" />
-          重算评分
-        </FaButton>
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
+          <FaTable
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="columns"
+            :data="list"
+            empty-text="暂无流失风险客户"
+          />
+        </div>
+        <FaPagination
+          :page="page"
+          :size="pageSize"
+          :total="total"
+          class="mt-2 px-4 pb-3"
+          @page-change="p => { page = p; loadChurn() }"
+          @size-change="s => { pageSize = s; page = 1; loadChurn() }"
+        />
       </div>
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="columns"
-        :data="list"
-        empty-text="暂无流失风险客户"
-      />
-      <FaPagination
-        :page="page"
-        :size="pageSize"
-        :total="total"
-        class="mt-2 px-4 pb-3"
-        @page-change="p => { page = p; loadChurn() }"
-        @size-change="s => { pageSize = s; page = 1; loadChurn() }"
-      />
-    </FaPageMain>
+    </div>
   </div>
 </template>

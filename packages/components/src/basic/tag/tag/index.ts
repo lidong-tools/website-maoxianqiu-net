@@ -4,7 +4,7 @@ import { cva } from 'class-variance-authority'
 export { default as Tag } from './Tag.vue'
 
 export const tagVariants = cva(
-  'inline-flex items-center gap-1 rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors',
+  'inline-flex items-center gap-1 rounded-md border font-semibold transition-colors',
   {
     variants: {
       variant: {
@@ -17,9 +17,14 @@ export const tagVariants = cva(
         secondary:
           'border-transparent bg-secondary text-secondary-foreground',
       },
+      size: {
+        default: 'px-2.5 py-0.5 text-xs',
+        sm: 'h-5 px-1.5 text-xs leading-none',
+      },
     },
     defaultVariants: {
       variant: 'default',
+      size: 'default',
     },
   },
 )

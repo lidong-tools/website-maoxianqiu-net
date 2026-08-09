@@ -54,8 +54,17 @@ const OP_LABELS: Record<string, string> = Object.fromEntries(OPS.map(o => [o.val
 
 // ===== 列表 =====
 const segments = ref<SegmentDefinition[]>([])
+const total = ref(0)
+const page = ref(1)
+const pageSize = ref(20)
 const loading = ref(false)
 const refreshing = ref(false)
+
+/** 分层筛选(空 = 全部分层) */
+const filterName = ref('')
+const filteredSegments = computed(() =>
+  filterName.value ? segments.value.filter(s => s.name === filterName.value) : segments.value,
+)
 
 /** 条件文本摘要(供列表展示) */
 function conditionsText(rule: SegmentDefinition['rule_json']): string {
@@ -97,8 +106,9 @@ async function loadSegments() {
   }
   loading.value = true
   try {
-    const res: any = await apiCrmGrowth.listSegments({ tenantId: tenantId() })
+    const res: any = await apiCrmGrowth.listSegments({ tenantId: tenantId(), page: page.value, pageSize: pageSize.value })
     segments.value = res?.data?.list ?? []
+    total.value = res?.data?.total ?? 0
   }
   catch (e) {
     useFaToast().error('加载客户分层失败', { description: e instanceof Error ? e.message : '' })
@@ -307,53 +317,74 @@ onMounted(() => {
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告) -->
+    <!--
     <EntityPageHeader compact title="客户分层">
       <template #description>
         基于规则 + 评分的客户分层(可解释,非黑盒);用于营销 Audience 与运营分组。客户是租户级关系,分层按租户整体计算。
       </template>
     </EntityPageHeader>
-    <FaPageMain>
-      <div class="mb-3 flex justify-between items-center">
-        <div class="text-sm text-muted-foreground">
-          共 {{ segments.length }} 个分层;成员数为最近一次重算结果,可在变更规则后手动刷新
-        </div>
-        <div class="flex gap-2">
-          <FaButton size="sm" variant="outline" :loading="refreshing" @click="refreshSegments">
-            <FaIcon name="i-ri:refresh-line" />
-            重算成员
-          </FaButton>
-          <FaButton size="sm" @click="openCreate">
-            <FaIcon name="i-ri:add-line" />
-            新建分层
-          </FaButton>
-        </div>
-      </div>
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="columns"
-        :data="segments"
-        empty-text="暂无客户分层(请先新建)"
-      >
-        <template #cell-operation="{ row }">
-          <div class="flex-center gap-1">
-            <FaButton variant="outline" size="sm" @click="openMembers(row.original)">
-              成员
+    -->
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+        <div class="px-4 py-3 border-b flex justify-between items-center">
+          <div class="flex gap-2 items-center">
+            <FaSelect
+              v-model="filterName"
+              class="w-44"
+              :options="[{ label: '全部分层', value: '' }, ...segments.map(s => ({ label: s.name, value: s.name }))]"
+            />
+            <span class="text-sm text-muted-foreground">
+              共 {{ total }} 个分层
+            </span>
+          </div>
+          <div class="flex gap-2">
+            <FaButton size="sm" variant="outline" :loading="refreshing" @click="refreshSegments">
+              <FaIcon name="i-ri:refresh-line" />
+              重算成员
             </FaButton>
-            <FaButton variant="outline" size="sm" @click="openEdit(row.original)">
-              编辑
-            </FaButton>
-            <FaButton variant="outline" size="sm" class="text-red-600" @click="deleteSegment(row.original)">
-              删除
+            <FaButton size="sm" @click="openCreate">
+              <FaIcon name="i-ri:add-line" />
+              新建分层
             </FaButton>
           </div>
-        </template>
-      </FaTable>
-    </FaPageMain>
+        </div>
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
+          <FaTable
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="columns"
+            :data="filteredSegments"
+            empty-text="暂无客户分层(请先新建)"
+          >
+            <template #cell-operation="{ row }">
+              <div class="flex-center gap-1">
+                <FaButton variant="outline" size="sm" @click="openMembers(row.original)">
+                  成员
+                </FaButton>
+                <FaButton variant="outline" size="sm" @click="openEdit(row.original)">
+                  编辑
+                </FaButton>
+                <FaButton variant="outline" size="sm" class="text-red-600" @click="deleteSegment(row.original)">
+                  删除
+                </FaButton>
+              </div>
+            </template>
+          </FaTable>
+        </div>
+        <FaPagination
+          :page="page"
+          :size="pageSize"
+          :total="total"
+          class="mt-2 px-4 pb-3"
+          @page-change="p => { page = p; loadSegments() }"
+          @size-change="s => { pageSize = s; page = 1; loadSegments() }"
+        />
+      </div>
+    </div>
 
     <!-- 新建/编辑分层 -->
     <FaModal
@@ -418,7 +449,7 @@ onMounted(() => {
     <FaDrawer v-model="memberDrawerVisible" :title="`成员 · ${memberSegment?.name ?? ''}`" width="560px">
       <FaTable
         v-loading="memberLoading"
-        table-root-class="rounded-lg overflow-hidden"
+        table-root-class="overflow-hidden"
         row-key="id"
         stripe
         border

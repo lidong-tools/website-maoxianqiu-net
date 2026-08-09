@@ -173,9 +173,8 @@ onMounted(async () => {
         <div class="px-4 py-2.5 border-b flex gap-2 items-center">
           <FaIcon name="i-lucide:alarm-clock" class="text-orange-500" />
           <span class="text-sm font-medium">近效期预警</span>
-          <FaTag variant="outline" size="sm">
-            {{ filteredNearExpiry.length }} 项
-          </FaTag>
+          <FaTag variant="outline" size="sm">{{ filteredNearExpiry.length }}</FaTag>
+          <span class="text-xs text-muted-foreground">项</span>
         </div>
         <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
           <FaTable

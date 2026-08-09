@@ -54,6 +54,10 @@ const OFFER_LABELS: Record<string, string> = {
 
 // ===== 列表 =====
 const campaigns = ref<Campaign[]>([])
+const total = ref(0)
+const page = ref(1)
+const pageSize = ref(20)
+const statusFilter = ref('all')
 const loading = ref(false)
 const segments = ref<Array<{ id: string, name: string }>>([])
 const offers = ref<Array<{ id: string, name: string }>>([])
@@ -120,7 +124,7 @@ const columns = computed<TableColumn<Campaign>[]>(() => [
     id: 'operation',
     header: '操作',
     width: 230,
-    align: 'center',
+    align: 'left',
     fixed: 'right',
   },
 ])
@@ -132,8 +136,9 @@ async function loadCampaigns() {
   }
   loading.value = true
   try {
-    const res: any = await apiMarketing.listCampaigns({ tenantId: tenantId() })
+    const res: any = await apiMarketing.listCampaigns({ tenantId: tenantId(), status: statusFilter.value === 'all' ? undefined : statusFilter.value, page: page.value, pageSize: pageSize.value })
     campaigns.value = res?.data?.list ?? []
+    total.value = res?.data?.total ?? 0
   }
   catch (e) {
     useFaToast().error('加载活动失败', { description: e instanceof Error ? e.message : '' })
@@ -392,66 +397,95 @@ onMounted(() => {
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告) -->
+    <!--
     <EntityPageHeader compact title="营销活动">
       <template #description>
         Campaign 只负责"谁/何时/用什么权益/哪个渠道";发布时服务端快照 Audience 与规则版本,消息发送走 Messaging Contract(Agent-08)。
       </template>
     </EntityPageHeader>
-    <FaPageMain>
-      <div class="mb-3 flex justify-between items-center">
-        <div class="text-sm text-muted-foreground">
-          共 {{ campaigns.length }} 个活动;发布后不可修改
-        </div>
-        <FaButton size="sm" @click="openCreate">
-          <FaIcon name="i-ri:add-line" />
-          新建活动
-        </FaButton>
-      </div>
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="columns"
-        :data="campaigns"
-        empty-text="暂无营销活动"
-      >
-        <template #cell-operation="{ row }">
-          <div class="flex-center gap-1">
-            <FaButton variant="outline" size="sm" @click="openPreview(row.original)">
-              Audience
-            </FaButton>
-            <FaButton
-              v-if="['draft', 'scheduled'].includes(row.original.status)"
-              variant="outline"
-              size="sm"
-              @click="openPublish(row.original)"
-            >
-              发布
-            </FaButton>
-            <FaButton
-              v-if="['draft', 'scheduled'].includes(row.original.status)"
-              variant="outline"
-              size="sm"
-              @click="openEdit(row.original)"
-            >
-              编辑
-            </FaButton>
-            <FaButton
-              v-if="['draft', 'scheduled', 'cancelled'].includes(row.original.status)"
-              variant="outline"
-              size="sm"
-              class="text-red-600"
-              @click="deleteCampaign(row.original)"
-            >
-              删除
-            </FaButton>
+    -->
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+        <div class="px-4 py-3 border-b flex justify-between items-center">
+          <div class="flex gap-2 items-center">
+            <FaSelect
+              v-model="statusFilter"
+              :options="[
+                { label: '全部状态', value: 'all' },
+                { label: '草稿', value: 'draft' },
+                { label: '已排期', value: 'scheduled' },
+                { label: '已发布', value: 'published' },
+                { label: '已完成', value: 'completed' },
+                { label: '已取消', value: 'cancelled' },
+              ]"
+              class="w-36"
+              @change="page = 1; loadCampaigns()"
+            />
+            <span class="text-sm text-muted-foreground">
+              共 {{ total }} 个活动;发布后不可修改
+            </span>
           </div>
-        </template>
-      </FaTable>
-    </FaPageMain>
+          <FaButton size="sm" @click="openCreate">
+            <FaIcon name="i-ri:add-line" />
+            新建活动
+          </FaButton>
+        </div>
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
+          <FaTable
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="columns"
+            :data="campaigns"
+            empty-text="暂无营销活动"
+          >
+            <template #cell-operation="{ row }">
+              <div class="flex-center gap-1">
+                <FaButton variant="outline" size="sm" @click="openPreview(row.original)">
+                  Audience
+                </FaButton>
+                <FaButton
+                  v-if="['draft', 'scheduled'].includes(row.original.status)"
+                  variant="outline"
+                  size="sm"
+                  @click="openPublish(row.original)"
+                >
+                  发布
+                </FaButton>
+                <FaButton
+                  v-if="['draft', 'scheduled'].includes(row.original.status)"
+                  variant="outline"
+                  size="sm"
+                  @click="openEdit(row.original)"
+                >
+                  编辑
+                </FaButton>
+                <FaButton
+                  v-if="['draft', 'scheduled', 'cancelled'].includes(row.original.status)"
+                  variant="outline"
+                  size="sm"
+                  class="text-red-600"
+                  @click="deleteCampaign(row.original)"
+                >
+                  删除
+                </FaButton>
+              </div>
+            </template>
+          </FaTable>
+        </div>
+        <FaPagination
+          :page="page"
+          :size="pageSize"
+          :total="total"
+          class="mt-2 px-4 pb-3"
+          @page-change="p => { page = p; loadCampaigns() }"
+          @size-change="s => { pageSize = s; page = 1; loadCampaigns() }"
+        />
+      </div>
+    </div>
 
     <!-- 活动表单 -->
     <FaModal
@@ -563,7 +597,7 @@ onMounted(() => {
     <FaDrawer v-model="previewVisible" :title="`Audience · ${previewCampaign?.name ?? ''}`" width="560px">
       <FaTable
         v-loading="previewLoading"
-        table-root-class="rounded-lg overflow-hidden"
+        table-root-class="overflow-hidden"
         row-key="id"
         stripe
         border

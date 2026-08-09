@@ -17,6 +17,7 @@ import {
   BILLING_TYPE_LABELS,
   LAB_PANEL_CATEGORY_LABELS,
 } from '@/types/catalog'
+import CatalogCategoryTree from './components/CatalogCategoryTree.vue'
 import CatalogItemForm from './components/CatalogItemForm.vue'
 
 defineOptions({
@@ -730,7 +731,10 @@ onMounted(() => {
 
 <template>
   <div>
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告) -->
+    <!--
     <EntityPageHeader compact title="目录管理" description="统一目录(类目/项目/药品疫苗扩展)、门店价格覆盖、问诊问题、诊断字典、检验 panel" />
+    -->
     <FaPageMain>
       <FaTabs
         v-model="tabActive"
@@ -744,56 +748,40 @@ onMounted(() => {
       >
         <!-- ==================== 统一目录 ==================== -->
         <template #items>
-          <div class="flex gap-4">
+          <div class="flex flex-col gap-4 xl:flex-row">
             <!-- 类目树 -->
-            <div class="p-3 border rounded-lg shrink-0 w-56">
-              <div class="mb-2 flex items-center justify-between">
-                <span class="font-medium">类目</span>
-                <FaTag variant="outline" size="sm">
-                  {{ categories.length }}
-                </FaTag>
-              </div>
-              <div v-loading="categoryLoading" class="flex flex-col gap-1">
-                <div
-                  class="text-sm px-2 py-1.5 rounded cursor-pointer hover:bg-gray-100"
-                  :class="selectedCategoryId === '' ? 'bg-primary-50 text-primary' : ''"
-                  @click="onSelectCategory('')"
-                >
-                  全部
-                </div>
-                <div
-                  v-for="c in categories"
-                  :key="c.id"
-                  class="text-sm px-2 py-1.5 rounded cursor-pointer hover:bg-gray-100"
-                  :class="selectedCategoryId === c.id ? 'bg-primary-50 text-primary' : ''"
-                  @click="onSelectCategory(c.id)"
-                >
-                  <FaIcon
-                    :name="c.is_active ? 'i-ri:folder-line' : 'i-ri:folder-forbid-line'"
-                    class="mr-1"
-                    :class="c.is_active ? '' : 'text-gray-400'"
-                  />
-                  {{ c.name }}
-                  <span class="text-xs text-gray-400">({{ c.code }})</span>
-                </div>
-              </div>
-            </div>
+            <CatalogCategoryTree
+              :tenant-id="tenantStore.currentTenantId"
+              :categories="categories"
+              :loading="categoryLoading"
+              :selected-id="selectedCategoryId"
+              @select="onSelectCategory"
+              @updated="loadCategories"
+            />
 
             <!-- 目录项列表 -->
             <div class="flex-1 min-w-0">
               <FaSearchBar :show-toggle="false">
                 <template #default>
                   <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
-                    <FaLabel label="关键词" class="col-span-1">
-                      <FaInput
-                        v-model="itemFilters.keyword"
-                        placeholder="名称/编码"
-                        clearable
-                        class="w-full"
-                        @keydown.enter="loadItems"
-                        @clear="loadItems"
-                      />
-                    </FaLabel>
+                    <div class="flex gap-2 col-span-1 items-end">
+                      <FaLabel label="关键词" class="flex-1">
+                        <FaInput
+                          v-model="itemFilters.keyword"
+                          placeholder="名称/编码"
+                          clearable
+                          class="w-full"
+                          @keydown.enter="loadItems"
+                          @clear="loadItems"
+                        />
+                      </FaLabel>
+                      <FaButton type="primary" class="shrink-0" @click="onCreateItem">
+                        <FaIcon name="i-ri:add-line" />
+                        新增目录项
+                      </FaButton>
+                    </div>
+                    <!-- 注释掉收费类型筛选选择器(UI界面-人工测试报告) -->
+                    <!--
                     <FaLabel label="收费类型" class="col-span-1">
                       <FaSelect
                         v-model="itemFilters.billingType"
@@ -821,6 +809,7 @@ onMounted(() => {
                         @change="loadItems"
                       />
                     </FaLabel>
+                    -->
                     <div class="flex gap-2 col-end--1 justify-end">
                       <FaButton variant="outline" @click="onResetItems">
                         重置
@@ -843,12 +832,6 @@ onMounted(() => {
                 :columns="itemColumns"
                 :data="itemList"
               >
-                <template #toolbar>
-                  <FaButton type="primary" @click="onCreateItem">
-                    <FaIcon name="i-ri:add-line" />
-                    新增目录项
-                  </FaButton>
-                </template>
                 <template #cell-operation="{ row }">
                   <div class="flex-center gap-2">
                     <FaButton variant="outline" size="icon-sm" @click="onEditItem(row.original)">

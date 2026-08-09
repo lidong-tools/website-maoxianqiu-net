@@ -38,6 +38,10 @@ const TABS = [
 
 // ===== 套餐模板 =====
 const packages = ref<ServicePackage[]>([])
+const pkgTotal = ref(0)
+const pkgPage = ref(1)
+const pkgPageSize = ref(20)
+const pkgStatus = ref('all')
 const pkgLoading = ref(false)
 
 /** 套餐明细摘要 */
@@ -72,7 +76,7 @@ const pkgColumns = computed<TableColumn<ServicePackage>[]>(() => [
     id: 'operation',
     header: '操作',
     width: 150,
-    align: 'center',
+    align: 'left',
     fixed: 'right',
   },
 ])
@@ -84,8 +88,9 @@ async function loadPackages() {
   }
   pkgLoading.value = true
   try {
-    const res: any = await apiMarketing.listPackages({ tenantId: tenantId() })
+    const res: any = await apiMarketing.listPackages({ tenantId: tenantId(), isActive: pkgStatus.value === 'all' ? undefined : (pkgStatus.value as 'true' | 'false'), page: pkgPage.value, pageSize: pkgPageSize.value })
     packages.value = res?.data?.list ?? []
+    pkgTotal.value = res?.data?.total ?? 0
   }
   catch (e) {
     useFaToast().error(`加载套餐失败: ${e instanceof Error ? e.message : ''}`)
@@ -290,7 +295,7 @@ const custColumns = computed<TableColumn<CustomerPackage>[]>(() => [
     id: 'operation',
     header: '操作',
     width: 170,
-    align: 'center',
+    align: 'left',
     fixed: 'right',
   },
 ])
@@ -410,99 +415,137 @@ onMounted(() => {
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告) -->
+    <!--
     <EntityPageHeader compact title="套餐次卡">
       <template #description>
         套餐模板与客户次卡管理;核销次数由服务端行锁维护(防并发负次数),核销流水不可变,支持冲正与退款。
       </template>
     </EntityPageHeader>
-    <FaPageMain>
-      <FaTabs v-model="activeTab" :list="TABS" class="mb-4" @change="onTabChange" />
+    -->
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+        <div class="px-4 pt-3 border-b">
+          <FaTabs v-model="activeTab" :list="TABS" class="mb-2" @update:model-value="onTabChange" />
 
-      <!-- 套餐模板 -->
-      <template v-if="activeTab === 'templates'">
-        <div class="mb-3 flex justify-between items-center">
-          <div class="text-sm text-muted-foreground">
-            共 {{ packages.length }} 个套餐模板
-          </div>
-          <FaButton size="sm" @click="openCreatePkg">
-            <FaIcon name="i-ri:add-line" />
-            新建套餐
-          </FaButton>
-        </div>
-        <FaTable
-          v-loading="pkgLoading"
-          table-root-class="rounded-lg overflow-hidden"
-          row-key="id"
-          stripe
-          border
-          :columns="pkgColumns"
-          :data="packages"
-          empty-text="暂无套餐模板"
-        >
-          <template #cell-operation="{ row }">
-            <div class="flex-center gap-1">
-              <FaButton variant="outline" size="sm" @click="openBuy(row.original)">
-                购卡
-              </FaButton>
-              <FaButton variant="outline" size="sm" @click="openEditPkg(row.original)">
-                编辑
+          <!-- 套餐模板工具栏 -->
+          <template v-if="activeTab === 'templates'">
+            <div class="flex justify-between items-center pb-3">
+              <div class="flex gap-2 items-center">
+                <FaSelect
+                  v-model="pkgStatus"
+                  :options="[
+                    { label: '全部状态', value: 'all' },
+                    { label: '启用', value: 'true' },
+                    { label: '停用', value: 'false' },
+                  ]"
+                  class="w-36"
+                  @change="pkgPage = 1; loadPackages()"
+                />
+                <span class="text-sm text-muted-foreground">
+                  共 {{ pkgTotal }} 个套餐模板
+                </span>
+              </div>
+              <FaButton size="sm" @click="openCreatePkg">
+                <FaIcon name="i-ri:add-line" />
+                新建套餐
               </FaButton>
             </div>
           </template>
-        </FaTable>
-      </template>
-
-      <!-- 客户套餐 -->
-      <template v-else-if="activeTab === 'customerPackages'">
-        <div class="mb-3 flex gap-2 items-center">
-          <FaSelect
-            v-model="custStatus"
-            :options="[
-              { label: '全部状态', value: '' },
-              { label: '生效中', value: 'active' },
-              { label: '已过期', value: 'expired' },
-              { label: '已退款', value: 'refunded' },
-              { label: '已取消', value: 'cancelled' },
-            ]"
-            class="w-36"
-            @change="custPage = 1; loadCustomerPackages()"
-          />
-          <span class="text-sm text-muted-foreground">共 {{ custTotal }} 张次卡</span>
-        </div>
-        <FaTable
-          v-loading="custLoading"
-          table-root-class="rounded-lg overflow-hidden"
-          row-key="id"
-          stripe
-          border
-          :columns="custColumns"
-          :data="custPackages"
-          empty-text="暂无客户套餐"
-        >
-          <template #cell-operation="{ row }">
-            <div class="flex-center gap-1">
-              <FaButton
-                v-if="row.original.status === 'active' && row.original.remaining_quantity > 0"
-                variant="outline"
-                size="sm"
-                @click="openRedeem(row.original)"
-              >
-                核销
-              </FaButton>
-              <FaButton
-                v-if="row.original.status === 'active'"
-                variant="outline"
-                size="sm"
-                class="text-red-600"
-                @click="refundCust(row.original)"
-              >
-                退款
-              </FaButton>
+          <!-- 客户套餐工具栏 -->
+          <template v-else>
+            <div class="flex gap-2 items-center pb-3">
+              <FaSelect
+                v-model="custStatus"
+                :options="[
+                  { label: '全部状态', value: '' },
+                  { label: '生效中', value: 'active' },
+                  { label: '已过期', value: 'expired' },
+                  { label: '已退款', value: 'refunded' },
+                  { label: '已取消', value: 'cancelled' },
+                ]"
+                class="w-36"
+                @change="custPage = 1; loadCustomerPackages()"
+              />
+              <span class="text-sm text-muted-foreground">共 {{ custTotal }} 张次卡</span>
             </div>
           </template>
-        </FaTable>
+        </div>
+
+        <!-- 表格区 -->
+        <div class="flex-1 min-h-0 overflow-auto">
+          <template v-if="activeTab === 'templates'">
+            <FaTable
+              v-loading="pkgLoading"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="pkgColumns"
+              :data="packages"
+              empty-text="暂无套餐模板"
+            >
+              <template #cell-operation="{ row }">
+                <div class="flex-center gap-1">
+                  <FaButton variant="outline" size="sm" @click="openBuy(row.original)">
+                    购卡
+                  </FaButton>
+                  <FaButton variant="outline" size="sm" @click="openEditPkg(row.original)">
+                    编辑
+                  </FaButton>
+                </div>
+              </template>
+            </FaTable>
+          </template>
+          <template v-else>
+            <FaTable
+              v-loading="custLoading"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="custColumns"
+              :data="custPackages"
+              empty-text="暂无客户套餐"
+            >
+              <template #cell-operation="{ row }">
+                <div class="flex-center gap-1">
+                  <FaButton
+                    v-if="row.original.status === 'active' && row.original.remaining_quantity > 0"
+                    variant="outline"
+                    size="sm"
+                    @click="openRedeem(row.original)"
+                  >
+                    核销
+                  </FaButton>
+                  <FaButton
+                    v-if="row.original.status === 'active'"
+                    variant="outline"
+                    size="sm"
+                    class="text-red-600"
+                    @click="refundCust(row.original)"
+                  >
+                    退款
+                  </FaButton>
+                </div>
+              </template>
+            </FaTable>
+          </template>
+        </div>
+
+        <!-- 分页区 -->
         <FaPagination
+          v-if="activeTab === 'templates'"
+          :page="pkgPage"
+          :size="pkgPageSize"
+          :total="pkgTotal"
+          class="mt-2 px-4 pb-3"
+          @page-change="p => { pkgPage = p; loadPackages() }"
+          @size-change="s => { pkgPageSize = s; pkgPage = 1; loadPackages() }"
+        />
+        <FaPagination
+          v-else
           :page="custPage"
           :size="custPageSize"
           :total="custTotal"
@@ -510,8 +553,8 @@ onMounted(() => {
           @page-change="p => { custPage = p; loadCustomerPackages() }"
           @size-change="s => { custPageSize = s; custPage = 1; loadCustomerPackages() }"
         />
-      </template>
-    </FaPageMain>
+      </div>
+    </div>
 
     <!-- 套餐模板表单 -->
     <FaModal

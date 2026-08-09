@@ -45,6 +45,7 @@ export const SERVICE_ROLE_ONLY_RPC: readonly string[] = [
   'create_import_job',
   // ---- catalog ----
   'migrate_catalog_to_store',
+  'catalog_category_command',
   // ---- iam(员工/角色/门店) ----
   'invite_employee',
   'set_employee_status',

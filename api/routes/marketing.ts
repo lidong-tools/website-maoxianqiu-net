@@ -91,6 +91,9 @@ function mapCouponInput(input: z.infer<typeof couponSchema>, tenantId: string) {
 marketingRoutes.get('/coupons', async (c) => {
   const parsed = z.object({
     tenantId: z.string().uuid(),
+    type: z.enum(['fixed', 'percentage']).optional(),
+    page: z.coerce.number().int().positive().max(1000).default(1),
+    pageSize: z.coerce.number().int().positive().max(200).default(20),
   }).safeParse({ ...c.req.query(), tenantId: c.req.query('tenantId') ?? '' })
   if (!parsed.success) {
     throw err.badRequest('参数校验失败', { tenantId: parsed.error.issues.map(i => i.message) })
@@ -98,15 +101,16 @@ marketingRoutes.get('/coupons', async (c) => {
   const scope = await requireScopedPermission(c, { code: 'marketing.view', tenantId: parsed.data.tenantId, dataScope: true })
 
   const service = createServiceClient()
-  const { data, error } = await service
-    .from('coupons')
-    .select('*')
-    .eq('tenant_id', scope.tenantId)
-    .order('created_at', { ascending: false })
+  let query = service.from('coupons').select('*', { count: 'exact' }).eq('tenant_id', scope.tenantId)
+  if (parsed.data.type) {
+    query = query.eq('type', parsed.data.type)
+  }
+  const from = (parsed.data.page - 1) * parsed.data.pageSize
+  const { data, error, count } = await query.order('created_at', { ascending: false }).range(from, from + parsed.data.pageSize - 1)
   if (error) {
     throw err.internal(`查询优惠券失败: ${error.message}`)
   }
-  return ok(c, { list: data ?? [] })
+  return ok(c, { list: data ?? [], total: count ?? 0, page: parsed.data.page, pageSize: parsed.data.pageSize })
 })
 
 // POST /marketing/coupons 创建优惠券
@@ -240,7 +244,7 @@ marketingRoutes.get('/coupon-issues', async (c) => {
 
   let query = service
     .from('coupon_issues')
-    .select('*, coupons(id, name, type, value, min_spend, valid_from, valid_until), customers(id, name, phone)', { count: 'exact' })
+    .select('*', { count: 'exact' })
     .eq('tenant_id', scope.tenantId)
   if (parsed.data.couponId) {
     query = query.eq('coupon_id', parsed.data.couponId)
@@ -255,7 +259,31 @@ marketingRoutes.get('/coupon-issues', async (c) => {
   if (error) {
     throw err.internal(`查询发放记录失败: ${error.message}`)
   }
-  return ok(c, { list: data ?? [], total: count ?? 0, page: parsed.data.page, pageSize: parsed.data.pageSize })
+  const couponIds = [...new Set((data ?? []).map(item => item.coupon_id))]
+  const customerIds = [...new Set((data ?? []).map(item => item.customer_id))]
+  const [couponsRes, customersRes] = await Promise.all([
+    couponIds.length
+      ? service.from('coupons').select('id, name, type, value, min_spend, valid_from, valid_until').eq('tenant_id', scope.tenantId).in('id', couponIds)
+      : Promise.resolve({ data: [], error: null }),
+    customerIds.length
+      ? service.from('customers').select('id, name, phone').eq('tenant_id', scope.tenantId).in('id', customerIds)
+      : Promise.resolve({ data: [], error: null }),
+  ])
+  if (couponsRes.error || customersRes.error) {
+    throw err.internal(`查询发放记录关联数据失败: ${couponsRes.error?.message ?? customersRes.error?.message}`)
+  }
+  const couponsById = new Map((couponsRes.data ?? []).map(item => [item.id, item]))
+  const customersById = new Map((customersRes.data ?? []).map(item => [item.id, item]))
+  return ok(c, {
+    list: (data ?? []).map(item => ({
+      ...item,
+      coupons: couponsById.get(item.coupon_id) ?? null,
+      customers: customersById.get(item.customer_id) ?? null,
+    })),
+    total: count ?? 0,
+    page: parsed.data.page,
+    pageSize: parsed.data.pageSize,
+  })
 })
 
 // POST /marketing/coupon-issues/:id/preview 报价预览(只读)
@@ -411,6 +439,9 @@ function mapPackageInput(input: z.infer<typeof packageSchema>, tenantId: string)
 marketingRoutes.get('/packages', async (c) => {
   const parsed = z.object({
     tenantId: z.string().uuid(),
+    isActive: z.enum(['true', 'false']).optional(),
+    page: z.coerce.number().int().positive().max(1000).default(1),
+    pageSize: z.coerce.number().int().positive().max(200).default(20),
   }).safeParse({ ...c.req.query(), tenantId: c.req.query('tenantId') ?? '' })
   if (!parsed.success) {
     throw err.badRequest('参数校验失败', { tenantId: parsed.error.issues.map(i => i.message) })
@@ -418,11 +449,12 @@ marketingRoutes.get('/packages', async (c) => {
   const scope = await requireScopedPermission(c, { code: 'marketing.view', tenantId: parsed.data.tenantId, dataScope: true })
   const service = createServiceClient()
 
-  const { data, error } = await service
-    .from('service_packages')
-    .select('*')
-    .eq('tenant_id', scope.tenantId)
-    .order('created_at', { ascending: false })
+  let query = service.from('service_packages').select('*', { count: 'exact' }).eq('tenant_id', scope.tenantId)
+  if (parsed.data.isActive) {
+    query = query.eq('is_active', parsed.data.isActive === 'true')
+  }
+  const from = (parsed.data.page - 1) * parsed.data.pageSize
+  const { data, error, count } = await query.order('created_at', { ascending: false }).range(from, from + parsed.data.pageSize - 1)
   if (error) {
     throw err.internal(`查询套餐失败: ${error.message}`)
   }
@@ -448,6 +480,9 @@ marketingRoutes.get('/packages', async (c) => {
 
   return ok(c, {
     list: (data ?? []).map((p: any) => ({ ...p, items: itemsMap[p.id] ?? [] })),
+    total: count ?? 0,
+    page: parsed.data.page,
+    pageSize: parsed.data.pageSize,
   })
 })
 
@@ -623,7 +658,7 @@ marketingRoutes.get('/customer-packages', async (c) => {
 
   let query = service
     .from('customer_packages')
-    .select('*, service_packages(id, name, code, description, price, validity_days), customers(id, name, phone)', { count: 'exact' })
+    .select('*', { count: 'exact' })
     .eq('tenant_id', scope.tenantId)
   if (parsed.data.customerId) {
     query = query.eq('customer_id', parsed.data.customerId)
@@ -638,7 +673,45 @@ marketingRoutes.get('/customer-packages', async (c) => {
   if (error) {
     throw err.internal(`查询客户套餐失败: ${error.message}`)
   }
-  return ok(c, { list: data ?? [], total: count ?? 0, page: parsed.data.page, pageSize: parsed.data.pageSize })
+
+  // 旧库未给 package_id/customer_id 声明外键，分别查询后组装列表数据。
+  const packageIds = [...new Set((data ?? []).map(item => item.package_id))]
+  const customerIds = [...new Set((data ?? []).map(item => item.customer_id))]
+  const [packagesRes, customersRes] = await Promise.all([
+    packageIds.length
+      ? service
+          .from('service_packages')
+          .select('id, name, code, description, price, validity_days')
+          .eq('tenant_id', scope.tenantId)
+          .in('id', packageIds)
+      : Promise.resolve({ data: [], error: null }),
+    customerIds.length
+      ? service
+          .from('customers')
+          .select('id, name, phone')
+          .eq('tenant_id', scope.tenantId)
+          .in('id', customerIds)
+      : Promise.resolve({ data: [], error: null }),
+  ])
+  if (packagesRes.error) {
+    throw err.internal(`查询套餐模板失败: ${packagesRes.error.message}`)
+  }
+  if (customersRes.error) {
+    throw err.internal(`查询套餐客户失败: ${customersRes.error.message}`)
+  }
+  const packagesById = new Map((packagesRes.data ?? []).map(item => [item.id, item]))
+  const customersById = new Map((customersRes.data ?? []).map(item => [item.id, item]))
+
+  return ok(c, {
+    list: (data ?? []).map(item => ({
+      ...item,
+      service_packages: packagesById.get(item.package_id) ?? null,
+      customers: customersById.get(item.customer_id) ?? null,
+    })),
+    total: count ?? 0,
+    page: parsed.data.page,
+    pageSize: parsed.data.pageSize,
+  })
 })
 
 // POST /marketing/customer-packages/:id/redeem 套餐核销
@@ -794,6 +867,8 @@ marketingRoutes.get('/campaigns', async (c) => {
   const parsed = z.object({
     tenantId: z.string().uuid(),
     status: z.enum(['draft', 'scheduled', 'published', 'completed', 'cancelled']).optional(),
+    page: z.coerce.number().int().positive().max(1000).default(1),
+    pageSize: z.coerce.number().int().positive().max(200).default(20),
   }).safeParse({ ...c.req.query(), tenantId: c.req.query('tenantId') ?? '' })
   if (!parsed.success) {
     throw err.badRequest('参数校验失败', { tenantId: parsed.error.issues.map(i => i.message) })
@@ -801,11 +876,12 @@ marketingRoutes.get('/campaigns', async (c) => {
   const scope = await requireScopedPermission(c, { code: 'marketing.view', tenantId: parsed.data.tenantId, dataScope: true })
   const service = createServiceClient()
 
-  let query = service.from('marketing_campaigns').select('*').eq('tenant_id', scope.tenantId)
+  let query = service.from('marketing_campaigns').select('*', { count: 'exact' }).eq('tenant_id', scope.tenantId)
   if (parsed.data.status) {
     query = query.eq('status', parsed.data.status)
   }
-  const { data, error } = await query.order('created_at', { ascending: false })
+  const from = (parsed.data.page - 1) * parsed.data.pageSize
+  const { data, error, count } = await query.order('created_at', { ascending: false }).range(from, from + parsed.data.pageSize - 1)
   if (error) {
     throw err.internal(`查询活动失败: ${error.message}`)
   }
@@ -831,6 +907,9 @@ marketingRoutes.get('/campaigns', async (c) => {
 
   return ok(c, {
     list: (data ?? []).map((camp: any) => ({ ...camp, latest_run: runMap[camp.id] ?? null })),
+    total: count ?? 0,
+    page: parsed.data.page,
+    pageSize: parsed.data.pageSize,
   })
 })
 
@@ -1029,15 +1108,30 @@ marketingRoutes.get('/campaigns/:id/audience-preview', async (c) => {
   const from = (parsed.data.page - 1) * parsed.data.pageSize
   const { data, error, count } = await service
     .from('marketing_campaign_audiences')
-    .select('id, customer_id, rule_version, matched_at, customers(id, name, phone, store_id)', { count: 'exact' })
+    .select('id, customer_id, rule_version, matched_at', { count: 'exact' })
     .eq('campaign_id', id)
     .order('matched_at', { ascending: false })
     .range(from, from + parsed.data.pageSize - 1)
   if (error) {
     throw err.internal(`查询活动 Audience 失败: ${error.message}`)
   }
+  const customerIds = [...new Set((data ?? []).map(item => item.customer_id))]
+  const customersRes = customerIds.length
+    ? await service
+        .from('customers')
+        .select('id, name, phone, store_id')
+        .eq('tenant_id', campaign.tenant_id)
+        .in('id', customerIds)
+    : { data: [], error: null }
+  if (customersRes.error) {
+    throw err.internal(`查询活动 Audience 客户失败: ${customersRes.error.message}`)
+  }
+  const customersById = new Map((customersRes.data ?? []).map(customer => [customer.id, customer]))
   return ok(c, {
-    list: data ?? [],
+    list: (data ?? []).map(item => ({
+      ...item,
+      customers: customersById.get(item.customer_id) ?? null,
+    })),
     total: count ?? 0,
     page: parsed.data.page,
     pageSize: parsed.data.pageSize,

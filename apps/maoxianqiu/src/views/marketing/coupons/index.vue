@@ -34,6 +34,10 @@ const TABS = [
 
 // ===== 券模板 =====
 const coupons = ref<Coupon[]>([])
+const couponTotal = ref(0)
+const couponPage = ref(1)
+const couponPageSize = ref(20)
+const couponType = ref('all')
 const couponLoading = ref(false)
 
 /** 券额度文本(固定金额/折扣百分比) */
@@ -75,7 +79,7 @@ const couponColumns = computed<TableColumn<Coupon>[]>(() => [
     id: 'operation',
     header: '操作',
     width: 210,
-    align: 'center',
+    align: 'left',
     fixed: 'right',
   },
 ])
@@ -87,8 +91,9 @@ async function loadCoupons() {
   }
   couponLoading.value = true
   try {
-    const res: any = await apiMarketing.listCoupons({ tenantId: tenantId() })
+    const res: any = await apiMarketing.listCoupons({ tenantId: tenantId(), type: couponType.value === 'all' ? undefined : couponType.value, page: couponPage.value, pageSize: couponPageSize.value })
     coupons.value = res?.data?.list ?? []
+    couponTotal.value = res?.data?.total ?? 0
   }
   catch (e) {
     useFaToast().error('加载优惠券失败', { description: e instanceof Error ? e.message : '' })
@@ -300,7 +305,7 @@ const issueColumns = computed<TableColumn<CouponIssue>[]>(() => [
     id: 'operation',
     header: '操作',
     width: 110,
-    align: 'center',
+    align: 'left',
   },
 ])
 
@@ -355,89 +360,127 @@ onMounted(() => {
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告) -->
+    <!--
     <EntityPageHeader compact title="优惠券">
       <template #description>
         优惠券模板与发放管理;权威核销在服务端(行锁 + 幂等),前端不计算折扣。核销入口在收银流程。
       </template>
     </EntityPageHeader>
-    <FaPageMain>
-      <FaTabs v-model="activeTab" :list="TABS" class="mb-4" @change="onTabChange" />
+    -->
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+        <div class="px-4 pt-3 border-b">
+          <FaTabs v-model="activeTab" :list="TABS" class="mb-2" @update:model-value="onTabChange" />
 
-      <!-- 券模板 -->
-      <template v-if="activeTab === 'templates'">
-        <div class="mb-3 flex justify-between items-center">
-          <div class="text-sm text-muted-foreground">
-            共 {{ coupons.length }} 个券模板;已用/总量显示核销进度
-          </div>
-          <FaButton size="sm" @click="openCreateCoupon">
-            <FaIcon name="i-ri:add-line" />
-            新建券
-          </FaButton>
-        </div>
-        <FaTable
-          v-loading="couponLoading"
-          table-root-class="rounded-lg overflow-hidden"
-          row-key="id"
-          stripe
-          border
-          :columns="couponColumns"
-          :data="coupons"
-          empty-text="暂无优惠券"
-        >
-          <template #cell-operation="{ row }">
-            <div class="flex-center gap-1">
-              <FaButton variant="outline" size="sm" @click="openIssue(row.original)">
-                发放
-              </FaButton>
-              <FaButton variant="outline" size="sm" @click="openEditCoupon(row.original)">
-                编辑
+          <!-- 券模板工具栏 -->
+          <template v-if="activeTab === 'templates'">
+            <div class="flex justify-between items-center pb-3">
+              <div class="flex gap-2 items-center">
+                <FaSelect
+                  v-model="couponType"
+                  :options="[
+                    { label: '全部类型', value: 'all' },
+                    { label: '满减券', value: 'fixed' },
+                    { label: '折扣券', value: 'percentage' },
+                  ]"
+                  class="w-36"
+                  @change="couponPage = 1; loadCoupons()"
+                />
+                <span class="text-sm text-muted-foreground">
+                  共 {{ couponTotal }} 个券模板
+                </span>
+              </div>
+              <FaButton size="sm" @click="openCreateCoupon">
+                <FaIcon name="i-ri:add-line" />
+                新建券
               </FaButton>
             </div>
           </template>
-        </FaTable>
-      </template>
-
-      <!-- 发放记录 -->
-      <template v-else-if="activeTab === 'issues'">
-        <div class="mb-3 flex gap-2 items-center">
-          <FaSelect
-            v-model="issueStatus"
-            :options="[
-              { label: '全部状态', value: '' },
-              { label: '可用', value: 'available' },
-              { label: '已核销', value: 'redeemed' },
-              { label: '已过期', value: 'expired' },
-              { label: '已作废', value: 'cancelled' },
-            ]"
-            class="w-36"
-            @change="issuePage = 1; loadIssues()"
-          />
-          <span class="text-sm text-muted-foreground">共 {{ issueTotal }} 张</span>
-        </div>
-        <FaTable
-          v-loading="issueLoading"
-          table-root-class="rounded-lg overflow-hidden"
-          row-key="id"
-          stripe
-          border
-          :columns="issueColumns"
-          :data="issues"
-          empty-text="暂无发放记录"
-        >
-          <template #cell-operation="{ row }">
-            <FaButton
-              v-if="row.original.status === 'available'"
-              variant="outline"
-              size="sm"
-              class="text-red-600"
-              @click="cancelIssue(row.original)"
-            >
-              作废
-            </FaButton>
+          <!-- 发放记录工具栏 -->
+          <template v-else>
+            <div class="flex gap-2 items-center pb-3">
+              <FaSelect
+                v-model="issueStatus"
+                :options="[
+                  { label: '全部状态', value: '' },
+                  { label: '可用', value: 'available' },
+                  { label: '已核销', value: 'redeemed' },
+                  { label: '已过期', value: 'expired' },
+                  { label: '已作废', value: 'cancelled' },
+                ]"
+                class="w-36"
+                @change="issuePage = 1; loadIssues()"
+              />
+              <span class="text-sm text-muted-foreground">共 {{ issueTotal }} 张</span>
+            </div>
           </template>
-        </FaTable>
+        </div>
+
+        <!-- 表格区 -->
+        <div class="flex-1 min-h-0 overflow-auto">
+          <template v-if="activeTab === 'templates'">
+            <FaTable
+              v-loading="couponLoading"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="couponColumns"
+              :data="coupons"
+              empty-text="暂无优惠券"
+            >
+              <template #cell-operation="{ row }">
+                <div class="flex-center gap-1">
+                  <FaButton variant="outline" size="sm" @click="openIssue(row.original)">
+                    发放
+                  </FaButton>
+                  <FaButton variant="outline" size="sm" @click="openEditCoupon(row.original)">
+                    编辑
+                  </FaButton>
+                </div>
+              </template>
+            </FaTable>
+          </template>
+          <template v-else>
+            <FaTable
+              v-loading="issueLoading"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="issueColumns"
+              :data="issues"
+              empty-text="暂无发放记录"
+            >
+              <template #cell-operation="{ row }">
+                <FaButton
+                  v-if="row.original.status === 'available'"
+                  variant="outline"
+                  size="sm"
+                  class="text-red-600"
+                  @click="cancelIssue(row.original)"
+                >
+                  作废
+                </FaButton>
+              </template>
+            </FaTable>
+          </template>
+        </div>
+
+        <!-- 分页区 -->
         <FaPagination
+          v-if="activeTab === 'templates'"
+          :page="couponPage"
+          :size="couponPageSize"
+          :total="couponTotal"
+          class="mt-2 px-4 pb-3"
+          @page-change="p => { couponPage = p; loadCoupons() }"
+          @size-change="s => { couponPageSize = s; couponPage = 1; loadCoupons() }"
+        />
+        <FaPagination
+          v-else
           :page="issuePage"
           :size="issuePageSize"
           :total="issueTotal"
@@ -445,8 +488,8 @@ onMounted(() => {
           @page-change="p => { issuePage = p; loadIssues() }"
           @size-change="s => { issuePageSize = s; issuePage = 1; loadIssues() }"
         />
-      </template>
-    </FaPageMain>
+      </div>
+    </div>
 
     <!-- 券模板表单 -->
     <FaModal

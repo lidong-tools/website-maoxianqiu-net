@@ -36,9 +36,18 @@ crmGrowthRoutes.use('*', authMiddleware(), loadCaller(), loadContext())
 // ===== Segment 规则条件 schema =====
 const segmentConditionSchema = z.object({
   dim: z.enum([
-    'recency_days', 'visits_total', 'visits_last_365', 'spend_total', 'spend_last_365',
-    'pet_count', 'member_tier_code', 'member_points', 'vaccination_due',
-    'deworming_due', 'no_show_count', 'followup_overdue',
+    'recency_days',
+    'visits_total',
+    'visits_last_365',
+    'spend_total',
+    'spend_last_365',
+    'pet_count',
+    'member_tier_code',
+    'member_points',
+    'vaccination_due',
+    'deworming_due',
+    'no_show_count',
+    'followup_overdue',
   ]),
   op: z.enum(['eq', 'neq', 'gt', 'gte', 'lt', 'lte']),
   value: z.union([z.number(), z.string(), z.boolean()]),
@@ -58,11 +67,17 @@ const segmentSchema = z.object({
 })
 
 // ===== GET /segments 分层定义列表 =====
+const segmentsListSchema = z.object({
+  tenantId: z.string().uuid(),
+  storeId: z.string().uuid().optional(),
+  page: z.coerce.number().int().positive().max(1000).default(1),
+  pageSize: z.coerce.number().int().positive().max(200).default(20),
+})
 crmGrowthRoutes.get('/segments', async (c) => {
-  const parsed = z.object({
-    tenantId: z.string().uuid(),
-    storeId: z.string().uuid().optional(),
-  }).safeParse({ ...c.req.query(), tenantId: c.req.query('tenantId') ?? '' })
+  const parsed = segmentsListSchema.safeParse({
+    ...c.req.query(),
+    tenantId: c.req.query('tenantId') ?? '',
+  })
   if (!parsed.success) {
     throw err.badRequest('参数校验失败', { tenantId: parsed.error.issues.map(i => i.message) })
   }
@@ -75,11 +90,12 @@ crmGrowthRoutes.get('/segments', async (c) => {
   })
 
   const service = createServiceClient()
-  const { data, error } = await service
+  const { data, error, count } = await service
     .from('customer_segment_definitions')
-    .select('*')
+    .select('*', { count: 'exact' })
     .eq('tenant_id', scope.tenantId)
     .order('priority', { ascending: true })
+    .range((parsed.data.page - 1) * parsed.data.pageSize, parsed.data.page * parsed.data.pageSize - 1)
 
   if (error) {
     throw err.internal(`查询分层定义失败: ${error.message}`)
@@ -103,6 +119,9 @@ crmGrowthRoutes.get('/segments', async (c) => {
       ...s,
       member_count: countMap[s.id] ?? 0,
     })),
+    total: count ?? 0,
+    page: parsed.data.page,
+    pageSize: parsed.data.pageSize,
   })
 })
 
@@ -164,12 +183,12 @@ crmGrowthRoutes.patch('/segments/:id', async (c) => {
   await requireScopedPermission(c, { code: 'crm.segment.manage', tenantId: existing.tenant_id })
 
   const patch: Record<string, unknown> = {}
-  if (input.code !== undefined) patch.code = input.code
-  if (input.name !== undefined) patch.name = input.name
-  if (input.description !== undefined) patch.description = input.description
-  if (input.ruleJson !== undefined) patch.rule_json = input.ruleJson as any
-  if (input.priority !== undefined) patch.priority = input.priority
-  if (input.active !== undefined) patch.active = input.active
+  if (input.code !== undefined) { patch.code = input.code }
+  if (input.name !== undefined) { patch.name = input.name }
+  if (input.description !== undefined) { patch.description = input.description }
+  if (input.ruleJson !== undefined) { patch.rule_json = input.ruleJson as any }
+  if (input.priority !== undefined) { patch.priority = input.priority }
+  if (input.active !== undefined) { patch.active = input.active }
 
   const { data, error } = await service
     .from('customer_segment_definitions')
@@ -276,7 +295,7 @@ crmGrowthRoutes.get('/segments/:id/customers', async (c) => {
   const from = (parsed.data.page - 1) * parsed.data.pageSize
   const { data, error, count } = await service
     .from('customer_segment_memberships')
-    .select('customer_id, matched_at, explanation, customers(id, name, phone, store_id)', { count: 'exact' })
+    .select('customer_id, matched_at, explanation', { count: 'exact' })
     .eq('segment_id', id)
     .order('matched_at', { ascending: false })
     .range(from, from + parsed.data.pageSize - 1)
@@ -284,8 +303,24 @@ crmGrowthRoutes.get('/segments/:id/customers', async (c) => {
     throw err.internal(`查询分层成员失败: ${error.message}`)
   }
 
+  const customerIds = [...new Set((data ?? []).map(item => item.customer_id))]
+  const customerRes = customerIds.length
+    ? await service
+        .from('customers')
+        .select('id, name, phone, store_id')
+        .eq('tenant_id', seg.tenant_id)
+        .in('id', customerIds)
+    : { data: [], error: null }
+  if (customerRes.error) {
+    throw err.internal(`查询分层客户失败: ${customerRes.error.message}`)
+  }
+  const customersById = new Map((customerRes.data ?? []).map(customer => [customer.id, customer]))
+
   return ok(c, {
-    list: data ?? [],
+    list: (data ?? []).map(item => ({
+      ...item,
+      customers: customersById.get(item.customer_id) ?? null,
+    })),
     total: count ?? 0,
     page: parsed.data.page,
     pageSize: parsed.data.pageSize,
@@ -320,9 +355,30 @@ crmGrowthRoutes.get('/churn', async (c) => {
   const service = createServiceClient()
   let query = service
     .from('customer_risk_scores')
-    .select('id, customer_id, risk_type, score, level, explanation, calculated_at, model_version, customers(id, name, phone, store_id)', { count: 'exact' })
+    .select('id, customer_id, risk_type, score, level, explanation, calculated_at, model_version', { count: 'exact' })
     .eq('tenant_id', scope.tenantId)
     .eq('risk_type', 'churn')
+
+  if (parsed.data.storeId) {
+    const { data: storeCustomers, error: storeCustomersError } = await service
+      .from('customers')
+      .select('id')
+      .eq('tenant_id', scope.tenantId)
+      .eq('store_id', parsed.data.storeId)
+    if (storeCustomersError) {
+      throw err.internal(`查询门店客户失败: ${storeCustomersError.message}`)
+    }
+    const storeCustomerIds = (storeCustomers ?? []).map(customer => customer.id)
+    if (!storeCustomerIds.length) {
+      return ok(c, {
+        list: [],
+        total: 0,
+        page: parsed.data.page,
+        pageSize: parsed.data.pageSize,
+      })
+    }
+    query = query.in('customer_id', storeCustomerIds)
+  }
 
   // Churn 默认 Tenant-wide;storeId 仅作为列表筛选(客户归属门店),不改变评分口径
   if (parsed.data.level) {
@@ -337,8 +393,24 @@ crmGrowthRoutes.get('/churn', async (c) => {
     throw err.internal(`查询流失风险失败: ${error.message}`)
   }
 
+  const customerIds = [...new Set((data ?? []).map(item => item.customer_id))]
+  const customerRes = customerIds.length
+    ? await service
+        .from('customers')
+        .select('id, name, phone, store_id')
+        .eq('tenant_id', scope.tenantId)
+        .in('id', customerIds)
+    : { data: [], error: null }
+  if (customerRes.error) {
+    throw err.internal(`查询流失风险客户失败: ${customerRes.error.message}`)
+  }
+  const customersById = new Map((customerRes.data ?? []).map(customer => [customer.id, customer]))
+
   return ok(c, {
-    list: data ?? [],
+    list: (data ?? []).map(item => ({
+      ...item,
+      customers: customersById.get(item.customer_id) ?? null,
+    })),
     total: count ?? 0,
     page: parsed.data.page,
     pageSize: parsed.data.pageSize,

@@ -77,8 +77,8 @@ export default {
    * 分层定义列表(走 Hono,crm.segment.view)
    * @param tenantId 租户 id
    */
-  async listSegments(params: { tenantId: string }) {
-    return api.get<{ list: SegmentDefinition[] }>('crm-growth/segments', { params })
+  async listSegments(params: { tenantId: string, page?: number, pageSize?: number }) {
+    return api.get<{ list: SegmentDefinition[], total: number, page: number, pageSize: number }>('crm-growth/segments', { params })
   },
 
   /**
