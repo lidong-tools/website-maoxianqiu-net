@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import type { Customer360Result, CustomerRecord, FollowupTaskRecord, PetRecord } from '@/types/customer'
 import type { AttachmentWithFile } from '@/types/file'
+import type { CustomerInsights } from '@/api/modules/crmGrowth'
 import apiCustomer from '@/api/modules/customer'
+import apiCrmGrowth from '@/api/modules/crmGrowth'
 import apiFile from '@/api/modules/file'
 import FollowupCreateDrawer from '@/components/followups/FollowupCreateDrawer/index.vue'
 import FollowupDetailDrawer from '@/components/followups/FollowupDetailDrawer/index.vue'
@@ -37,6 +39,9 @@ const attachments = ref<AttachmentWithFile[]>([])
 
 /** 客户 360 聚合(S3.1-AGENT-04) */
 const customer360 = ref<Customer360Result | null>(null)
+
+/** 增长洞察(Segment/Churn/Coupons/Packages/Campaign History,Stage-04 Agent-05) */
+const insights = ref<CustomerInsights | null>(null)
 
 /** 回访 Tab:待办 / 历史 */
 const followupTab = ref<'pending' | 'history'>('pending')
@@ -94,6 +99,8 @@ async function loadDetail() {
     loadAttachments()
     // 加载 360 聚合(最近就诊/最近消费/回访)
     load360()
+    // 加载增长洞察(Segment/Churn/Coupons/Packages/Campaign)
+    loadInsights()
   }
   catch (e: any) {
     useFaToast().error('加载失败', { description: e?.message })
@@ -117,6 +124,39 @@ async function load360() {
   catch {
     customer360.value = null
   }
+}
+
+/**
+ * 加载客户增长洞察(Stage-04 Agent-05)
+ * 聚合:命中分层 / 流失风险 / 可用优惠券 / 客户套餐 / 活动历史
+ */
+async function loadInsights() {
+  if (isNew.value) {
+    return
+  }
+  try {
+    const res: any = await apiCrmGrowth.getCustomerInsights(customerId.value)
+    insights.value = res?.data as CustomerInsights
+  }
+  catch {
+    insights.value = null
+  }
+}
+
+/** 流失风险等级元信息 */
+const CHURN_LEVEL_META: Record<string, { label: string, color: string }> = {
+  high: { label: '高危', color: '#f5222d' },
+  medium: { label: '中危', color: '#fa8c16' },
+  low: { label: '低危', color: '#52c41a' },
+}
+
+/** 流失风险原因文本(可解释评分) */
+function churnExplanationText(): string {
+  const churn = insights.value?.churn
+  if (!churn?.explanation?.length) {
+    return '暂无原因'
+  }
+  return churn.explanation.map(e => `${e.text} +${e.points}`).join('; ')
 }
 
 /**
@@ -433,6 +473,89 @@ onMounted(loadDetail)
             <span class="w-24 text-xs text-muted-foreground">{{ fmtFollowupTime(inv.created_at) }}</span>
             <span class="flex-1 truncate text-sm">{{ inv.invoice_no }}</span>
             <span class="text-sm font-medium">¥{{ Number(inv.total ?? 0).toFixed(2) }}</span>
+          </div>
+        </div>
+      </FaCard>
+
+      <!-- 分层与流失风险(Stage-04 Agent-05) -->
+      <FaCard v-if="!isNew" title="分层与流失风险" class="mt-4">
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <div class="text-sm font-medium mb-2">命中分层</div>
+            <div v-if="insights?.segments?.length" class="flex flex-wrap gap-2">
+              <span
+                v-for="seg in insights.segments"
+                :key="seg.segment_id"
+                class="px-2 py-0.5 rounded text-xs bg-primary/10 text-primary"
+              >
+                {{ seg.name }}({{ seg.score }})
+              </span>
+            </div>
+            <FaEmptyState v-else description="暂无命中分层" class="!p-0" />
+          </div>
+          <div>
+            <div class="text-sm font-medium mb-2">流失风险</div>
+            <div v-if="insights?.churn" class="flex flex-col gap-1">
+              <div class="flex items-center gap-2">
+                <span class="text-lg font-bold">{{ insights.churn.score }}</span>
+                <span
+                  class="inline-flex items-center rounded px-2 py-0.5 text-xs"
+                  :style="{
+                    color: CHURN_LEVEL_META[insights.churn.level]?.color,
+                    border: `1px solid ${CHURN_LEVEL_META[insights.churn.level]?.color}`,
+                    background: `${CHURN_LEVEL_META[insights.churn.level]?.color}14`,
+                  }"
+                >
+                  {{ CHURN_LEVEL_META[insights.churn.level]?.label ?? insights.churn.level }}
+                </span>
+                <span class="text-xs text-muted-foreground">{{ fmtFollowupTime(insights.churn.calculated_at) }}</span>
+              </div>
+              <div class="text-xs text-muted-foreground">
+                {{ churnExplanationText() }}
+              </div>
+            </div>
+            <FaEmptyState v-else description="暂无流失评估" class="!p-0" />
+          </div>
+        </div>
+      </FaCard>
+
+      <!-- 优惠券与套餐(Stage-04 Agent-05) -->
+      <FaCard v-if="!isNew" title="优惠券与套餐" class="mt-4">
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <div class="text-sm font-medium mb-2">有效优惠券</div>
+            <div v-if="insights?.activeCoupons?.length" class="flex flex-col divide-y">
+              <div v-for="c in insights.activeCoupons" :key="c.id" class="flex items-center gap-3 py-2">
+                <span class="flex-1 truncate text-sm">{{ c.coupons?.name ?? c.code }}</span>
+                <span class="text-xs">{{ c.coupons?.type === 'fixed' ? '满减' : '折扣' }}</span>
+                <span class="text-xs text-muted-foreground">{{ c.status === 'redeemed' ? '已核销' : '可用' }}</span>
+              </div>
+            </div>
+            <FaEmptyState v-else description="暂无优惠券" class="!p-0" />
+          </div>
+          <div>
+            <div class="text-sm font-medium mb-2">客户套餐</div>
+            <div v-if="insights?.packages?.length" class="flex flex-col divide-y">
+              <div v-for="p in insights.packages" :key="p.id" class="flex items-center gap-3 py-2">
+                <span class="flex-1 truncate text-sm">{{ p.service_packages?.name }}</span>
+                <span class="text-sm font-medium">{{ p.remaining_quantity }}/{{ p.total_quantity }}</span>
+                <span class="text-xs text-muted-foreground">{{ p.status === 'active' ? '生效中' : p.status }}</span>
+              </div>
+            </div>
+            <FaEmptyState v-else description="暂无套餐" class="!p-0" />
+          </div>
+        </div>
+      </FaCard>
+
+      <!-- 活动记录(Stage-04 Agent-05) -->
+      <FaCard v-if="!isNew" title="活动记录" class="mt-4">
+        <FaEmptyState v-if="!insights?.campaignHistory?.length" description="暂无活动记录" />
+        <div v-else class="flex flex-col divide-y">
+          <div v-for="h in insights.campaignHistory" :key="h.id" class="flex items-center gap-3 py-2">
+            <span class="w-24 text-xs text-muted-foreground">{{ fmtFollowupTime(h.matched_at) }}</span>
+            <span class="flex-1 truncate text-sm">{{ h.marketing_campaigns?.name }}</span>
+            <span class="text-xs">{{ h.marketing_campaigns?.type }}</span>
+            <span class="text-xs text-muted-foreground">规则 v{{ h.rule_version }}</span>
           </div>
         </div>
       </FaCard>
