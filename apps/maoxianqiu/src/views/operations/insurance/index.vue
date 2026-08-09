@@ -96,16 +96,14 @@ async function loadEncounters() {
     if (error) {
       throw new Error(error.message)
     }
-    encounterOptions.value = ((data ?? []) as Array<{
-      id: string
-      started_at: string | null
-      status: string
-      pets: { name: string } | null
-      customers: { name: string } | null
-    }>).map(enc => ({
-      label: `${enc.pets?.name ?? ''} · ${enc.customers?.name ?? ''} · ${enc.started_at?.slice(0, 10) ?? ''} · ${enc.status}`,
-      value: enc.id,
-    }))
+    encounterOptions.value = (data ?? []).map((enc) => {
+      const pet = Array.isArray(enc.pets) ? enc.pets[0] : enc.pets
+      const customer = Array.isArray(enc.customers) ? enc.customers[0] : enc.customers
+      return {
+        label: `${pet?.name ?? ''} · ${customer?.name ?? ''} · ${enc.started_at?.slice(0, 10) ?? ''} · ${enc.status}`,
+        value: enc.id,
+      }
+    })
   }
   catch (e: any) {
     useFaToast().error(e?.message ?? '加载就诊记录失败')
@@ -162,7 +160,14 @@ async function onCreate() {
 const detailVisible = ref(false)
 const detail = ref<InsurancePackWithItems | null>(null)
 const detailLoading = ref(false)
-const exportsList = ref<Array<Record<string, unknown>>>([])
+interface InsuranceExportRow extends Record<string, unknown> {
+  id: string
+  pack_version: number
+  generated_at: string
+  data_hash: string
+}
+
+const exportsList = ref<InsuranceExportRow[]>([])
 const editingItems = ref<InsurancePackItem[]>([])
 const generating = ref(false)
 const savingItems = ref(false)
@@ -275,26 +280,27 @@ async function onDownload(exportRow: Record<string, unknown>) {
 }
 
 // ===== 列表列 =====
-const packColumns: TableColumn[] = [
-  { label: '理赔单号', prop: 'pack_no', minWidth: 180 },
-  { label: '状态', prop: 'status', width: 100, formatter: (row: InsurancePack) => INSURANCE_PACK_STATUS_LABELS[row.status] ?? row.status },
-  { label: '版本', prop: 'version', width: 80 },
-  { label: '创建时间', prop: 'created_at', width: 170 },
+const packColumns: TableColumn<InsurancePack>[] = [
+  { label: '理赔单号', accessorKey: 'pack_no', minWidth: 180 },
+  { label: '状态', accessorKey: 'status', width: 100, cell: info => INSURANCE_PACK_STATUS_LABELS[info.row.original.status] ?? info.row.original.status },
+  { label: '版本', accessorKey: 'version', width: 80 },
+  { label: '创建时间', accessorKey: 'created_at', width: 170 },
+  { id: 'actions', label: '操作', width: 100 },
 ]
 
-const itemColumns: TableColumn[] = [
-  { label: '材料类型', prop: 'source_type', width: 130, formatter: (row: InsurancePackItem) => INSURANCE_SOURCE_LABELS[row.source_type] ?? row.source_type },
-  { label: '来源摘要', prop: 'summary', minWidth: 220 },
-  { label: '必填', prop: 'required', width: 70, formatter: (row: InsurancePackItem) => (row.required ? '是' : '否') },
-  { label: '包含', prop: 'included', width: 80, formatter: (row: InsurancePackItem) => (row.included ? '是' : '否') },
-  { label: '排序', prop: 'display_order', width: 70 },
+const itemColumns: TableColumn<InsurancePackItem>[] = [
+  { label: '材料类型', accessorKey: 'source_type', width: 130, cell: info => INSURANCE_SOURCE_LABELS[info.row.original.source_type] ?? info.row.original.source_type },
+  { label: '来源摘要', accessorKey: 'summary', minWidth: 220 },
+  { label: '必填', accessorKey: 'required', width: 70, cell: info => (info.row.original.required ? '是' : '否') },
+  { label: '包含', accessorKey: 'included', width: 80 },
+  { label: '排序', accessorKey: 'display_order', width: 70 },
 ]
 
-const exportColumns: TableColumn[] = [
-  { label: '版本', prop: 'pack_version', width: 80 },
-  { label: '生成时间', prop: 'generated_at', width: 170 },
-  { label: '数据哈希', prop: 'data_hash', minWidth: 260 },
-  { label: '操作', prop: '_actions', width: 120 },
+const exportColumns: TableColumn<InsuranceExportRow>[] = [
+  { label: '版本', accessorKey: 'pack_version', width: 80 },
+  { label: '生成时间', accessorKey: 'generated_at', width: 170 },
+  { label: '数据哈希', accessorKey: 'data_hash', minWidth: 260 },
+  { id: 'actions', label: '操作', width: 120 },
 ]
 
 loadStoreOptions()
@@ -330,8 +336,8 @@ loadPacks()
         :data="packs"
         :pagination="false"
       >
-        <template #actions="{ row }">
-          <FaButton type="link" @click="openDetail(row.id)">
+        <template #cell-actions="{ row }">
+          <FaButton type="link" @click="openDetail(row.original.id)">
             详情
           </FaButton>
         </template>
@@ -378,7 +384,7 @@ loadPacks()
 
         <div class="flex items-center justify-between">
           <span class="text-sm font-medium">材料清单</span>
-          <FaButton v-if="detail.pack.status === 'draft'" variant="outline" size="small" :loading="savingItems" @click="onSaveItems">
+          <FaButton v-if="detail.pack.status === 'draft'" variant="outline" size="sm" :loading="savingItems" @click="onSaveItems">
             保存清单
           </FaButton>
         </div>
@@ -389,13 +395,13 @@ loadPacks()
           :pagination="false"
           size="small"
         >
-          <template #included="{ row }">
+          <template #cell-included="{ row }">
             <FaSwitch
               v-if="detail.pack.status === 'draft'"
-              v-model="row.included"
+              v-model="row.original.included"
               size="small"
             />
-            <span v-else>{{ row.included ? '是' : '否' }}</span>
+            <span v-else>{{ row.original.included ? '是' : '否' }}</span>
           </template>
         </FaTable>
 
@@ -441,8 +447,8 @@ loadPacks()
           :pagination="false"
           size="small"
         >
-          <template #actions="{ row }">
-            <FaButton type="link" @click="onDownload(row)">
+          <template #cell-actions="{ row }">
+            <FaButton type="link" @click="onDownload(row.original)">
               下载
             </FaButton>
           </template>

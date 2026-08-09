@@ -685,9 +685,9 @@ const TABS = [
               v-for="opt in petPermissionOptions"
               :key="opt.value"
               :model-value="petAccessForm.permissions.includes(opt.value as PortalPetPermission)"
-              @update:model-value="(checked: boolean) => {
+              @update:model-value="(checked) => {
                 const v = opt.value as PortalPetPermission
-                petAccessForm.permissions = checked
+                petAccessForm.permissions = checked === true
                   ? [...petAccessForm.permissions, v]
                   : petAccessForm.permissions.filter(p => p !== v)
               }"

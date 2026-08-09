@@ -549,7 +549,7 @@ onMounted(() => {
       <div class="px-2">
         <div class="flex justify-between items-center mb-2">
           <span class="text-sm text-muted-foreground">包含项目({{ pkgForm.items.length }})</span>
-          <FaButton size="xs" variant="outline" @click="addPkgItem">
+          <FaButton size="sm" variant="outline" @click="addPkgItem">
             <FaIcon name="i-ri:add-line" />
             添加项目
           </FaButton>

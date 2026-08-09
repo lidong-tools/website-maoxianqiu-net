@@ -7,7 +7,6 @@ import type {
 import {
   ACCOUNT_STATUS_LABELS,
   LEDGER_TYPE_LABELS,
-  WALLET_PERMISSIONS,
 } from '@/types/wallet'
 import apiWallet from '@/api/modules/wallet'
 import BusinessCustomerPicker from '@/components/business/CustomerPicker/index.vue'

@@ -394,7 +394,7 @@ onMounted(() => {
       <div class="px-2">
         <div class="flex justify-between items-center mb-2">
           <span class="text-sm text-muted-foreground">规则条件({{ form.conditions.length }})</span>
-          <FaButton size="xs" variant="outline" @click="addCondition">
+          <FaButton size="sm" variant="outline" @click="addCondition">
             <FaIcon name="i-ri:add-line" />
             添加条件
           </FaButton>

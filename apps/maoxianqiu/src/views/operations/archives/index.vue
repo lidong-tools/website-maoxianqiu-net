@@ -177,23 +177,24 @@ async function loadSignatures(archiveId: string) {
 }
 
 // ===== 列定义 =====
-const columns: TableColumn[] = [
-  { label: '文档类型', prop: 'document_type', width: 130, formatter: (row: DocumentArchive) => documentTypeLabel(row.document_type) },
-  { label: '文件名', prop: 'files', minWidth: 200, formatter: (row: DocumentArchive) => row.files?.original_name ?? '-' },
-  { label: '大小', prop: 'size_bytes', width: 100, formatter: (row: DocumentArchive) => `${(row.size_bytes / 1024).toFixed(1)} KB` },
-  { label: 'SHA256', prop: 'sha256', minWidth: 260 },
-  { label: '状态', prop: 'status', width: 100, formatter: (row: DocumentArchive) => ARCHIVE_STATUS_LABELS[row.status] ?? row.status },
-  { label: '客户可见', prop: 'customer_visible', width: 90, formatter: (row: DocumentArchive) => (row.customer_visible ? '是' : '否') },
-  { label: '创建时间', prop: 'created_at', width: 170 },
+const columns: TableColumn<DocumentArchive>[] = [
+  { label: '文档类型', accessorKey: 'document_type', width: 130, cell: info => documentTypeLabel(info.row.original.document_type) },
+  { label: '文件名', accessorKey: 'files', minWidth: 200, cell: info => info.row.original.files?.original_name ?? '-' },
+  { label: '大小', accessorKey: 'size_bytes', width: 100, cell: info => `${(info.row.original.size_bytes / 1024).toFixed(1)} KB` },
+  { label: 'SHA256', accessorKey: 'sha256', minWidth: 260 },
+  { label: '状态', accessorKey: 'status', width: 100, cell: info => ARCHIVE_STATUS_LABELS[info.row.original.status] ?? info.row.original.status },
+  { label: '客户可见', accessorKey: 'customer_visible', width: 90, cell: info => (info.row.original.customer_visible ? '是' : '否') },
+  { label: '创建时间', accessorKey: 'created_at', width: 170 },
+  { id: 'actions', label: '操作', width: 180 },
 ]
 
-const signatureColumns: TableColumn[] = [
-  { label: '签署人类型', prop: 'signer_type', width: 110 },
-  { label: '姓名', prop: 'signer_name', minWidth: 120 },
-  { label: '邮箱', prop: 'signer_email', minWidth: 180 },
-  { label: 'Provider', prop: 'provider', width: 100 },
-  { label: '状态', prop: 'status', width: 100, formatter: (row: SignatureRequest) => SIGNATURE_STATUS_LABELS[row.status] ?? row.status },
-  { label: '时间', prop: 'created_at', width: 170 },
+const signatureColumns: TableColumn<SignatureRequest>[] = [
+  { label: '签署人类型', accessorKey: 'signer_type', width: 110 },
+  { label: '姓名', accessorKey: 'signer_name', minWidth: 120 },
+  { label: '邮箱', accessorKey: 'signer_email', minWidth: 180 },
+  { label: 'Provider', accessorKey: 'provider', width: 100 },
+  { label: '状态', accessorKey: 'status', width: 100, cell: info => SIGNATURE_STATUS_LABELS[info.row.original.status] ?? info.row.original.status },
+  { label: '时间', accessorKey: 'created_at', width: 170 },
 ]
 
 loadStoreOptions()
@@ -249,14 +250,14 @@ loadArchives()
         :page-size="pageSize"
         @page-change="(p: number) => { page = p; loadArchives() }"
       >
-        <template #actions="{ row }">
-          <FaButton type="link" @click="onDownload(row)">
+        <template #cell-actions="{ row }">
+          <FaButton type="link" @click="onDownload(row.original)">
             下载
           </FaButton>
-          <FaButton type="link" @click="openSign(row)">
+          <FaButton type="link" @click="openSign(row.original)">
             发起签名
           </FaButton>
-          <FaButton type="link" @click="loadSignatures(row.id)">
+          <FaButton type="link" @click="loadSignatures(row.original.id)">
             签名记录
           </FaButton>
         </template>
