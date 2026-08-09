@@ -14,7 +14,7 @@ import type { PdfProvider, PdfRenderOptions, PdfRenderResult } from './types.js'
  *
  * SSRF 防护(硬约束):
  *   - 仅接受 https:// URL;
- *   - 主机名禁止:localhost/127.*/169.254.169.254(云元数据)/10.*/172.16-31.*/192.168.*;
+ *   - 主机名禁止 localhost、IPv4 回环、云元数据地址及 RFC 1918 私网地址;
  *   - 可配置 PDF_WORKER_HOST_ALLOWLIST(逗号分隔的精确主机名白名单),配置后仅允许命中白名单;
  *   - 输出侧:输入 HTML 由上层服务净化且不含外部资源(见 services/insurance/render.ts)。
  */

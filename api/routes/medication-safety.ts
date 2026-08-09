@@ -90,7 +90,7 @@ const upsertRuleSchema = z.object({
   isBlocking: z.boolean().default(false),
   species: z.array(z.string()).default([]),
   active: z.boolean().default(true),
-  condition: z.record(z.any()).default({}),
+  condition: z.record(z.string(), z.any()).default({}),
   message: z.string().max(500).optional(),
   recommendation: z.string().max(500).optional(),
 })

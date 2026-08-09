@@ -387,7 +387,7 @@ portalRoutes.get('/pets', async (c) => {
   if (grantedPetIds.length > 0) {
     const { data: pets } = await service
       .from('pets')
-      .select('id, name, species, breed, gender, birth_date, weight, risk_tags, status')
+      .select('id, customer_id, name, species, breed, gender, birth_date, weight, risk_tags, status')
       .in('id', grantedPetIds)
       .eq('tenant_id', session.tenantId)
       .eq('status', 'active')

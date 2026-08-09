@@ -113,9 +113,9 @@ const updateItemsSchema = z.object({
   items: z.array(z.object({
     source_type: SOURCE_TYPE_ENUM,
     source_id: z.string().uuid(),
-    display_order: z.number().int().nonnegative().optional(),
-    required: z.boolean().optional(),
-    included: z.boolean().optional(),
+    display_order: z.number().int().nonnegative().default(0),
+    required: z.boolean().default(false),
+    included: z.boolean().default(true),
   })).max(200, '材料清单数量超限'),
 })
 
@@ -251,7 +251,7 @@ insuranceRoutes.get('/claim-packs/:id/exports', async (c) => {
 
 const transitionSchema = z.object({
   status: z.enum(['archived', 'cancelled', 'draft'], {
-    errorMap: () => ({ message: '目标状态仅支持 archived/cancelled/draft' }),
+    message: '目标状态仅支持 archived/cancelled/draft',
   }),
 })
 

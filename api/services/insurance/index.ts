@@ -1,4 +1,5 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3'
+import { createHash } from 'node:crypto'
 import process from 'node:process'
 import { err } from '../../lib/errors.js'
 import { createR2Client, generatePrivateObjectKey } from '../../lib/r2.js'
@@ -369,7 +370,7 @@ export async function transitionPack(
  * @param snapshot 快照对象
  * @returns 64 位 hex 摘要
  */
-function createHashOfJson(snapshot: Record<string, unknown>): string {
+function createHashOfJson(snapshot: unknown): string {
   return createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')
 }
 

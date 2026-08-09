@@ -9,6 +9,7 @@ export interface AuditEntry {
   entityId?: string
   storeId?: string
   tenantId?: string
+  idempotencyKey?: string | null
   metadata?: Record<string, unknown>
 }
 
@@ -28,7 +29,10 @@ export async function writeAudit(c: Context<AppEnv>, entry: AuditEntry): Promise
       action: entry.action,
       entity_type: entry.entityType ?? null,
       entity_id: entry.entityId ?? null,
-      metadata: entry.metadata ?? {},
+      metadata: {
+        ...(entry.metadata ?? {}),
+        ...(entry.idempotencyKey ? { idempotencyKey: entry.idempotencyKey } : {}),
+      },
       request_id: context.requestId,
     })
   }

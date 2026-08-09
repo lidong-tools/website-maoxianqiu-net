@@ -48,6 +48,15 @@ function webhookReject(reason: string): never {
   throw err.unauthorized(reason)
 }
 
+/** 判断消息 Provider 是否实现了 webhook 验签与解析能力。 */
+function isWebhookProvider(provider: unknown): provider is MessagingWebhookProvider {
+  if (!provider || typeof provider !== 'object') {
+    return false
+  }
+  const candidate = provider as Partial<MessagingWebhookProvider>
+  return typeof candidate.verifyWebhook === 'function' && typeof candidate.parseWebhook === 'function'
+}
+
 /** Webhook 审计(外部回调,无员工 context;手动写 audit_logs,user/tenant 均空) */
 async function writeWebhookAudit(c: Context<AppEnv>, entry: {
   action: string
@@ -83,10 +92,10 @@ messagingWebhookRoutes.post('/:provider', async (c) => {
 
   // 2) 渠道 Provider(未配置 → 开发回退 Mock;Mock 无验签能力,一律拒绝)
   const provider = getProviderForChannel(channel)
-  if (typeof (provider as Partial<MessagingWebhookProvider>).verifyWebhook !== 'function') {
+  if (!isWebhookProvider(provider)) {
     throw err.unprocessable('该渠道未配置 Webhook 验签能力')
   }
-  const webhookProvider = provider as MessagingWebhookProvider
+  const webhookProvider = provider
 
   // 3) 验签(失败一律 401)
   const headers = toHeaderRecord(c)
