@@ -562,7 +562,7 @@ onMounted(() => {
           <FaInput v-model="item.name" size="small" placeholder="项目名称" />
           <FaInput v-model="item.catalogItemId" size="small" placeholder="目录UUID(可空)" />
           <FaInputNumber v-model="item.quantity" size="small" :min="1" :precision="0" placeholder="次数" />
-          <FaButton variant="ghost" size="xs" class="text-red-600" @click="removePkgItem(index)">
+          <FaButton variant="ghost" size="sm" class="text-red-600" @click="removePkgItem(index)">
             <FaIcon name="i-ri:delete-bin-line" />
           </FaButton>
         </div>

@@ -26,8 +26,6 @@ const form = ref({
   active: true,
 })
 
-const isEdit = computed(() => !!props.id)
-
 /**
  * 加载编辑数据(编辑模式由父组件传入 initialData 回填)
  */

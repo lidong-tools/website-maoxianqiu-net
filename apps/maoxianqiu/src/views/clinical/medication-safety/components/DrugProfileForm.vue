@@ -38,8 +38,6 @@ const form = ref({
   speciesContraindicationsText: '',
 })
 
-const isEdit = computed(() => !!props.id)
-
 /**
  * 加载药品目录(billing_type=drug)供选择
  */

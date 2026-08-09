@@ -176,6 +176,21 @@ function removeCondition(index: number) {
   form.conditions.splice(index, 1)
 }
 
+/**
+ * 条件值输入回写:数值型维度保留 number(供后端 JSONB 数值比较),其余转字符串
+ * @param index 条件下标
+ * @param v FaInput 回写值(string | number | undefined)
+ */
+function onCondValueInput(index: number, v: string | number | undefined): void {
+  const cond = form.conditions[index]
+  if (v === undefined || v === '') {
+    cond.value = ''
+    return
+  }
+  const n = Number(v)
+  cond.value = Number.isFinite(n) && String(n) === v ? n : v
+}
+
 /** 保存分层定义(编辑走 update,新建走 create) */
 async function saveSegment() {
   if (!form.code.trim() || !form.name.trim()) {
@@ -391,8 +406,8 @@ onMounted(() => {
         >
           <FaSelect v-model="cond.dim" :options="DIMS" size="small" />
           <FaSelect v-model="cond.op" :options="OPS" size="small" />
-          <FaInput v-model="cond.value" size="small" placeholder="比较值" />
-          <FaButton variant="ghost" size="xs" class="text-red-600" @click="removeCondition(index)">
+          <FaInput :model-value="String(cond.value ?? '')" size="small" placeholder="比较值" @update:model-value="onCondValueInput(index, $event)" />
+          <FaButton variant="ghost" size="sm" class="text-red-600" @click="removeCondition(index)">
             <FaIcon name="i-ri:delete-bin-line" />
           </FaButton>
         </div>

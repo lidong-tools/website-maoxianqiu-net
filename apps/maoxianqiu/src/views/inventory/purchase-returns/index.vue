@@ -591,7 +591,7 @@ async function onPost() {
               placeholder="选择仓库"
               class="w-full"
               :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
-              @update:model-value="loadReturnableBatches($event)"
+              @update:model-value="(v: unknown) => loadReturnableBatches(String(v ?? ''))"
             />
           </FaLabel>
           <FaLabel label="供应商(可选)" class="block">
