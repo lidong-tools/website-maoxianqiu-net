@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
 import type { Coupon, CouponIssue } from '@/api/modules/marketing'
-import apiMarketing from '@/api/modules/marketing'
 import apiCustomer from '@/api/modules/customer'
+import apiMarketing from '@/api/modules/marketing'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { BILLING_TYPE_LABELS } from '@/types/catalog'
 
@@ -62,7 +62,7 @@ const couponColumns = computed<TableColumn<Coupon>[]>(() => [
   {
     accessorKey: 'valid_from',
     header: '有效期',
-    cell: info => {
+    cell: (info) => {
       const row = info.row.original as Coupon
       const from = row.valid_from ? String(row.valid_from).slice(0, 10) : '不限'
       const until = row.valid_until ? String(row.valid_until).slice(0, 10) : '不限'
@@ -124,16 +124,42 @@ const couponForm = reactive<{
   stackingPolicy: 'single' | 'stackable'
   isActive: boolean
 }>({
-  id: '', code: '', name: '', type: 'fixed', value: 0, minSpend: 0, maxDiscount: null,
-  catalogType: '', catalogItemId: '', storeId: '', validFrom: '', validUntil: '',
-  quota: 100, perCustomerLimit: 1, stackingPolicy: 'single', isActive: true,
+  id: '',
+  code: '',
+  name: '',
+  type: 'fixed',
+  value: 0,
+  minSpend: 0,
+  maxDiscount: null,
+  catalogType: '',
+  catalogItemId: '',
+  storeId: '',
+  validFrom: '',
+  validUntil: '',
+  quota: 100,
+  perCustomerLimit: 1,
+  stackingPolicy: 'single',
+  isActive: true,
 })
 
 function openCreateCoupon() {
   Object.assign(couponForm, {
-    id: '', code: '', name: '', type: 'fixed', value: 0, minSpend: 0, maxDiscount: null,
-    catalogType: '', catalogItemId: '', storeId: '', validFrom: '', validUntil: '',
-    quota: 100, perCustomerLimit: 1, stackingPolicy: 'single', isActive: true,
+    id: '',
+    code: '',
+    name: '',
+    type: 'fixed',
+    value: 0,
+    minSpend: 0,
+    maxDiscount: null,
+    catalogType: '',
+    catalogItemId: '',
+    storeId: '',
+    validFrom: '',
+    validUntil: '',
+    quota: 100,
+    perCustomerLimit: 1,
+    stackingPolicy: 'single',
+    isActive: true,
   })
   couponDialogVisible.value = true
 }
@@ -285,7 +311,7 @@ const issueColumns = computed<TableColumn<CouponIssue>[]>(() => [
   {
     accessorKey: 'status',
     header: '状态',
-    cell: info => {
+    cell: (info) => {
       const s = String(info.getValue())
       const map: Record<string, string> = { available: '可用', redeemed: '已核销', expired: '已过期', cancelled: '已作废' }
       return map[s] ?? s
@@ -376,7 +402,7 @@ onMounted(() => {
 
           <!-- 券模板工具栏 -->
           <template v-if="activeTab === 'templates'">
-            <div class="flex justify-between items-center pb-3">
+            <div class="pb-3 flex items-center justify-between">
               <div class="flex gap-2 items-center">
                 <FaSelect
                   v-model="couponType"
@@ -400,7 +426,7 @@ onMounted(() => {
           </template>
           <!-- 发放记录工具栏 -->
           <template v-else>
-            <div class="flex gap-2 items-center pb-3">
+            <div class="pb-3 flex gap-2 items-center">
               <FaSelect
                 v-model="issueStatus"
                 :options="[
@@ -501,7 +527,7 @@ onMounted(() => {
       width="720px"
       @confirm="saveCoupon"
     >
-      <div class="grid grid-cols-2 gap-3 p-2">
+      <div class="p-2 gap-3 grid grid-cols-2">
         <FaLabel label="编码">
           <FaInput v-model="couponForm.code" placeholder="如 SUMMER50" />
         </FaLabel>
@@ -577,7 +603,7 @@ onMounted(() => {
       :loading="issueSaving"
       @confirm="doIssue"
     >
-      <div class="grid grid-cols-1 gap-3 p-2">
+      <div class="p-2 gap-3 grid grid-cols-1">
         <FaLabel label="选择客户(可搜索)">
           <FaSelect
             v-model="issueCustomerIds"

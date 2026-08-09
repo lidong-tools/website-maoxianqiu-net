@@ -138,6 +138,9 @@ const bizDate = (offset) => {
 const pad = (n, w = 4) => String(n).padStart(w, '0')
 let seq = 0
 const nextNo = (prefix) => `${prefix}-${pad(++seq)}`
+// 病程记录已签署后不可删除(审计保护),重跑种子需保证单号跨运行唯一
+const RUN_ID = Date.now().toString(36)
+const nextRunNo = (prefix) => `${prefix}-${RUN_ID}-${pad(++seq)}`
 
 /* ============ 4. 清空该租户业务数据(FK 逆序) ============ */
 
@@ -171,11 +174,14 @@ const CLEANUP_TABLES = [
   'store_catalog_items', 'catalog_drug_extensions', 'catalog_vaccine_extensions',
   'catalog_items', 'catalog_categories', 'diagnosis_dict', 'intake_questions',
   'lab_panels', 'lab_analytes',
+  // 采购(先于库存:purchase_orders/purchase_requests/purchase_returns 引用 warehouses/suppliers,
+  // purchase_return_items 引用 inventory_batches)
+  'purchase_return_items', 'purchase_returns',
+  'purchase_request_items', 'purchase_requests',
+  'purchase_order_items', 'purchase_orders', 'suppliers',
   // 库存(注意:opening_stock_import_requests 引用 warehouses,需先删)
   'opening_stock_import_requests',
   'inventory_movements', 'inventory_balances', 'inventory_batches', 'warehouses',
-  // 采购
-  'purchase_order_items', 'purchase_orders', 'suppliers',
   // 消息/提醒
   'message_delivery_attempts', 'message_deliveries', 'message_templates', 'reminders',
   // 日结/对账
@@ -280,12 +286,21 @@ async function seedCatalog() {
   }))
   if (vacExt.length) track('catalog_vaccine_extensions', await ins('catalog_vaccine_extensions', vacExt))
 
-  // 门店价格覆盖
-  const overrides = await ins('store_catalog_items', [
-    { tenant_id: ctx.tenantId, store_id: ctx.storeId, catalog_item_id: itemId['DEMO-SVC-REG'], custom_price: 30 },
-    { tenant_id: ctx.tenantId, store_id: ctx.storeId, catalog_item_id: itemId['DEMO-EXM-CBC'], custom_price: 90 },
-  ])
-  track('store_catalog_items', overrides)
+  // 门店目录:批量启用全部目录项到当前门店(收银台/开单均读取 store_catalog_items)
+  const storeItems = items.map((it, idx) => ({
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    catalog_item_id: itemId[it.code],
+    is_active: true,
+    sort_order: idx + 1,
+  }))
+  // 保留门店价格覆盖示例(门诊挂号 30 / 血常规 90)
+  for (const [code, price] of [['DEMO-SVC-REG', 30], ['DEMO-EXM-CBC', 90]]) {
+    const row = storeItems.find(s => s.catalog_item_id === itemId[code])
+    if (row) row.custom_price = price
+  }
+  const storeOverrides = await ins('store_catalog_items', storeItems)
+  track('store_catalog_items', storeOverrides)
 
   // 诊断字典 / 问诊问题 / 检验 panel
   const diags = await ins('diagnosis_dict', [
@@ -933,9 +948,9 @@ async function seedInpatient(itemId) {
 
   // 病程记录
   const notes = await ins('inpatient_progress_notes', [
-    { tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: admissions[0].id, pet_id: ctx.petId['团子'], note_no: nextNo('DEMO-PN'), note_type: 'daily', content: '入院第2天,精神状态好转,体温38.6℃,继续抗感染治疗', status: 'signed', recorded_at: iso(-1, 9), recorded_by: ctx.userId, signed_at: iso(-1, 10), signed_by: ctx.userId },
-    { tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: admissions[0].id, pet_id: ctx.petId['团子'], note_no: nextNo('DEMO-PN'), note_type: 'daily', content: '今日复查血常规,白细胞恢复正常,准备明日出院', status: 'draft', recorded_at: iso(0, 9), recorded_by: ctx.userId },
-    { tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: admissions[1].id, pet_id: ctx.petId['跳跳'], note_no: nextNo('DEMO-PN'), note_type: 'daily', content: '补液后呕吐停止,已少量进食', status: 'signed', recorded_at: iso(-1, 16), recorded_by: ctx.userId, signed_at: iso(-1, 17), signed_by: ctx.userId },
+    { tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: admissions[0].id, pet_id: ctx.petId['团子'], note_no: nextRunNo('DEMO-PN'), note_type: 'daily', content: '入院第2天,精神状态好转,体温38.6℃,继续抗感染治疗', status: 'signed', recorded_at: iso(-1, 9), recorded_by: ctx.userId, signed_at: iso(-1, 10), signed_by: ctx.userId },
+    { tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: admissions[0].id, pet_id: ctx.petId['团子'], note_no: nextRunNo('DEMO-PN'), note_type: 'daily', content: '今日复查血常规,白细胞恢复正常,准备明日出院', status: 'draft', recorded_at: iso(0, 9), recorded_by: ctx.userId },
+    { tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: admissions[1].id, pet_id: ctx.petId['跳跳'], note_no: nextRunNo('DEMO-PN'), note_type: 'daily', content: '补液后呕吐停止,已少量进食', status: 'signed', recorded_at: iso(-1, 16), recorded_by: ctx.userId, signed_at: iso(-1, 17), signed_by: ctx.userId },
   ])
   track('inpatient_progress_notes', notes)
 
@@ -989,8 +1004,8 @@ async function seedInpatient(itemId) {
   }
   // 生成病程 + 住院收费(演示病房/ICU 明细)
   const genNotes = await ins('inpatient_progress_notes', [
-    { tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: genAdms[0].id, pet_id: ctx.petId['旺财'], note_no: nextNo('DEMO-PN'), note_type: 'daily', content: '犬瘟恢复期,饮食正常,继续口服维生素', status: 'signed', recorded_at: iso(0, 9), recorded_by: ctx.userId, signed_at: iso(0, 10), signed_by: ctx.userId },
-    { tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: genAdms[1].id, pet_id: ctx.petId['富贵'], note_no: nextNo('DEMO-PN'), note_type: 'postop', content: '术后首日,留置导尿管通畅,心电监护稳定', status: 'draft', recorded_at: iso(0, 9), recorded_by: ctx.userId },
+    { tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: genAdms[0].id, pet_id: ctx.petId['旺财'], note_no: nextRunNo('DEMO-PN'), note_type: 'daily', content: '犬瘟恢复期,饮食正常,继续口服维生素', status: 'signed', recorded_at: iso(0, 9), recorded_by: ctx.userId, signed_at: iso(0, 10), signed_by: ctx.userId },
+    { tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: genAdms[1].id, pet_id: ctx.petId['富贵'], note_no: nextRunNo('DEMO-PN'), note_type: 'postop', content: '术后首日,留置导尿管通畅,心电监护稳定', status: 'draft', recorded_at: iso(0, 9), recorded_by: ctx.userId },
   ])
   track('inpatient_progress_notes', genNotes)
   const genCharges = await ins('inpatient_charges', [

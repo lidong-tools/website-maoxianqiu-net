@@ -125,6 +125,30 @@ function getDataList() {
     })
 }
 
+// ===== 工具栏:筛选/搜索 + 前端分页(参考优惠券界面布局) =====
+const page = ref(1)
+const pageSize = ref(20)
+
+/** 当前分页的发票(前端分页) */
+const pagedList = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return dataList.value.slice(start, start + pageSize.value)
+})
+
+// 数据变化时修正越界页码
+watch(dataList, () => {
+  const maxPage = Math.max(1, Math.ceil(dataList.value.length / pageSize.value))
+  if (page.value > maxPage) {
+    page.value = maxPage
+  }
+})
+
+/** 筛选/搜索变化:重置到第一页并重新加载 */
+function reload() {
+  page.value = 1
+  getDataList()
+}
+
 /** 确认发票 */
 function onConfirm(row: InvoiceRow) {
   useFaModal().confirm({
@@ -226,100 +250,97 @@ onMounted(getDataList)
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(参考优惠券界面布局) -->
+    <!--
     <EntityPageHeader compact title="发票列表" description="收费收银:发票状态机 draft → confirmed → paid → refunded;大额折扣需 manager 审批" />
-    <FaPageMain>
-      <FaSearchBar :show-toggle="false">
-        <template #default>
-          <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
-            <FaLabel label="发票号" class="col-span-1">
+    -->
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <!-- 主要内容卡片:工具栏(左筛选/搜索,右功能按钮) + 表格 + 分页 -->
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+        <!-- 工具栏 -->
+        <div class="px-4 pt-3 border-b">
+          <div class="pb-3 flex items-center justify-between">
+            <div class="flex gap-2 items-center">
+              <BusinessStorePicker v-model="search.storeId" class="w-44" placeholder="选择门店(可选)" @change="reload" />
+              <FaSelect
+                v-model="search.status"
+                placeholder="全部状态"
+                class="w-36"
+                :options="statusOptions"
+                @change="reload"
+              />
               <FaInput
                 v-model="search.keyword"
                 placeholder="按发票号搜索"
                 clearable
-                class="w-full"
-                @keydown.enter="getDataList"
-                @clear="getDataList"
+                class="w-52"
+                @keydown.enter="reload"
+                @clear="reload"
               />
-            </FaLabel>
-            <FaLabel label="状态" class="col-span-1">
-              <FaSelect
-                v-model="search.status"
-                placeholder="全部状态"
-                class="w-full"
-                :options="statusOptions"
-                @change="getDataList"
-              />
-            </FaLabel>
-            <FaLabel label="门店" class="col-span-1">
-              <BusinessStorePicker v-model="search.storeId" placeholder="选择门店(可选)" />
-            </FaLabel>
-            <div class="flex gap-2 col-end--1 justify-end">
-              <FaButton variant="outline" @click="search.keyword = ''; search.status = ''; search.storeId = ''; getDataList()">
-                重置
-              </FaButton>
-              <FaButton type="primary" @click="getDataList">
-                <FaIcon name="i-ri:search-line" />
-                筛选
-              </FaButton>
             </div>
           </div>
-        </template>
-      </FaSearchBar>
-      <div class="mx--4 my-3 border-t border-t-dashed" />
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="tableColumns"
-        :data="dataList"
-      >
-        <template #toolbar>
-          <FaButton type="primary" @click="onGotoCashier">
-            <FaIcon name="i-ri:add-line" />
-            新建收银
-          </FaButton>
-        </template>
-        <template #cell-operation="{ row }">
-          <div class="flex-center gap-2">
-            <FaButton
-              v-if="row.original.status === 'draft'"
-              variant="outline"
-              size="icon-sm"
-              @click="onConfirm(row.original)"
-            >
-              <FaIcon name="i-ri:check-line" />
-            </FaButton>
-            <FaButton
-              v-if="row.original.status === 'draft' || row.original.status === 'confirmed'"
-              variant="outline"
-              size="icon-sm"
-              @click="onCancel(row.original)"
-            >
-              <FaIcon name="i-ri:close-line" />
-            </FaButton>
-            <FaButton
-              v-if="row.original.status === 'paid' || row.original.status === 'partially_paid'"
-              variant="outline"
-              size="icon-sm"
-              @click="openRefund(row.original)"
-            >
-              <FaIcon name="i-ri:refund-2-line" />
-            </FaButton>
-            <FaButton
-              variant="outline"
-              size="icon-sm"
-              @click="onGotoCashier"
-            >
-              <FaIcon name="i-ri:eye-line" />
-            </FaButton>
-          </div>
-        </template>
-      </FaTable>
-      <div v-if="total > 0" class="text-sm text-secondary-foreground/60 mt-2">
-        共 {{ total }} 条
+        </div>
+
+        <!-- 表格区 -->
+        <div class="flex-1 min-h-0 overflow-auto">
+          <FaTable
+            v-loading="loading"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="tableColumns"
+            :data="pagedList"
+            empty-text="暂无发票"
+          >
+            <template #cell-operation="{ row }">
+              <div class="flex-center gap-2">
+                <FaButton
+                  v-if="row.original.status === 'draft'"
+                  variant="outline"
+                  size="icon-sm"
+                  @click="onConfirm(row.original)"
+                >
+                  <FaIcon name="i-ri:check-line" />
+                </FaButton>
+                <FaButton
+                  v-if="row.original.status === 'draft' || row.original.status === 'confirmed'"
+                  variant="outline"
+                  size="icon-sm"
+                  @click="onCancel(row.original)"
+                >
+                  <FaIcon name="i-ri:close-line" />
+                </FaButton>
+                <FaButton
+                  v-if="row.original.status === 'paid' || row.original.status === 'partially_paid'"
+                  variant="outline"
+                  size="icon-sm"
+                  @click="openRefund(row.original)"
+                >
+                  <FaIcon name="i-ri:refund-2-line" />
+                </FaButton>
+                <FaButton
+                  variant="outline"
+                  size="icon-sm"
+                  @click="onGotoCashier"
+                >
+                  <FaIcon name="i-ri:eye-line" />
+                </FaButton>
+              </div>
+            </template>
+          </FaTable>
+        </div>
+
+        <!-- 分页区 -->
+        <FaPagination
+          :page="page"
+          :size="pageSize"
+          :total="total"
+          class="mt-2 px-4 pb-3"
+          @page-change="p => { page = p }"
+          @size-change="s => { pageSize = s; page = 1 }"
+        />
       </div>
 
       <!-- 退款弹窗(MXQ-8004) -->
@@ -353,6 +374,6 @@ onMounted(getDataList)
           </FaLabel>
         </div>
       </FaModal>
-    </FaPageMain>
+    </div>
   </div>
 </template>

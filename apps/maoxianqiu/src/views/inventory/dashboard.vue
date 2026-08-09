@@ -14,6 +14,9 @@ const warehouses = ref<Warehouse[]>([])
 const selectedWarehouseId = ref('')
 const nearExpiryList = ref<NearExpiryItem[]>([])
 const balances = ref<InventoryBalance[]>([])
+const keyword = ref('')
+const page = ref(1)
+const pageSize = ref(20)
 
 const nearExpiryColumns = computed<TableColumn<NearExpiryItem>[]>(() => [
   { accessorKey: 'warehouse_name', header: '仓库' },
@@ -55,6 +58,7 @@ async function loadNearExpiry() {
   loading.value = true
   try {
     nearExpiryList.value = await apiInventory.listNearExpiryByView(tenantStore.currentStoreId || undefined)
+    page.value = 1
   }
   catch (e: any) {
     useFaToast().error(e?.message || '加载近效期预警失败')
@@ -80,11 +84,25 @@ async function loadBalances() {
   balances.value = all
 }
 
+/** 按仓库 + 关键词(批次号/供应商/商品ID/仓库名)过滤近效期列表 */
 const filteredNearExpiry = computed(() => {
-  if (!selectedWarehouseId.value) {
-    return nearExpiryList.value
-  }
-  return nearExpiryList.value.filter(item => item.warehouse_id === selectedWarehouseId.value)
+  const kw = keyword.value.trim().toLowerCase()
+  return nearExpiryList.value.filter((item) => {
+    if (selectedWarehouseId.value && item.warehouse_id !== selectedWarehouseId.value) {
+      return false
+    }
+    if (!kw) {
+      return true
+    }
+    return [item.batch_no, item.supplier, item.catalog_item_id, item.warehouse_name]
+      .some(v => (v ?? '').toLowerCase().includes(kw))
+  })
+})
+
+/** 当前分页的近效期数据(前端分页) */
+const pagedNearExpiry = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return filteredNearExpiry.value.slice(start, start + pageSize.value)
 })
 
 const skuCount = computed(() => new Set(balances.value.map(b => b.catalog_item_id)).size)
@@ -115,6 +133,8 @@ onMounted(async () => {
 
 <template>
   <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(参考优惠券界面布局) -->
+    <!--
     <EntityPageHeader compact title="库存概览" description="SKU / 在库 / 预占 / 近效期预警">
       <template #actions>
         <FaSelect
@@ -130,6 +150,7 @@ onMounted(async () => {
         </FaButton>
       </template>
     </EntityPageHeader>
+    -->
 
     <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
       <!-- KPI -->
@@ -168,24 +189,61 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- 近效期预警 -->
+      <!-- 主要内容卡片:工具栏(左筛选/搜索,右功能按钮) + 表格 + 分页 -->
       <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
-        <div class="px-4 py-2.5 border-b flex gap-2 items-center">
-          <FaIcon name="i-lucide:alarm-clock" class="text-orange-500" />
-          <span class="text-sm font-medium">近效期预警</span>
-          <FaTag variant="outline" size="sm">{{ filteredNearExpiry.length }}</FaTag>
-          <span class="text-xs text-muted-foreground">项</span>
+        <!-- 工具栏 -->
+        <div class="px-4 pt-3 border-b">
+          <div class="pb-3 flex items-center justify-between">
+            <div class="flex gap-2 items-center">
+              <FaSelect
+                v-model="selectedWarehouseId"
+                placeholder="全部仓库"
+                clearable
+                class="w-36"
+                :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
+                @change="page = 1"
+              />
+              <FaInput
+                v-model="keyword"
+                placeholder="搜索批次号/供应商/商品"
+                clearable
+                class="w-52"
+                @update:model-value="page = 1"
+              />
+              <span class="text-sm text-muted-foreground">
+                共 {{ filteredNearExpiry.length }} 条近效期
+              </span>
+            </div>
+            <FaButton size="sm" variant="outline" @click="onRefresh">
+              <FaIcon name="i-lucide:refresh-cw" />
+              刷新
+            </FaButton>
+          </div>
         </div>
-        <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
+
+        <!-- 表格区 -->
+        <div class="flex-1 min-h-0 overflow-auto">
           <FaTable
-            table-root-class="rounded-lg overflow-hidden"
+            v-loading="loading"
+            table-root-class="overflow-hidden"
             row-key="batch_id"
             stripe
             border
             :columns="nearExpiryColumns"
-            :data="filteredNearExpiry"
+            :data="pagedNearExpiry"
+            empty-text="暂无近效期批次"
           />
         </div>
+
+        <!-- 分页区 -->
+        <FaPagination
+          :page="page"
+          :size="pageSize"
+          :total="filteredNearExpiry.length"
+          class="mt-2 px-4 pb-3"
+          @page-change="p => { page = p }"
+          @size-change="s => { pageSize = s; page = 1 }"
+        />
       </div>
     </div>
   </div>

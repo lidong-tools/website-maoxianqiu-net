@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
 import type { PurchaseOrderRow } from '@/api/modules/inventory'
+import type { PurchaseOrder, PurchaseOrderItem, PurchaseOrderItemInput, Supplier, Warehouse } from '@/types/inventory'
 import apiInventory, { generateIdempotencyKey } from '@/api/modules/inventory'
 import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
-import type { PurchaseOrder, PurchaseOrderItem, PurchaseOrderItemInput, Supplier, Warehouse } from '@/types/inventory'
 import { PURCHASE_ORDER_STATUS_LABELS, PURCHASE_PERMISSIONS } from '@/types/inventory'
 
 defineOptions({
@@ -24,7 +24,9 @@ async function enrichCatalog(rows: Array<{ catalog_item_id: string }>) {
     return
   }
   const { data } = await supabase.from('catalog_items').select('id, name').in('id', ids)
-  data?.forEach((c: any) => { catalogNameMap.value[c.id] = c.name })
+  data?.forEach((c: any) => {
+    catalogNameMap.value[c.id] = c.name
+  })
 }
 function nameOf(id: string | null | undefined): string {
   if (!id) {
@@ -119,6 +121,40 @@ async function loadList() {
   }
 }
 
+const keyword = ref('')
+const statusFilter = ref('')
+const page = ref(1)
+const pageSize = ref(20)
+
+/** 状态 + 关键词(单号/供应商)过滤采购单 */
+const filteredList = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  return list.value.filter((row) => {
+    if (statusFilter.value && row.status !== statusFilter.value) {
+      return false
+    }
+    if (!kw) {
+      return true
+    }
+    return [row.po_no, embedName(row.suppliers)]
+      .some(v => (v ?? '').toLowerCase().includes(kw))
+  })
+})
+
+/** 当前分页的采购单(前端分页) */
+const pagedList = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return filteredList.value.slice(start, start + pageSize.value)
+})
+
+// 过滤条件变化时修正越界页码
+watch(filteredList, () => {
+  const maxPage = Math.max(1, Math.ceil(filteredList.value.length / pageSize.value))
+  if (page.value > maxPage) {
+    page.value = maxPage
+  }
+})
+
 // 门店作用域:切店后清空并重载
 useStoreScopedPage({
   load: loadList,
@@ -136,15 +172,17 @@ const detailPo = ref<PurchaseOrderRow | null>(null)
 const detailItems = ref<PurchaseOrderItem[]>([])
 const actionLoading = ref(false)
 
-const detailDescriptions = computed(() => detailPo.value ? [
-  { label: '采购单号', value: detailPo.value.po_no },
-  { label: '供应商', value: embedName(detailPo.value.suppliers) },
-  { label: '仓库', value: embedName(detailPo.value.warehouses) },
-  { label: '门店', value: embedName(detailPo.value.stores) },
-  { label: '预计到货', value: detailPo.value.expected_at ?? '-' },
-  { label: '金额', value: `¥${Number(detailPo.value.total_cost).toFixed(2)}` },
-  { label: '备注', value: detailPo.value.note ?? '-' },
-] : [])
+const detailDescriptions = computed(() => detailPo.value
+  ? [
+      { label: '采购单号', value: detailPo.value.po_no },
+      { label: '供应商', value: embedName(detailPo.value.suppliers) },
+      { label: '仓库', value: embedName(detailPo.value.warehouses) },
+      { label: '门店', value: embedName(detailPo.value.stores) },
+      { label: '预计到货', value: detailPo.value.expected_at ?? '-' },
+      { label: '金额', value: `¥${Number(detailPo.value.total_cost).toFixed(2)}` },
+      { label: '备注', value: detailPo.value.note ?? '-' },
+    ]
+  : [])
 
 /** 状态时间线节点(仅展示已发生/当前节点) */
 const timeline = computed(() => {
@@ -272,12 +310,20 @@ function refreshPurchaseDirty() {
   purchaseGuard.setDirty(purchaseSig() !== purchaseBaseline.value)
 }
 watch(createVisible, (v) => {
-  if (v) { purchaseBaseline.value = purchaseSig() }
-  else { purchaseGuard.setDirty(false) }
+  if (v) {
+    purchaseBaseline.value = purchaseSig()
+  }
+  else {
+    purchaseGuard.setDirty(false)
+  }
 })
 watch(receiveVisible, (v) => {
-  if (v) { purchaseBaseline.value = purchaseSig() }
-  else { purchaseGuard.setDirty(false) }
+  if (v) {
+    purchaseBaseline.value = purchaseSig()
+  }
+  else {
+    purchaseGuard.setDirty(false)
+  }
 })
 watch(purchaseSig, refreshPurchaseDirty)
 
@@ -479,7 +525,9 @@ async function onPost() {
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(参考优惠券界面布局) -->
+    <!--
     <EntityPageHeader compact title="采购管理" description="供应商 → 草稿 → 提交 → 审核 → 收货 → 过账入库">
       <template #actions>
         <FaButton v-if="auth(PURCHASE_PERMISSIONS.create)" @click="openCreate">
@@ -488,27 +536,63 @@ async function onPost() {
         </FaButton>
       </template>
     </EntityPageHeader>
-    <FaPageMain>
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="columns"
-        :data="list"
-        empty-text="暂无采购单"
-        @row-click="openDetail"
-      >
-        <template #cell-operation="{ row }">
-          <div class="flex-center">
-            <FaButton variant="outline" size="icon-sm" @click.stop="openDetail(row.original)">
-              <FaIcon name="i-ri:eye-line" />
-            </FaButton>
+    -->
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+        <!-- 工具栏:左筛选/搜索,右功能按钮 -->
+        <div class="px-4 pt-3 border-b">
+          <div class="pb-3 flex items-center justify-between">
+            <div class="flex gap-2 items-center">
+              <FaSelect
+                v-model="statusFilter"
+                :options="[{ label: '全部状态', value: '' }, ...Object.entries(PURCHASE_ORDER_STATUS_LABELS).map(([value, label]) => ({ label, value }))]"
+                class="w-36"
+                @update:model-value="page = 1"
+              />
+              <FaInput v-model="keyword" placeholder="搜索单号/供应商" clearable class="w-52" @update:model-value="page = 1" />
+              <span class="text-sm text-muted-foreground">共 {{ filteredList.length }} 个采购单</span>
+            </div>
+            <div class="flex gap-2">
+              <FaButton v-if="auth(PURCHASE_PERMISSIONS.create)" @click="openCreate">
+                <FaIcon name="i-lucide:plus" />
+                新建采购单
+              </FaButton>
+            </div>
           </div>
-        </template>
-      </FaTable>
-    </FaPageMain>
+        </div>
+        <!-- 表格区 -->
+        <div class="flex-1 min-h-0 overflow-auto">
+          <FaTable
+            v-loading="loading"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="columns"
+            :data="pagedList"
+            empty-text="暂无采购单"
+            @row-click="openDetail"
+          >
+            <template #cell-operation="{ row }">
+              <div class="flex-center">
+                <FaButton variant="outline" size="icon-sm" @click.stop="openDetail(row.original)">
+                  <FaIcon name="i-ri:eye-line" />
+                </FaButton>
+              </div>
+            </template>
+          </FaTable>
+        </div>
+        <!-- 分页区 -->
+        <FaPagination
+          :page="page"
+          :size="pageSize"
+          :total="filteredList.length"
+          class="mt-2 px-4 pb-3"
+          @page-change="p => { page = p }"
+          @size-change="s => { pageSize = s; page = 1 }"
+        />
+      </div>
+    </div>
 
     <!-- 采购详情 -->
     <FaDrawer v-model="detailVisible" :title="detailPo?.po_no ?? '采购详情'" width="720px" :footer="false">
@@ -518,11 +602,11 @@ async function onPost() {
         <div class="text-sm font-medium mb-2 mt-5">
           状态进度
         </div>
-        <div class="rounded-lg border p-4">
-          <div class="flex items-center gap-2 flex-wrap">
+        <div class="p-4 border rounded-lg">
+          <div class="flex flex-wrap gap-2 items-center">
             <template v-for="(step, idx) in timeline" :key="step.label">
-              <div class="flex items-center gap-2">
-                <span class="inline-flex size-2 rounded-full bg-green-500" />
+              <div class="flex gap-2 items-center">
+                <span class="rounded-full bg-green-500 inline-flex size-2" />
                 <span class="text-xs">
                   {{ step.label }}
                   <span v-if="step.at" class="text-muted-foreground">
@@ -530,7 +614,7 @@ async function onPost() {
                   </span>
                 </span>
               </div>
-              <span v-if="idx < timeline.length - 1" class="text-muted-foreground text-xs">
+              <span v-if="idx < timeline.length - 1" class="text-xs text-muted-foreground">
                 →
               </span>
             </template>
@@ -553,7 +637,7 @@ async function onPost() {
         </div>
 
         <!-- 状态流转操作 -->
-        <div class="pt-5 mt-5 border-t flex gap-2 justify-end flex-wrap">
+        <div class="mt-5 pt-5 border-t flex flex-wrap gap-2 justify-end">
           <template v-if="detailPo.status === 'draft'">
             <FaButton v-if="auth(PURCHASE_PERMISSIONS.create)" :disabled="actionLoading" variant="outline" @click="onEditDraft">
               编辑草稿
@@ -619,14 +703,14 @@ async function onPost() {
           采购明细
         </div>
         <div class="space-y-2">
-          <div class="grid grid-cols-12 gap-2 text-xs text-muted-foreground px-1">
+          <div class="text-xs text-muted-foreground px-1 gap-2 grid grid-cols-12">
             <span class="col-span-5">商品</span>
             <span class="col-span-2">订购数量</span>
             <span class="col-span-2">采购价</span>
             <span class="col-span-2">金额</span>
             <span class="col-span-1" />
           </div>
-          <div v-for="(item, idx) in createItems" :key="idx" class="grid grid-cols-12 gap-2 items-center">
+          <div v-for="(item, idx) in createItems" :key="idx" class="gap-2 grid grid-cols-12 items-center">
             <div class="col-span-5">
               <BusinessCatalogItemPicker v-model="item.catalogItemId" placeholder="搜索选择商品" />
             </div>
@@ -636,10 +720,10 @@ async function onPost() {
             <div class="col-span-2">
               <FaInputNumber v-model="item.unitCost" :min="0" :precision="2" class="w-full" />
             </div>
-            <div class="col-span-2 text-sm tabular-nums">
+            <div class="text-sm col-span-2 tabular-nums">
               ¥{{ (item.orderedQty * (item.unitCost ?? 0)).toFixed(2) }}
             </div>
-            <div class="col-span-1 flex justify-end">
+            <div class="flex col-span-1 justify-end">
               <FaButton size="sm" variant="ghost" @click="removeItem(idx)">
                 <FaIcon name="i-lucide:trash-2" />
               </FaButton>
@@ -655,7 +739,7 @@ async function onPost() {
           <FaTextarea v-model="createForm.note" placeholder="备注(可选)" class="w-full" :rows="2" />
         </FaLabel>
 
-        <div class="flex items-center justify-between pt-2">
+        <div class="pt-2 flex items-center justify-between">
           <span class="text-sm">
             合计:
             <span class="font-medium tabular-nums">¥{{ createTotal.toFixed(2) }}</span>
@@ -676,18 +760,18 @@ async function onPost() {
     <FaModal v-model="receiveVisible" title="采购收货" :footer="false" :close-on-click-overlay="false" width="720px">
       <div class="py-2 space-y-3">
         <div class="space-y-2">
-          <div class="grid grid-cols-12 gap-2 text-xs text-muted-foreground px-1">
+          <div class="text-xs text-muted-foreground px-1 gap-2 grid grid-cols-12">
             <span class="col-span-3">商品</span>
             <span class="col-span-2">订购</span>
             <span class="col-span-2">实收 *</span>
             <span class="col-span-2">批次</span>
             <span class="col-span-3">效期</span>
           </div>
-          <div v-for="row in receiveForm" :key="row.id" class="grid grid-cols-12 gap-2 items-center">
-            <div class="col-span-3 text-sm truncate">
+          <div v-for="row in receiveForm" :key="row.id" class="gap-2 grid grid-cols-12 items-center">
+            <div class="text-sm col-span-3 truncate">
               {{ nameOf(detailItems.find(i => i.id === row.id)?.catalog_item_id) }}
             </div>
-            <div class="col-span-2 text-sm tabular-nums">
+            <div class="text-sm col-span-2 tabular-nums">
               {{ row.orderedQty }}
             </div>
             <div class="col-span-2">
@@ -701,7 +785,7 @@ async function onPost() {
             </div>
           </div>
         </div>
-        <div class="flex justify-end gap-2 pt-2">
+        <div class="pt-2 flex gap-2 justify-end">
           <FaButton variant="outline" @click="receiveVisible = false">
             取消
           </FaButton>

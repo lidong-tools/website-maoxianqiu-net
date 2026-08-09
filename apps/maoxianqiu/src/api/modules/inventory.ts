@@ -38,7 +38,7 @@ export interface PurchaseRequestRow extends PurchaseRequest {
   suppliers?: { id: string, name: string } | null
   warehouses?: { id: string, name: string } | null
   stores?: { id: string, name: string } | null
-  requesters?: { id: string, real_name: string } | null
+  requesters?: { id: string, real_name: string | null } | null
 }
 
 /** 采购退货列表行(内嵌供应商/仓库/门店/来源采购单名称) */
@@ -347,13 +347,31 @@ export default {
   async listPurchaseRequests(storeId: string): Promise<PurchaseRequestRow[]> {
     const { data, error } = await supabase
       .from('purchase_requests')
-      .select('*, suppliers(name, id), warehouses(name, id), stores(name, id), requesters(id, real_name)')
+      .select('*, suppliers(name, id), warehouses(name, id), stores(name, id)')
       .eq('store_id', storeId)
       .order('created_at', { ascending: false })
     if (error) {
       throw new Error(error.message)
     }
-    return (data ?? []) as PurchaseRequestRow[]
+
+    const rows = (data ?? []) as PurchaseRequestRow[]
+    const requesterIds = [...new Set(rows.map(row => row.requester_id).filter((id): id is string => !!id))]
+    if (requesterIds.length === 0) {
+      return rows
+    }
+
+    const { data: profiles, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, real_name')
+      .in('id', requesterIds)
+    if (profileError) {
+      throw new Error(profileError.message)
+    }
+    const requesterMap = new Map((profiles ?? []).map(profile => [profile.id, profile]))
+    return rows.map(row => ({
+      ...row,
+      requesters: row.requester_id ? requesterMap.get(row.requester_id) ?? null : null,
+    }))
   },
 
   /**

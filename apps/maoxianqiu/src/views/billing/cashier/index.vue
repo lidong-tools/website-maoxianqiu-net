@@ -519,6 +519,7 @@ onMounted(async () => {
 
 <template>
   <div class="flex flex-col h-full">
+    <!-- 注释掉 快速收银 界面标题和描述区域
     <EntityPageHeader compact title="快速收银" description="选客户/宠物 → 选项目 → 结算支付(幂等防重复)">
       <template #actions>
         <FaButton size="sm" variant="outline" @click="resetCart">
@@ -527,6 +528,7 @@ onMounted(async () => {
         </FaButton>
       </template>
     </EntityPageHeader>
+    -->
 
     <div class="p-4 flex flex-1 gap-4 min-h-0">
       <!-- 左:收费项目 -->

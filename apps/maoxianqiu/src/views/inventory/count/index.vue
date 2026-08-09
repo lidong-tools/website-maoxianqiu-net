@@ -23,7 +23,37 @@ const selectedWarehouseId = ref('')
 const catalogNameMap = ref<Record<string, string>>({})
 
 const diffCount = computed(() => countRows.value.filter(row => row.diff !== 0).length)
-const totalCounted = computed(() => countRows.value.length)
+
+// ===== 工具栏:筛选/搜索 + 前端分页(参考优惠券界面布局) =====
+const keyword = ref('')
+const page = ref(1)
+const pageSize = ref(20)
+
+/** 按关键词(商品名称/ID)过滤盘点行 */
+const filteredCountRows = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  if (!kw) {
+    return countRows.value
+  }
+  return countRows.value.filter((row) => {
+    const name = catalogNameMap.value[row.catalog_item_id] ?? ''
+    return `${name} ${row.catalog_item_id}`.toLowerCase().includes(kw)
+  })
+})
+
+/** 当前分页的盘点行(前端分页) */
+const pagedCountRows = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return filteredCountRows.value.slice(start, start + pageSize.value)
+})
+
+// 过滤条件变化时修正越界页码
+watch(filteredCountRows, () => {
+  const maxPage = Math.max(1, Math.ceil(filteredCountRows.value.length / pageSize.value))
+  if (page.value > maxPage) {
+    page.value = maxPage
+  }
+})
 
 async function enrichCatalog() {
   const ids = [...new Set(countRows.value.map(r => r.catalog_item_id).filter(Boolean))]
@@ -31,7 +61,9 @@ async function enrichCatalog() {
     return
   }
   const { data } = await supabase.from('catalog_items').select('id, name').in('id', ids)
-  data?.forEach((c: any) => { catalogNameMap.value[c.id] = c.name })
+  data?.forEach((c: any) => {
+    catalogNameMap.value[c.id] = c.name
+  })
 }
 
 const countColumns = computed<TableColumn<CountRow>[]>(() => [
@@ -107,6 +139,7 @@ async function loadBalances() {
       diff: 0,
     }))
     await enrichCatalog()
+    page.value = 1
   }
   catch (e: any) {
     useFaToast().error(e?.message || '加载余额失败')
@@ -178,6 +211,8 @@ onMounted(loadWarehouses)
 
 <template>
   <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(参考优惠券界面布局) -->
+    <!--
     <EntityPageHeader compact title="盘点管理" description="系统在库 vs 实盘 · 有差异才提交">
       <template #actions>
         <FaSelect
@@ -188,26 +223,61 @@ onMounted(loadWarehouses)
         />
       </template>
     </EntityPageHeader>
+    -->
 
     <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <!-- 主要内容卡片:工具栏(左筛选/搜索,右功能按钮) + 表格 + 分页 -->
       <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
-        <div class="px-4 py-2.5 border-b flex items-center justify-between">
-          <span class="text-sm font-medium">盘点工作表({{ totalCounted }} 项)</span>
-          <FaButton size="sm" variant="outline" @click="onResetCount">
-            <FaIcon name="i-lucide:rotate-ccw" />
-            重置为系统数
-          </FaButton>
+        <!-- 工具栏 -->
+        <div class="px-4 pt-3 border-b">
+          <div class="pb-3 flex items-center justify-between">
+            <div class="flex gap-2 items-center">
+              <FaSelect
+                v-model="selectedWarehouseId"
+                placeholder="选择仓库"
+                class="w-36"
+                :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
+              />
+              <FaInput
+                v-model="keyword"
+                placeholder="搜索商品名称/ID"
+                clearable
+                class="w-52"
+                @update:model-value="page = 1"
+              />
+              <span class="text-sm text-muted-foreground">
+                共 {{ filteredCountRows.length }} 项
+              </span>
+            </div>
+            <FaButton size="sm" variant="outline" @click="onResetCount">
+              <FaIcon name="i-lucide:rotate-ccw" />
+              重置为系统数
+            </FaButton>
+          </div>
         </div>
+
+        <!-- 表格区 -->
         <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
           <FaTable
-            table-root-class="rounded-lg overflow-hidden"
+            table-root-class="overflow-hidden"
             row-key="id"
             stripe
             border
             :columns="countColumns"
-            :data="countRows"
+            :data="pagedCountRows"
+            empty-text="暂无盘点数据"
           />
         </div>
+
+        <!-- 分页区 -->
+        <FaPagination
+          :page="page"
+          :size="pageSize"
+          :total="filteredCountRows.length"
+          class="mt-2 px-4 pb-3"
+          @page-change="p => { page = p }"
+          @size-change="s => { pageSize = s; page = 1 }"
+        />
       </div>
     </div>
 

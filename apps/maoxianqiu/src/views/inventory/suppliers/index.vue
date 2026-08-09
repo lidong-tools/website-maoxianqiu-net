@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
 import type { PurchaseOrderRow } from '@/api/modules/inventory'
+import type { Supplier } from '@/types/inventory'
 import apiInventory from '@/api/modules/inventory'
 import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
-import type { Supplier } from '@/types/inventory'
 import { SUPPLIER_PERMISSIONS, SUPPLIER_STATUS_LABELS } from '@/types/inventory'
 
 defineOptions({
@@ -30,6 +30,23 @@ const filtered = computed(() => {
   )
 })
 
+const page = ref(1)
+const pageSize = ref(20)
+
+/** 当前分页的供应商(前端分页) */
+const paged = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return filtered.value.slice(start, start + pageSize.value)
+})
+
+// 过滤结果变化时修正越界页码
+watch(filtered, () => {
+  const maxPage = Math.max(1, Math.ceil(filtered.value.length / pageSize.value))
+  if (page.value > maxPage) {
+    page.value = maxPage
+  }
+})
+
 const columns = computed<TableColumn<Supplier>[]>(() => [
   { accessorKey: 'supplier_no', header: '编码', cell: (info: any) => info.getValue() ?? '-' },
   {
@@ -52,8 +69,7 @@ const columns = computed<TableColumn<Supplier>[]>(() => [
     cell: (info: any) => {
       const status = info.getValue() as Supplier['status']
       return h('span', {
-        class: ['inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs',
-          status === 'active' ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'],
+        class: ['inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs', status === 'active' ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'],
       }, SUPPLIER_STATUS_LABELS[status])
     },
   },
@@ -104,17 +120,19 @@ const detailItem = ref<Supplier | null>(null)
 const historyLoading = ref(false)
 const purchaseHistory = ref<PurchaseOrderRow[]>([])
 
-const detailDescriptions = computed(() => detailItem.value ? [
-  { label: '供应商编码', value: detailItem.value.supplier_no },
-  { label: '名称', value: detailItem.value.name },
-  { label: '联系人', value: detailItem.value.contact_name ?? '-' },
-  { label: '电话', value: detailItem.value.phone ?? '-' },
-  { label: '地址', value: detailItem.value.address ?? '-' },
-  { label: '统一社会信用代码', value: detailItem.value.unified_credit_code ?? '-' },
-  { label: '账期', value: detailItem.value.payment_terms ?? '-' },
-  { label: '类别', value: (detailItem.value.categories ?? []).join(' / ') || '-' },
-  { label: '备注', value: detailItem.value.notes ?? '-' },
-] : [])
+const detailDescriptions = computed(() => detailItem.value
+  ? [
+      { label: '供应商编码', value: detailItem.value.supplier_no },
+      { label: '名称', value: detailItem.value.name },
+      { label: '联系人', value: detailItem.value.contact_name ?? '-' },
+      { label: '电话', value: detailItem.value.phone ?? '-' },
+      { label: '地址', value: detailItem.value.address ?? '-' },
+      { label: '统一社会信用代码', value: detailItem.value.unified_credit_code ?? '-' },
+      { label: '账期', value: detailItem.value.payment_terms ?? '-' },
+      { label: '类别', value: (detailItem.value.categories ?? []).join(' / ') || '-' },
+      { label: '备注', value: detailItem.value.notes ?? '-' },
+    ]
+  : [])
 
 async function openDetail(row: Supplier) {
   detailItem.value = row
@@ -159,8 +177,14 @@ const form = reactive({
 function openCreate() {
   editingId.value = ''
   Object.assign(form, {
-    name: '', contactName: '', phone: '', address: '',
-    unifiedCreditCode: '', paymentTerms: '', categories: '', notes: '',
+    name: '',
+    contactName: '',
+    phone: '',
+    address: '',
+    unifiedCreditCode: '',
+    paymentTerms: '',
+    categories: '',
+    notes: '',
   })
   formVisible.value = true
 }
@@ -235,7 +259,9 @@ async function onToggleStatus(row: Supplier) {
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col h-full">
+    <!-- 注释掉标题和描述区域(参考优惠券界面布局) -->
+    <!--
     <EntityPageHeader compact title="供应商管理" description="供应商主数据 · 采购来源">
       <template #actions>
         <FaInput v-model="keyword" placeholder="搜索名称/联系人/电话" class="w-56" clearable />
@@ -245,36 +271,66 @@ async function onToggleStatus(row: Supplier) {
         </FaButton>
       </template>
     </EntityPageHeader>
-    <FaPageMain>
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="columns"
-        :data="filtered"
-        empty-text="暂无供应商"
-        @row-click="openDetail"
-      >
-        <template #cell-operation="{ row }">
-          <div class="flex-center gap-1">
-            <FaButton variant="outline" size="sm" :disabled="!auth(SUPPLIER_PERMISSIONS.manage)" @click.stop="openEdit(row.original)">
-              编辑
-            </FaButton>
-            <FaButton
-              variant="outline"
-              size="sm"
-              :disabled="!auth(SUPPLIER_PERMISSIONS.manage)"
-              :class="row.original.status === 'active' ? 'text-red-600' : 'text-green-600'"
-              @click.stop="onToggleStatus(row.original)"
-            >
-              {{ row.original.status === 'active' ? '停用' : '启用' }}
-            </FaButton>
+    -->
+    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+        <!-- 工具栏:左筛选/搜索,右功能按钮 -->
+        <div class="px-4 pt-3 border-b">
+          <div class="pb-3 flex items-center justify-between">
+            <div class="flex gap-2 items-center">
+              <FaInput v-model="keyword" placeholder="搜索名称/联系人/电话" clearable class="w-52" @update:model-value="page = 1" />
+              <span class="text-sm text-muted-foreground">共 {{ filtered.length }} 个供应商</span>
+            </div>
+            <div class="flex gap-2">
+              <FaButton v-if="auth(SUPPLIER_PERMISSIONS.manage)" @click="openCreate">
+                <FaIcon name="i-lucide:plus" />
+                新增供应商
+              </FaButton>
+            </div>
           </div>
-        </template>
-      </FaTable>
-    </FaPageMain>
+        </div>
+        <!-- 表格区 -->
+        <div class="flex-1 min-h-0 overflow-auto">
+          <FaTable
+            v-loading="loading"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="columns"
+            :data="paged"
+            empty-text="暂无供应商"
+            @row-click="openDetail"
+          >
+            <template #cell-operation="{ row }">
+              <div class="flex-center gap-1">
+                <FaButton variant="outline" size="sm" :disabled="!auth(SUPPLIER_PERMISSIONS.manage)" @click.stop="openEdit(row.original)">
+                  编辑
+                </FaButton>
+                <FaButton
+                  variant="outline"
+                  size="sm"
+                  :disabled="!auth(SUPPLIER_PERMISSIONS.manage)"
+                  :class="row.original.status === 'active' ? 'text-red-600' : 'text-green-600'"
+                  @click.stop="onToggleStatus(row.original)"
+                >
+                  {{ row.original.status === 'active' ? '停用' : '启用' }}
+                </FaButton>
+              </div>
+            </template>
+          </FaTable>
+        </div>
+        <!-- 分页区 -->
+        <FaPagination
+          :page="page"
+          :size="pageSize"
+          :total="filtered.length"
+          class="mt-2 px-4 pb-3"
+          @page-change="p => { page = p }"
+          @size-change="s => { pageSize = s; page = 1 }"
+        />
+      </div>
+    </div>
 
     <!-- 详情抽屉 -->
     <FaDrawer v-model="detailVisible" :title="detailItem?.name ?? '供应商详情'" width="560px" :footer="false">
@@ -287,7 +343,7 @@ async function onToggleStatus(row: Supplier) {
           <div
             v-for="po in purchaseHistory"
             :key="po.id"
-            class="rounded-md border px-3 py-2 flex items-center justify-between text-sm"
+            class="text-sm px-3 py-2 border rounded-md flex items-center justify-between"
           >
             <div>
               <div class="font-medium">
