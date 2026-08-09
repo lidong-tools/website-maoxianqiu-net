@@ -3,19 +3,31 @@
 # 用法: bash scripts/e2e-setup.sh
 # 前置环境变量(先强校验后执行,杜绝半途失败/误用):
 #   E2E_USERNAME / E2E_PASSWORD : Supabase Auth 登录邮箱/密码(e2e 栈统一命名,见 e2e/README.md)
+#                                (兼容旧名 E2E_ACCOUNT_EMAIL / E2E_ACCOUNT_PASSWORD,仅作 fallback)
 #   DATABASE_URL                : PostgreSQL 连接串(自带库级凭据,仅用于 psql 写入前置数据)
 #   api/.env.local              : 需含 SUPABASE_SERVICE_ROLE_KEY / SUPABASE_URL
+#   RUNTIME_DB_MODE             : local | staging-reset | upgrade-rehearsal(默认 local)
+#   ALLOW_DESTRUCTIVE_DB_RESET  : 必须显式设为 YES 才允许 db reset(防误重置保护开关)
+#   SUPABASE_PROD_PROJECT_REFS  : 可选,逗号分隔的生产 project ref,命中则拒绝任何 reset
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# 加载共享运行时门禁工具(production 识别 / destructive reset 安全门 / 报告记录)
+# shellcheck source=scripts/runtime-common.sh
+source "${PWD}/scripts/runtime-common.sh"
+
 # 0. 环境变量与配置强校验(任何副作用之前,尤其先于 db reset)
-: "${E2E_USERNAME:?请设置 E2E_USERNAME(Supabase 登录邮箱)}"
-: "${E2E_PASSWORD:?请设置 E2E_PASSWORD(登录密码)}"
-: "${DATABASE_URL:?请设置 DATABASE_URL(PostgreSQL 连接串)}"
+#    新统一命名 E2E_USERNAME/E2E_PASSWORD;兼容旧名仅作 fallback
+E2E_USERNAME="${E2E_USERNAME:-${E2E_ACCOUNT_EMAIL:-}}"
+E2E_PASSWORD="${E2E_PASSWORD:-${E2E_ACCOUNT_PASSWORD:-}}"
+require_runtime_envs E2E_USERNAME E2E_PASSWORD DATABASE_URL
 command -v supabase >/dev/null 2>&1 || { echo "错误: 需要 supabase CLI 在 PATH 中"; exit 1; }
 [ -f api/.env.local ] || { echo "错误: 缺少 api/.env.local(Supabase 配置)"; exit 1; }
 grep -qE '^SUPABASE_SERVICE_ROLE_KEY=.+' api/.env.local || { echo "错误: api/.env.local 缺少非空 SUPABASE_SERVICE_ROLE_KEY"; exit 1; }
 grep -qE '^SUPABASE_URL=.+' api/.env.local || { echo "错误: api/.env.local 缺少非空 SUPABASE_URL"; exit 1; }
+
+# 0.5 destructive reset 安全门(模式 + 开关 + production 防护 + 交互确认)
+require_destructive_reset
 
 echo "=== 1. 重置 staging 库(migration + seed) ==="
 supabase db reset --linked --yes
