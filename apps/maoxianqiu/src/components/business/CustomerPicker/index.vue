@@ -10,12 +10,14 @@ defineOptions({
   name: 'BusinessCustomerPicker',
 })
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   placeholder?: string
   disabled?: boolean
+  storeId?: string
 }>(), {
   placeholder: '搜索选择客户',
   disabled: false,
+  storeId: undefined,
 })
 
 const emit = defineEmits<{
@@ -38,15 +40,12 @@ const displayOptions = computed(() => options.value)
 /**
  * 搜索客户(按姓名/手机/编号模糊匹配)
  */
-async function searchCustomers(keyword: string) {
-  if (!keyword.trim()) {
-    options.value = []
-    return
-  }
+async function searchCustomers(keyword = '') {
   loading.value = true
   try {
     const res: any = await apiCustomer.list({
-      keyword: keyword.trim(),
+      keyword: keyword.trim() || undefined,
+      storeId: props.storeId,
       page: 1,
       pageSize: 20,
     })
@@ -80,6 +79,14 @@ watch(searchKeyword, (val) => {
     clearTimeout(timer)
   }
   timer = setTimeout(searchCustomers, 300, val)
+})
+
+watch(() => props.storeId, () => {
+  searchCustomers(searchKeyword.value)
+})
+
+onMounted(() => {
+  searchCustomers()
 })
 </script>
 

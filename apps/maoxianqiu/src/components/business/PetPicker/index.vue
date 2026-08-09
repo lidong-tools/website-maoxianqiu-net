@@ -34,17 +34,15 @@ const options = ref<PetOption[]>([])
 const searchKeyword = ref('')
 
 watch(() => props.customerId, () => {
-  // 客户变更时重新搜索
-  if (searchKeyword.value) {
-    searchPets(searchKeyword.value)
-  }
+  model.value = ''
+  searchPets(searchKeyword.value)
 })
 
 /**
  * 搜索宠物(按名字模糊匹配,可按客户过滤)
  */
-async function searchPets(keyword: string) {
-  if (!keyword.trim()) {
+async function searchPets(keyword = '') {
+  if (!props.customerId) {
     options.value = []
     return
   }
@@ -59,7 +57,10 @@ async function searchPets(keyword: string) {
     if (props.customerId) {
       query = query.eq('customer_id', props.customerId)
     }
-    query = query.or(`name.ilike.%${keyword.trim()}%`).limit(20)
+    if (keyword.trim()) {
+      query = query.or(`name.ilike.%${keyword.trim()}%`)
+    }
+    query = query.limit(20)
 
     const { data, error } = await query
     if (error) {
@@ -93,6 +94,10 @@ watch(searchKeyword, (val) => {
     clearTimeout(timer)
   }
   timer = setTimeout(searchPets, 300, val)
+})
+
+onMounted(() => {
+  searchPets()
 })
 </script>
 

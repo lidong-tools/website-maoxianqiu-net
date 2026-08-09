@@ -198,7 +198,7 @@ const createInvoiceSchema = z.object({
   discountAmount: z.number().nonnegative().optional(),
   discountReason: z.string().max(500).optional(),
   taxAmount: z.number().nonnegative().optional(),
-  paymentMethod: z.enum(['cash', 'wechat', 'alipay', 'card', 'other']).optional(),
+  paymentMethod: z.enum(['cash', 'wechat', 'alipay', 'card', 'other', 'stored_value']).optional(),
   dueDate: z.string().optional(),
   idempotencyKey: z.string().max(200).optional(),
   applyMembershipDiscount: z.boolean().optional(),
@@ -223,6 +223,52 @@ billingRoutes.post('/invoices', async (c) => {
   const service = createServiceClient()
   const user = c.get('user')
   const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
+
+  // service role 写入前校验业务归属,避免客户、宠物或目录项目跨租户/跨门店串单。
+  if (input.customerId) {
+    const { data: customer } = await service
+      .from('customers')
+      .select('id')
+      .eq('id', input.customerId)
+      .eq('tenant_id', scope.tenantId)
+      .neq('status', 'archived')
+      .neq('status', 'merged')
+      .maybeSingle()
+    if (!customer) {
+      throw err.badRequest('客户不存在、已归档或不属于当前租户')
+    }
+  }
+
+  if (input.petId) {
+    if (!input.customerId) {
+      throw err.badRequest('选择宠物时必须同时绑定客户')
+    }
+    const { data: pet } = await service
+      .from('pets')
+      .select('id')
+      .eq('id', input.petId)
+      .eq('tenant_id', scope.tenantId)
+      .eq('customer_id', input.customerId)
+      .neq('status', 'archived')
+      .maybeSingle()
+    if (!pet) {
+      throw err.badRequest('宠物不存在、已归档或不属于所选客户')
+    }
+  }
+
+  const storeCatalogIds = [...new Set(input.items.flatMap(item => item.storeCatalogItemId ? [item.storeCatalogItemId] : []))]
+  if (storeCatalogIds.length > 0) {
+    const { data: storeItems, error: storeItemsError } = await service
+      .from('store_catalog_items')
+      .select('id')
+      .eq('tenant_id', scope.tenantId)
+      .eq('store_id', scope.storeId)
+      .eq('is_active', true)
+      .in('id', storeCatalogIds)
+    if (storeItemsError || (storeItems ?? []).length !== storeCatalogIds.length) {
+      throw err.badRequest('收费项目已停用或不属于当前门店,请刷新后重试')
+    }
+  }
 
   // 把 items 转为 RPC 期望的 jsonb 数组
   const itemsJson = input.items.map((item, idx) => ({
