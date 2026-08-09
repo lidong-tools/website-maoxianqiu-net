@@ -65,6 +65,26 @@ const routes: RouteRecordRaw[] = [
       auth: 'purchase.view',
     },
   },
+  {
+    path: '/inventory/purchase-requests',
+    name: 'inventoryPurchaseRequests',
+    component: () => import('@/views/inventory/purchase-requests/index.vue'),
+    meta: {
+      title: '采购申请',
+      icon: 'i-ri:file-list-3-line',
+      auth: 'purchase_request.view',
+    },
+  },
+  {
+    path: '/inventory/purchase-returns',
+    name: 'inventoryPurchaseReturns',
+    component: () => import('@/views/inventory/purchase-returns/index.vue'),
+    meta: {
+      title: '采购退货',
+      icon: 'i-ri:file-upload-line',
+      auth: 'purchase_return.view',
+    },
+  },
 ]
 
 export default routes

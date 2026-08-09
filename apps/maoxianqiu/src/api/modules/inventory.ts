@@ -8,6 +8,12 @@ import type {
   PurchaseOrderItem,
   PurchaseOrderItemInput,
   PurchaseReceiveItemInput,
+  PurchaseRequest,
+  PurchaseRequestItem,
+  PurchaseRequestItemInput,
+  PurchaseReturn,
+  PurchaseReturnItem,
+  PurchaseReturnItemInput,
   ReservationProcessInput,
   ReserveInput,
   StockCountInput,
@@ -25,6 +31,22 @@ export interface PurchaseOrderRow extends PurchaseOrder {
   suppliers?: { id: string, name: string } | null
   warehouses?: { id: string, name: string } | null
   stores?: { id: string, name: string } | null
+}
+
+/** 采购申请列表行(内嵌供应商/仓库/门店/申请人名称) */
+export interface PurchaseRequestRow extends PurchaseRequest {
+  suppliers?: { id: string, name: string } | null
+  warehouses?: { id: string, name: string } | null
+  stores?: { id: string, name: string } | null
+  requesters?: { id: string, real_name: string } | null
+}
+
+/** 采购退货列表行(内嵌供应商/仓库/门店/来源采购单名称) */
+export interface PurchaseReturnRow extends PurchaseReturn {
+  suppliers?: { id: string, name: string } | null
+  warehouses?: { id: string, name: string } | null
+  stores?: { id: string, name: string } | null
+  purchase_orders?: { id: string, po_no: string } | null
 }
 
 /**
@@ -312,6 +334,178 @@ export default {
    */
   postPurchaseOrder(data: { tenantId: string, poId: string }, idempotencyKey: string) {
     return api.post('inventory/purchase-orders/post', data, {
+      headers: { 'idempotency-key': idempotencyKey },
+    })
+  },
+
+  // ===== 采购申请(Stage-04 Agent-07,状态流转经 Hono Command + RPC) =====
+
+  /**
+   * 采购申请列表(浏览器直连,RLS 按门店过滤;内嵌供应商/仓库/门店/申请人名称)
+   * @param storeId 当前门店 id
+   */
+  async listPurchaseRequests(storeId: string): Promise<PurchaseRequestRow[]> {
+    const { data, error } = await supabase
+      .from('purchase_requests')
+      .select('*, suppliers(name, id), warehouses(name, id), stores(name, id), requesters(id, real_name)')
+      .eq('store_id', storeId)
+      .order('created_at', { ascending: false })
+    if (error) {
+      throw new Error(error.message)
+    }
+    return (data ?? []) as PurchaseRequestRow[]
+  },
+
+  /**
+   * 采购申请明细(浏览器直连,RLS 按门店过滤)
+   * @param purchaseRequestId 采购申请 id
+   */
+  async listPurchaseRequestItems(purchaseRequestId: string): Promise<PurchaseRequestItem[]> {
+    const { data, error } = await supabase
+      .from('purchase_request_items')
+      .select('*')
+      .eq('purchase_request_id', purchaseRequestId)
+      .order('created_at', { ascending: true })
+    if (error) {
+      throw new Error(error.message)
+    }
+    return (data ?? []) as PurchaseRequestItem[]
+  },
+
+  /** 创建采购申请草稿(draft) */
+  createPurchaseRequest(data: {
+    tenantId: string
+    storeId: string
+    warehouseId: string
+    supplierId?: string
+    requesterId?: string
+    reason?: string
+    requiredAt?: string
+    items: PurchaseRequestItemInput[]
+  }) {
+    return api.post('inventory/purchase-requests', data)
+  },
+
+  /** 编辑草稿(仅 draft,替换全部明细) */
+  updatePurchaseRequestDraft(data: {
+    tenantId: string
+    requestId: string
+    warehouseId: string
+    supplierId?: string
+    requesterId?: string
+    reason?: string
+    requiredAt?: string
+    items: PurchaseRequestItemInput[]
+  }) {
+    return api.post('inventory/purchase-requests/draft', data)
+  },
+
+  /** 提交采购申请(draft → submitted) */
+  submitPurchaseRequest(data: { tenantId: string, requestId: string }) {
+    return api.post('inventory/purchase-requests/submit', data)
+  },
+
+  /** 审核采购申请(submitted → approved,禁止自审) */
+  approvePurchaseRequest(data: { tenantId: string, requestId: string }) {
+    return api.post('inventory/purchase-requests/approve', data)
+  },
+
+  /** 驳回采购申请(submitted → rejected) */
+  rejectPurchaseRequest(data: { tenantId: string, requestId: string, rejectReason?: string }) {
+    return api.post('inventory/purchase-requests/reject', data)
+  },
+
+  /** 取消采购申请(draft / submitted → cancelled) */
+  cancelPurchaseRequest(data: { tenantId: string, requestId: string }) {
+    return api.post('inventory/purchase-requests/cancel', data)
+  },
+
+  /** 转换为采购单(approved → converted_to_po;幂等,重复调用返回同一 PO) */
+  convertPurchaseRequestToPo(data: { tenantId: string, requestId: string }) {
+    return api.post('inventory/purchase-requests/convert', data)
+  },
+
+  // ===== 采购退货(Stage-04 Agent-07,状态流转经 Hono Command + RPC) =====
+
+  /**
+   * 采购退货列表(浏览器直连,RLS 按门店过滤;内嵌供应商/仓库/门店/来源采购单)
+   * @param storeId 当前门店 id
+   */
+  async listPurchaseReturns(storeId: string): Promise<PurchaseReturnRow[]> {
+    const { data, error } = await supabase
+      .from('purchase_returns')
+      .select('*, suppliers(name, id), warehouses(name, id), stores(name, id), purchase_orders(po_no, id)')
+      .eq('store_id', storeId)
+      .order('created_at', { ascending: false })
+    if (error) {
+      throw new Error(error.message)
+    }
+    return (data ?? []) as PurchaseReturnRow[]
+  },
+
+  /**
+   * 采购退货明细(浏览器直连,RLS 按门店过滤;内嵌商品/批次信息)
+   * @param purchaseReturnId 采购退货 id
+   */
+  async listPurchaseReturnItems(purchaseReturnId: string): Promise<PurchaseReturnItem[]> {
+    const { data, error } = await supabase
+      .from('purchase_return_items')
+      .select('*, catalog_items(name, code, unit), inventory_batches(batch_no, expiry_date)')
+      .eq('purchase_return_id', purchaseReturnId)
+      .order('created_at', { ascending: true })
+    if (error) {
+      throw new Error(error.message)
+    }
+    return (data ?? []) as PurchaseReturnItem[]
+  },
+
+  /** 创建采购退货草稿(draft) */
+  createPurchaseReturn(data: {
+    tenantId: string
+    storeId: string
+    warehouseId: string
+    supplierId?: string
+    sourcePoId?: string
+    reason?: string
+    items: PurchaseReturnItemInput[]
+  }) {
+    return api.post('inventory/purchase-returns', data)
+  },
+
+  /** 编辑草稿(仅 draft,替换全部明细) */
+  updatePurchaseReturnDraft(data: {
+    tenantId: string
+    returnId: string
+    warehouseId: string
+    supplierId?: string
+    sourcePoId?: string
+    reason?: string
+    items: PurchaseReturnItemInput[]
+  }) {
+    return api.post('inventory/purchase-returns/draft', data)
+  },
+
+  /** 提交采购退货(draft → submitted) */
+  submitPurchaseReturn(data: { tenantId: string, returnId: string }) {
+    return api.post('inventory/purchase-returns/submit', data)
+  },
+
+  /** 审核采购退货(submitted → approved) */
+  approvePurchaseReturn(data: { tenantId: string, returnId: string }) {
+    return api.post('inventory/purchase-returns/approve', data)
+  },
+
+  /** 取消采购退货(draft / submitted → cancelled) */
+  cancelPurchaseReturn(data: { tenantId: string, returnId: string }) {
+    return api.post('inventory/purchase-returns/cancel', data)
+  },
+
+  /**
+   * 过账(approved → posted,正式库存 Command:批次 FOR UPDATE + return 流水)
+   * 幂等:同一 idempotencyKey 重复请求只产生一次出库
+   */
+  postPurchaseReturn(data: { tenantId: string, returnId: string }, idempotencyKey: string) {
+    return api.post('inventory/purchase-returns/post', data, {
       headers: { 'idempotency-key': idempotencyKey },
     })
   },

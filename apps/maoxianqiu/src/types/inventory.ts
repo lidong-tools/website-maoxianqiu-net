@@ -429,3 +429,160 @@ export const PURCHASE_PERMISSIONS = {
   receive: 'purchase.receive',
   post: 'purchase.post',
 } as const
+
+// ============================================================
+// 采购申请(Stage-04 Agent-07)
+// 状态机:draft → submitted → approved → converted_to_po;submitted → rejected;draft/submitted 可取消
+// ============================================================
+
+/** 采购申请状态 */
+export type PurchaseRequestStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'converted_to_po' | 'cancelled'
+
+/** purchase_request_items 表记录 */
+export interface PurchaseRequestItem {
+  id: string
+  tenant_id: string
+  purchase_request_id: string
+  catalog_item_id: string
+  requested_qty: number
+  unit: string | null
+  estimated_unit_cost: number
+  note: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** purchase_requests 表记录 */
+export interface PurchaseRequest {
+  id: string
+  tenant_id: string
+  store_id: string
+  warehouse_id: string
+  supplier_id: string | null
+  request_no: string
+  requester_id: string | null
+  reason: string | null
+  required_at: string | null
+  status: PurchaseRequestStatus
+  version: number
+  converted_po_id: string | null
+  reject_reason: string | null
+  submitted_by: string | null
+  submitted_at: string | null
+  approved_by: string | null
+  approved_at: string | null
+  rejected_by: string | null
+  rejected_at: string | null
+  converted_at: string | null
+  cancelled_by: string | null
+  cancelled_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** 采购申请明细输入项(草稿阶段) */
+export interface PurchaseRequestItemInput {
+  catalogItemId: string
+  requestedQty: number
+  unit?: string
+  estimatedUnitCost?: number
+  note?: string
+}
+
+/** 采购申请状态标签映射(UI 显示用) */
+export const PURCHASE_REQUEST_STATUS_LABELS: Record<PurchaseRequestStatus, string> = {
+  draft: '草稿',
+  submitted: '待审核',
+  approved: '已审核',
+  rejected: '已驳回',
+  converted_to_po: '已转采购单',
+  cancelled: '已取消',
+}
+
+/** 采购申请权限码常量 */
+export const PURCHASE_REQUEST_PERMISSIONS = {
+  view: 'purchase_request.view',
+  create: 'purchase_request.create',
+  submit: 'purchase_request.submit',
+  approve: 'purchase_request.approve',
+  convert: 'purchase_request.convert',
+} as const
+
+// ============================================================
+// 采购退货(Stage-04 Agent-07)
+// 状态机:draft → submitted → approved → posted;draft/submitted 可取消
+// 过账走正式库存 Command(movement_type='return'),财务仅记录金额快照
+// ============================================================
+
+/** 采购退货状态 */
+export type PurchaseReturnStatus = 'draft' | 'submitted' | 'approved' | 'posted' | 'cancelled'
+
+/** purchase_return_items 表记录 */
+export interface PurchaseReturnItem {
+  id: string
+  tenant_id: string
+  purchase_return_id: string
+  catalog_item_id: string
+  batch_id: string | null
+  source_po_item_id: string | null
+  quantity: number
+  unit_cost: number
+  amount: number
+  note: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** purchase_returns 表记录 */
+export interface PurchaseReturn {
+  id: string
+  tenant_id: string
+  store_id: string
+  warehouse_id: string
+  supplier_id: string | null
+  source_po_id: string | null
+  return_no: string
+  reason: string | null
+  status: PurchaseReturnStatus
+  version: number
+  return_amount_snapshot: number
+  submitted_by: string | null
+  submitted_at: string | null
+  approved_by: string | null
+  approved_at: string | null
+  posted_by: string | null
+  posted_at: string | null
+  cancelled_by: string | null
+  cancelled_at: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** 采购退货明细输入项(草稿阶段) */
+export interface PurchaseReturnItemInput {
+  catalogItemId: string
+  batchId: string
+  sourcePoItemId?: string
+  quantity: number
+  unitCost?: number
+  note?: string
+}
+
+/** 采购退货状态标签映射(UI 显示用) */
+export const PURCHASE_RETURN_STATUS_LABELS: Record<PurchaseReturnStatus, string> = {
+  draft: '草稿',
+  submitted: '待审核',
+  approved: '已审核',
+  posted: '已过账',
+  cancelled: '已取消',
+}
+
+/** 采购退货权限码常量 */
+export const PURCHASE_RETURN_PERMISSIONS = {
+  view: 'purchase_return.view',
+  create: 'purchase_return.create',
+  submit: 'purchase_return.submit',
+  approve: 'purchase_return.approve',
+  post: 'purchase_return.post',
+} as const
