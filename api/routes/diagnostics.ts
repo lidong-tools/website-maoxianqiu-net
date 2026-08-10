@@ -1,8 +1,10 @@
+/* eslint-disable style/max-statements-per-line -- 诊断状态机使用紧凑守卫语句 */
 import type { AppEnv } from '../lib/types.js'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit.js'
 import { err } from '../lib/errors.js'
+import { getRequestIdempotencyKey } from '../lib/idempotency.js'
 import { requireScopedPermission } from '../lib/permission.js'
 import { getContext, loadContext } from '../lib/request-context.js'
 import { ok } from '../lib/result.js'
@@ -276,6 +278,7 @@ const createLabOrderSchema = z.object({
   petId: z.string().uuid('宠物 id 格式错误'),
   encounterId: z.string().uuid().optional(),
   panelId: z.string().uuid().optional(),
+  catalogItemId: z.string().uuid().optional(),
   remark: z.string().max(1000).optional(),
 })
 
@@ -286,6 +289,8 @@ const createLabOrderSchema = z.object({
  */
 diagnosticsRoutes.post('/lab-orders', async (c) => {
   const input = await parseJsonBody(c, createLabOrderSchema)
+  const idempotencyKey = getRequestIdempotencyKey(c)
+  if (!idempotencyKey) { throw err.badRequest('缺少 idempotency-key') }
   const scope = await requireScopedPermission(c, { code: 'lab.request', tenantId: input.tenantId, storeId: input.storeId })
 
   const orderNo = `LAB-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
@@ -301,14 +306,20 @@ diagnosticsRoutes.post('/lab-orders', async (c) => {
       pet_id: input.petId,
       encounter_id: input.encounterId ?? null,
       panel_id: input.panelId ?? null,
+      catalog_item_id: input.catalogItemId ?? null,
       order_no: orderNo,
       status: 'requested',
       requested_by: user.id,
       remark: input.remark ?? null,
+      idempotency_key: idempotencyKey,
     })
     .select('*')
     .single()
 
+  if (error?.code === '23505') {
+    const { data: existing } = await service.from('lab_orders').select('*').eq('tenant_id', scope.tenantId).eq('idempotency_key', idempotencyKey).maybeSingle()
+    if (existing) { return ok(c, existing) }
+  }
   if (error) {
     throw err.internal(`创建检验申请失败: ${error.message}`)
   }
@@ -952,7 +963,6 @@ diagnosticsRoutes.get('/lab-workbench', async (c) => {
 // ============================================================
 
 const IMAGING_TYPES = ['ultrasound', 'xray', 'cr', 'ct', 'mri', 'other'] as const
-type ImagingType = typeof IMAGING_TYPES[number]
 
 /** 影像申请单工作台业务状态 */
 const IMAGING_STAGE_MAP: Record<string, { workflowStage: string, primaryAction: string | null }> = {
@@ -980,7 +990,8 @@ const imagingOrderListSchema = z.object({
   pageSize: z.coerce.number().int().positive().max(200).default(20),
 })
 
-/** 影像申请单列表(MXQ-10021)
+/**
+ * 影像申请单列表(MXQ-10021)
  * - 权限:imaging.view
  */
 diagnosticsRoutes.get('/imaging/orders', async (c) => {
@@ -1068,11 +1079,14 @@ const createImagingOrderSchema = z.object({
   notes: z.string().max(2000).optional(),
 })
 
-/** 创建影像申请(MXQ-10022)
+/**
+ * 创建影像申请(MXQ-10022)
  * - 权限:imaging.order
  */
 diagnosticsRoutes.post('/imaging/orders', async (c) => {
   const input = await parseJsonBody(c, createImagingOrderSchema)
+  const idempotencyKey = getRequestIdempotencyKey(c)
+  if (!idempotencyKey) { throw err.badRequest('缺少 idempotency-key') }
   const scope = await requireScopedPermission(c, { code: 'imaging.order', tenantId: input.tenantId, storeId: input.storeId })
 
   const service = createServiceClient()
@@ -1139,10 +1153,15 @@ diagnosticsRoutes.post('/imaging/orders', async (c) => {
       status: 'requested',
       clinical_question: input.clinicalQuestion ?? null,
       notes: input.notes ?? null,
+      idempotency_key: idempotencyKey,
     })
     .select('*')
     .single()
 
+  if (error?.code === '23505') {
+    const { data: existing } = await service.from('imaging_orders').select('*').eq('tenant_id', scope.tenantId).eq('idempotency_key', idempotencyKey).maybeSingle()
+    if (existing) { return ok(c, existing) }
+  }
   if (error) {
     throw err.internal(`创建影像申请失败: ${error.message}`)
   }
@@ -1163,7 +1182,8 @@ const scheduleImagingOrderSchema = z.object({
   scheduledAt: z.string().min(1, '请选择预约时间'),
 })
 
-/** 影像排程(requested→scheduled)(MXQ-10023)
+/**
+ * 影像排程(requested→scheduled)(MXQ-10023)
  * - 权限:imaging.order
  */
 diagnosticsRoutes.post('/imaging/orders/:id/schedule', async (c) => {
@@ -1213,7 +1233,8 @@ diagnosticsRoutes.post('/imaging/orders/:id/schedule', async (c) => {
   return ok(c, data)
 })
 
-/** 影像开始执行(scheduled→in_progress)(MXQ-10024)
+/**
+ * 影像开始执行(scheduled→in_progress)(MXQ-10024)
  * - 权限:imaging.perform
  */
 diagnosticsRoutes.post('/imaging/orders/:id/start', async (c) => {
@@ -1262,7 +1283,8 @@ diagnosticsRoutes.post('/imaging/orders/:id/start', async (c) => {
   return ok(c, data)
 })
 
-/** 影像完成执行(in_progress→performed)(MXQ-10025)
+/**
+ * 影像完成执行(in_progress→performed)(MXQ-10025)
  * - 权限:imaging.perform
  */
 diagnosticsRoutes.post('/imaging/orders/:id/perform', async (c) => {
@@ -1312,7 +1334,8 @@ diagnosticsRoutes.post('/imaging/orders/:id/perform', async (c) => {
   return ok(c, data)
 })
 
-/** 取消影像申请(MXQ-10026)
+/**
+ * 取消影像申请(MXQ-10026)
  * - 权限:imaging.order
  * - 仅 requested/scheduled 可取消
  */
@@ -1362,7 +1385,8 @@ diagnosticsRoutes.post('/imaging/orders/:id/cancel', async (c) => {
   return ok(c, data)
 })
 
-/** 影像申请详情(MXQ-10027)
+/**
+ * 影像申请详情(MXQ-10027)
  * - 权限:imaging.view
  * - 返回 order + reports(按版本升序) + attachments(关联 files)
  */
@@ -1406,7 +1430,8 @@ diagnosticsRoutes.get('/imaging/orders/:id', async (c) => {
   })
 })
 
-/** 影像报告列表(MXQ-10028)
+/**
+ * 影像报告列表(MXQ-10028)
  * - 权限:imaging.view
  */
 diagnosticsRoutes.get('/imaging/orders/:id/reports', async (c) => {
@@ -1442,7 +1467,8 @@ const createImagingReportSchema = z.object({
   recommendation: z.string().max(5000).optional(),
 })
 
-/** 创建/修订影像报告(MXQ-10029)
+/**
+ * 创建/修订影像报告(MXQ-10029)
  * - 权限:imaging.report
  * - 无已发布版本 → 创建 v1;存在已发布版本 → 产生新版本行(已发布版本不可静默覆盖)
  * - 同时将申请单推进到 reported(performed 之后)
@@ -1527,7 +1553,8 @@ const updateImagingReportSchema = z.object({
   recommendation: z.string().max(5000).optional(),
 })
 
-/** 保存影像报告草稿(MXQ-10030)
+/**
+ * 保存影像报告草稿(MXQ-10030)
  * - 权限:imaging.report
  * - 已发布版本不可直接修改,须走 revision(新版本行)
  */
@@ -1578,7 +1605,8 @@ diagnosticsRoutes.patch('/imaging/reports/:id', async (c) => {
   return ok(c, data)
 })
 
-/** 提交影像报告待审(draft→submitted)(MXQ-10031a)
+/**
+ * 提交影像报告待审(draft→submitted)(MXQ-10031a)
  * - 权限:imaging.report
  */
 diagnosticsRoutes.post('/imaging/reports/:id/submit', async (c) => {
@@ -1632,7 +1660,8 @@ const reviewImagingReportSchema = z.object({
   comment: z.string().max(2000).optional(),
 })
 
-/** 审核影像报告(submitted→reviewed/退回)(MXQ-10031b)
+/**
+ * 审核影像报告(submitted→reviewed/退回)(MXQ-10031b)
  * - 权限:imaging.review
  * - 双签:审核人不可与报告作者为同一人
  */
@@ -1700,7 +1729,8 @@ diagnosticsRoutes.post('/imaging/reports/:id/review', async (c) => {
   return ok(c, data)
 })
 
-/** 发布影像报告(reviewed→published)(MXQ-10031c)
+/**
+ * 发布影像报告(reviewed→published)(MXQ-10031c)
  * - 权限:imaging.publish
  * - 调 publish_imaging_report RPC:报告+申请单+审计 原子推进
  */
@@ -1740,7 +1770,8 @@ diagnosticsRoutes.post('/imaging/reports/:id/publish', async (c) => {
   return ok(c, data)
 })
 
-/** 影像申请附件列表(MXQ-10032)
+/**
+ * 影像申请附件列表(MXQ-10032)
  * - 权限:imaging.view
  * - 复用 attachments 关联 files;entity_type = imaging_order | imaging_report
  */

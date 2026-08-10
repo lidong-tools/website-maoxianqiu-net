@@ -36,11 +36,11 @@ interface MedicalOrderRow {
 }
 
 const tenantStore = useAppTenantStore()
-const { pagination, getParams, onSizeChange, onCurrentChange } = usePagination()
+const { pagination, onSizeChange, onCurrentChange } = usePagination()
 
 const loading = ref(false)
 const dataList = ref<MedicalOrderRow[]>([])
-const statsList = ref<MedicalOrderRow[]>([])
+const stats = ref({ active: 0, completed: 0, cancelled: 0 })
 const storeOptions = ref<Array<{ label: string, value: string }>>([])
 const search = ref({
   storeId: '',
@@ -115,7 +115,8 @@ function getDataList() {
     storeId: search.value.storeId || undefined,
     status,
     orderType: (search.value.orderType as MedicalOrderType) || undefined,
-    ...getParams(),
+    page: pagination.value.page,
+    pageSize: pagination.value.size,
   }).then(async (res: any) => {
     loading.value = false
     dataList.value = res.data.list ?? []
@@ -128,22 +129,25 @@ function getDataList() {
 
 async function loadStats() {
   try {
-    const res: any = await apiClinical.listMedicalOrders({
+    const statuses: MedicalOrderStatus[] = ['active', 'completed', 'cancelled']
+    const responses = await Promise.all(statuses.map(status => apiClinical.listMedicalOrders({
       storeId: search.value.storeId || undefined,
+      status,
       page: 1,
-      pageSize: 500,
-    })
-    statsList.value = res.data.list ?? []
-    await enrich(statsList.value)
+      pageSize: 1,
+    })))
+    stats.value = Object.fromEntries(
+      statuses.map((status, index) => [status, responses[index]?.data.total ?? 0]),
+    ) as typeof stats.value
   }
   catch {
-    statsList.value = []
+    stats.value = { active: 0, completed: 0, cancelled: 0 }
   }
 }
 
-const activeCount = computed(() => statsList.value.filter(r => r.status === 'active').length)
-const completedCount = computed(() => statsList.value.filter(r => r.status === 'completed').length)
-const cancelledCount = computed(() => statsList.value.filter(r => r.status === 'cancelled').length)
+const activeCount = computed(() => stats.value.active)
+const completedCount = computed(() => stats.value.completed)
+const cancelledCount = computed(() => stats.value.cancelled)
 
 // P0-06:切店后重置分页与门店筛选并重载列表/统计
 useStoreScopedPage({

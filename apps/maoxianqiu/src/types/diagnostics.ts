@@ -456,6 +456,7 @@ export interface CreateLabOrderInput {
   petId: string
   encounterId?: string
   panelId?: string
+  catalogItemId?: string
   remark?: string
 }
 

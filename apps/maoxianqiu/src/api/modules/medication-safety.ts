@@ -29,15 +29,24 @@ export default {
   // ============================================================
 
   /**
-   * 规则列表(浏览器直连,RLS 兜底;含版本历史)
+   * 规则列表(浏览器直连,RLS 兜底;含版本历史,支持分页)
    * @param tenantId 租户 id
+   * @param page 页码(从 1 开始)
+   * @param pageSize 每页条数
    */
-  async listRules(tenantId: string) {
+  async listRules(tenantId: string, page = 1, pageSize = 20) {
+    const from = (page - 1) * pageSize
+    // 精确总数需单独统计(嵌入一对多 rule_versions 时 count 会被关联行数放大)
+    const { count } = await supabase
+      .from('medication_safety_rules')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
     const { data, error } = await supabase
       .from('medication_safety_rules')
       .select('*, rule_versions:medication_safety_rule_versions(*)')
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
+      .range(from, from + pageSize - 1)
 
     if (error) {
       throw new Error(error.message)
@@ -45,7 +54,7 @@ export default {
     return {
       status: 1,
       error: '',
-      data: { list: (data ?? []) as MedicationSafetyRuleRecord[] },
+      data: { list: (data ?? []) as MedicationSafetyRuleRecord[], total: count ?? 0 },
     }
   },
 
@@ -75,15 +84,19 @@ export default {
   // ============================================================
 
   /**
-   * 药品安全档案列表(浏览器直连,RLS 兜底;关联目录商品)
+   * 药品安全档案列表(浏览器直连,RLS 兜底;关联目录商品,支持分页)
    * @param tenantId 租户 id
+   * @param page 页码(从 1 开始)
+   * @param pageSize 每页条数
    */
-  async listDrugProfiles(tenantId: string) {
-    const { data, error } = await supabase
+  async listDrugProfiles(tenantId: string, page = 1, pageSize = 20) {
+    const from = (page - 1) * pageSize
+    const { data, error, count } = await supabase
       .from('drug_profiles')
-      .select('*, catalog_item:catalog_items(id, code, name, unit, billing_type)')
+      .select('*, catalog_item:catalog_items(id, code, name, unit, billing_type)', { count: 'exact' })
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
+      .range(from, from + pageSize - 1)
 
     if (error) {
       throw new Error(error.message)
@@ -91,7 +104,7 @@ export default {
     return {
       status: 1,
       error: '',
-      data: { list: (data ?? []) as DrugProfileRecord[] },
+      data: { list: (data ?? []) as DrugProfileRecord[], total: count ?? 0 },
     }
   },
 
@@ -107,15 +120,19 @@ export default {
   // ============================================================
 
   /**
-   * 相互作用禁忌列表(浏览器直连,RLS 兜底)
+   * 相互作用禁忌列表(浏览器直连,RLS 兜底,支持分页)
    * @param tenantId 租户 id
+   * @param page 页码(从 1 开始)
+   * @param pageSize 每页条数
    */
-  async listInteractions(tenantId: string) {
-    const { data, error } = await supabase
+  async listInteractions(tenantId: string, page = 1, pageSize = 20) {
+    const from = (page - 1) * pageSize
+    const { data, error, count } = await supabase
       .from('medication_drug_interactions')
-      .select('*')
+      .select('*', { count: 'exact' })
       .eq('tenant_id', tenantId)
       .order('ingredient_a', { ascending: true })
+      .range(from, from + pageSize - 1)
 
     if (error) {
       throw new Error(error.message)
@@ -123,7 +140,7 @@ export default {
     return {
       status: 1,
       error: '',
-      data: { list: (data ?? []) as DrugInteractionRecord[] },
+      data: { list: (data ?? []) as DrugInteractionRecord[], total: count ?? 0 },
     }
   },
 

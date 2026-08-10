@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
+import type { Warehouse } from '@/types/inventory'
 import apiStore from '@/api/modules/store'
+import apiInventory from '@/api/modules/inventory'
 
 defineOptions({
   name: 'SystemStoreDetail',
@@ -43,6 +45,7 @@ const activeTab = ref('overview')
 const detail = ref<StoreDetail | null>(null)
 const employees = ref<StoreEmployee[]>([])
 const employeesLoading = ref(false)
+const { auth } = useAppAuth()
 
 function formatTime(value: string | null | undefined): string {
   if (!value) {
@@ -78,9 +81,129 @@ async function loadEmployees() {
   }
 }
 
+// ===== 仓库 Tab =====
+const warehouses = ref<Warehouse[]>([])
+const warehousesLoading = ref(false)
+
+async function loadWarehouses() {
+  warehousesLoading.value = true
+  try {
+    const res: any = await apiInventory.listWarehouses(storeId)
+    warehouses.value = res?.data?.list ?? []
+  }
+  catch (e: any) {
+    useFaToast().error(e?.message || '加载仓库失败')
+  }
+  finally {
+    warehousesLoading.value = false
+  }
+}
+
+const warehouseColumns = computed<TableColumn<Warehouse>[]>(() => [
+  { accessorKey: 'name', header: '仓库名称' },
+  { accessorKey: 'code', header: '编码' },
+  { accessorKey: 'is_default', header: '类型' },
+  { accessorKey: 'is_active', header: '状态' },
+  {
+    id: 'operation',
+    header: '操作',
+    width: 160,
+    align: 'center',
+    fixed: 'right',
+  },
+])
+
+const warehouseFormVisible = ref(false)
+const warehouseEditingId = ref('')
+const warehouseSubmitting = ref(false)
+const warehouseForm = reactive({
+  name: '',
+  code: '',
+  isDefault: false,
+})
+
+function openWarehouseCreate() {
+  warehouseEditingId.value = ''
+  Object.assign(warehouseForm, { name: '', code: '', isDefault: false })
+  warehouseFormVisible.value = true
+}
+
+function openWarehouseEdit(row: Warehouse) {
+  warehouseEditingId.value = row.id
+  Object.assign(warehouseForm, {
+    name: row.name,
+    code: row.code,
+    isDefault: row.is_default,
+  })
+  warehouseFormVisible.value = true
+}
+
+async function submitWarehouse() {
+  if (!detail.value?.tenant_id) {
+    useFaToast().warning('门店信息加载中,请稍后再试')
+    return
+  }
+  if (!warehouseForm.name.trim()) {
+    useFaToast().warning('请填写仓库名称')
+    return
+  }
+  if (!warehouseForm.code.trim()) {
+    useFaToast().warning('请填写仓库编码')
+    return
+  }
+  warehouseSubmitting.value = true
+  const payload = {
+    tenantId: detail.value.tenant_id,
+    storeId,
+    name: warehouseForm.name.trim(),
+    code: warehouseForm.code.trim(),
+    isDefault: warehouseForm.isDefault,
+  }
+  try {
+    if (warehouseEditingId.value) {
+      await apiInventory.updateWarehouse({ ...payload, id: warehouseEditingId.value })
+      useFaToast().success('仓库已更新')
+    }
+    else {
+      await apiInventory.createWarehouse(payload)
+      useFaToast().success('仓库已创建')
+    }
+    warehouseFormVisible.value = false
+    await loadWarehouses()
+  }
+  catch {
+    // 错误已由 axios 拦截器统一提示
+  }
+  finally {
+    warehouseSubmitting.value = false
+  }
+}
+
+async function toggleWarehouseStatus(row: Warehouse) {
+  if (!detail.value?.tenant_id) {
+    useFaToast().warning('门店信息加载中,请稍后再试')
+    return
+  }
+  const next = !row.is_active
+  try {
+    await apiInventory.setWarehouseStatus({
+      id: row.id,
+      tenantId: detail.value.tenant_id,
+      storeId,
+      isActive: next,
+    })
+    useFaToast().success(next ? '已启用' : '已停用')
+    await loadWarehouses()
+  }
+  catch {
+    // 错误已由 axios 拦截器统一提示
+  }
+}
+
 onMounted(() => {
   loadDetail()
   loadEmployees()
+  loadWarehouses()
 })
 
 const employeeColumns = computed<TableColumn<StoreEmployee>[]>(() => [
@@ -169,6 +292,7 @@ const employeeColumns = computed<TableColumn<StoreEmployee>[]>(() => [
         v-model="activeTab" :list="[
           { label: '概览', value: 'overview' },
           { label: '人员', value: 'employees' },
+          { label: '仓库', value: 'warehouses' },
         ]" class="mb-4"
       />
 
@@ -183,6 +307,92 @@ const employeeColumns = computed<TableColumn<StoreEmployee>[]>(() => [
           :data="employees"
         />
       </div>
+
+      <div v-if="activeTab === 'warehouses'">
+        <div class="mb-3 flex items-center justify-between">
+          <div class="text-sm text-muted-foreground">
+            仓库为门店级库存归属,每门店仅一个默认仓库;停用后不可用于入库/发药/调拨等业务
+          </div>
+          <FaButton v-if="auth('inventory.manage')" type="primary" @click="openWarehouseCreate">
+            <FaIcon name="i-ri:add-line" />
+            新增仓库
+          </FaButton>
+        </div>
+        <FaTable
+          v-loading="warehousesLoading"
+          table-root-class="rounded-lg overflow-hidden"
+          row-key="id"
+          stripe
+          border
+          :columns="warehouseColumns"
+          :data="warehouses"
+          empty-text="暂无仓库"
+        >
+          <template #cell-is_default="{ value }">
+            <span v-if="value" class="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-xs text-green-600">
+              默认仓库
+            </span>
+            <span v-else class="text-muted-foreground text-sm">普通仓库</span>
+          </template>
+          <template #cell-is_active="{ value }">
+            <FaTag :variant="value ? 'default' : 'secondary'">
+              {{ value ? '启用' : '停用' }}
+            </FaTag>
+          </template>
+          <template #cell-operation="{ row }">
+            <div class="flex-center gap-1">
+              <FaButton
+                variant="outline"
+                size="sm"
+                :disabled="!auth('inventory.manage')"
+                @click="openWarehouseEdit(row.original)"
+              >
+                编辑
+              </FaButton>
+              <FaButton
+                variant="outline"
+                size="sm"
+                :disabled="!auth('inventory.manage')"
+                :class="row.original.is_active ? 'text-red-600' : 'text-green-600'"
+                @click="toggleWarehouseStatus(row.original)"
+              >
+                {{ row.original.is_active ? '停用' : '启用' }}
+              </FaButton>
+            </div>
+          </template>
+        </FaTable>
+      </div>
     </FaPageMain>
+
+    <!-- 新增/编辑仓库弹窗 -->
+    <FaModal
+      v-model="warehouseFormVisible"
+      :title="warehouseEditingId ? '编辑仓库' : '新增仓库'"
+      :footer="false"
+      :close-on-click-overlay="false"
+    >
+      <div class="py-2 space-y-4">
+        <FaLabel label="仓库名称 *" class="block">
+          <FaInput v-model="warehouseForm.name" placeholder="如 药房仓 / 耗材仓 / 零售仓" class="w-full" />
+        </FaLabel>
+        <FaLabel label="仓库编码 *" class="block">
+          <FaInput v-model="warehouseForm.code" placeholder="同一门店内唯一,如 WH-DRUG" class="w-full" />
+        </FaLabel>
+        <FaLabel label="设为默认仓库" class="block">
+          <div class="flex items-center gap-2">
+            <FaSwitch v-model="warehouseForm.isDefault" />
+            <span class="text-sm text-muted-foreground">每门店仅一个默认仓库</span>
+          </div>
+        </FaLabel>
+        <div class="pt-2 flex gap-2 justify-end">
+          <FaButton variant="outline" @click="warehouseFormVisible = false">
+            取消
+          </FaButton>
+          <FaButton :loading="warehouseSubmitting" @click="submitWarehouse">
+            保存
+          </FaButton>
+        </div>
+      </div>
+    </FaModal>
   </div>
 </template>

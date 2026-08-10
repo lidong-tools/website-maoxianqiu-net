@@ -863,6 +863,247 @@ inventoryRoutes.post('/suppliers/status', async (c) => {
 })
 
 // ============================================================
+// 仓库(门店级主数据)
+// 查询走浏览器直连(RLS 按 can_access_store);写入经 Hono Command + 审计
+// 约束:每个门店仅一个默认仓库(DB 部分唯一索引 idx_warehouses_default_per_store)
+// 停用走 is_active,不物理删除(warehouses_delete 仅系统管理员)
+// ============================================================
+
+const warehouseCreateSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid('门店 id 格式错误'),
+  name: z.string().min(1, '仓库名称必填').max(100),
+  code: z.string().min(1, '仓库编码必填').max(50),
+  isDefault: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+})
+
+const warehouseUpdateSchema = warehouseCreateSchema.extend({
+  id: z.string().uuid('仓库 id 格式错误'),
+})
+
+const warehouseStatusSchema = z.object({
+  id: z.string().uuid('仓库 id 格式错误'),
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid('门店 id 格式错误'),
+  isActive: z.boolean(),
+})
+
+/** 将仓库写入的 DB 唯一约束错误映射为业务错误(默认仓库/编码唯一) */
+function mapWarehouseWriteError(error: { code?: string, message: string }) {
+  if (error.code === '23505') {
+    if (error.message.includes('idx_warehouses_default_per_store')) {
+      return err.conflict('该门店已存在默认仓库')
+    }
+    if (error.message.includes('idx_warehouses_tenant_store_code')) {
+      return err.conflict('该门店下仓库编码已存在')
+    }
+    return err.conflict('仓库编码重复或默认仓库冲突')
+  }
+  return null
+}
+
+/** 查询门店现有仓库的默认/启用概况(用于默认仓库与停用约束校验) */
+async function loadStoreWarehouseSummary(
+  service: ReturnType<typeof createServiceClient>,
+  tenantId: string,
+  storeId: string,
+): Promise<{ hasDefault: boolean, activeCount: number }> {
+  const { data, error } = await service
+    .from('warehouses')
+    .select('id, is_default, is_active')
+    .eq('tenant_id', tenantId)
+    .eq('store_id', storeId)
+  if (error) {
+    throw err.internal(`查询仓库失败: ${error.message}`)
+  }
+  const list = (data ?? []) as { id: string, is_default: boolean, is_active: boolean }[]
+  return {
+    hasDefault: list.some(w => w.is_default),
+    activeCount: list.filter(w => w.is_active).length,
+  }
+}
+
+/**
+ * 新增仓库
+ * - 权限:inventory.manage(门店级)
+ * - 行为:service role 直插 warehouses + 审计;不开放浏览器直连写
+ * - 约束:门店须始终存在默认仓库(无默认时首仓必须设为默认)
+ */
+inventoryRoutes.post('/warehouses', async (c) => {
+  const input = await parseJsonBody(c, warehouseCreateSchema)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.manage',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
+  const service = createServiceClient()
+
+  const summary = await loadStoreWarehouseSummary(service, scope.tenantId, input.storeId)
+  if (!summary.hasDefault && !(input.isDefault ?? false)) {
+    throw err.conflict('该门店暂无默认仓库,请将该仓库设为默认仓库')
+  }
+
+  const { data, error } = await service
+    .from('warehouses')
+    .insert({
+      tenant_id: scope.tenantId,
+      store_id: input.storeId,
+      name: input.name,
+      code: input.code.trim(),
+      is_default: input.isDefault ?? false,
+      is_active: input.isActive ?? true,
+    })
+    .select()
+    .single()
+  if (error) {
+    const mapped = mapWarehouseWriteError(error)
+    throw mapped ?? err.internal(`创建仓库失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.warehouseCreate',
+    entityType: 'warehouse',
+    entityId: (data as { id: string })?.id,
+    tenantId: input.tenantId,
+    metadata: { name: input.name, code: input.code.trim(), storeId: input.storeId },
+  })
+
+  return ok(c, data)
+})
+
+/**
+ * 编辑仓库(名称/编码/是否默认)
+ * - 权限:inventory.manage(门店级)
+ * - 约束:取消唯一默认仓库时须已存在其他默认;默认仓库唯一性由 DB 部分唯一索引兜底
+ */
+inventoryRoutes.post('/warehouses/update', async (c) => {
+  const input = await parseJsonBody(c, warehouseUpdateSchema)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.manage',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
+  const service = createServiceClient()
+
+  const { data: current, error: currentError } = await service
+    .from('warehouses')
+    .select('id, is_default')
+    .eq('id', input.id)
+    .eq('tenant_id', scope.tenantId)
+    .eq('store_id', input.storeId)
+    .single()
+  if (currentError || !current) {
+    throw err.notFound('仓库不存在')
+  }
+
+  // 取消唯一默认仓库 → 拦截,保证门店始终有默认仓库
+  if (current.is_default && !(input.isDefault ?? false)) {
+    const { data: otherDefaults, error: otherError } = await service
+      .from('warehouses')
+      .select('id')
+      .eq('tenant_id', scope.tenantId)
+      .eq('store_id', input.storeId)
+      .eq('is_default', true)
+      .neq('id', input.id)
+      .limit(1)
+    if (otherError) {
+      throw err.internal(`查询仓库失败: ${otherError.message}`)
+    }
+    if ((otherDefaults ?? []).length === 0) {
+      throw err.conflict('门店必须保留至少一个默认仓库')
+    }
+  }
+
+  const { data, error } = await service
+    .from('warehouses')
+    .update({
+      name: input.name,
+      code: input.code.trim(),
+      is_default: input.isDefault ?? false,
+    })
+    .eq('id', input.id)
+    .eq('tenant_id', scope.tenantId)
+    .eq('store_id', input.storeId)
+    .select()
+    .single()
+  if (error) {
+    const mapped = mapWarehouseWriteError(error)
+    throw mapped ?? err.internal(`更新仓库失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.warehouseUpdate',
+    entityType: 'warehouse',
+    entityId: input.id,
+    tenantId: input.tenantId,
+    metadata: { name: input.name, code: input.code.trim(), storeId: input.storeId },
+  })
+
+  return ok(c, data)
+})
+
+/**
+ * 停用/恢复仓库
+ * - 权限:inventory.manage(门店级)
+ * - 约束:默认仓库不可停用(须先切换默认);门店须保留至少一个启用中的仓库
+ */
+inventoryRoutes.post('/warehouses/status', async (c) => {
+  const input = await parseJsonBody(c, warehouseStatusSchema)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.manage',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
+  const service = createServiceClient()
+
+  const { data: current, error: currentError } = await service
+    .from('warehouses')
+    .select('id, is_default, is_active')
+    .eq('id', input.id)
+    .eq('tenant_id', scope.tenantId)
+    .eq('store_id', input.storeId)
+    .single()
+  if (currentError || !current) {
+    throw err.notFound('仓库不存在')
+  }
+
+  if (!input.isActive) {
+    if (current.is_default) {
+      throw err.conflict('默认仓库不可停用,请先将其切换为非默认或指定新的默认仓库')
+    }
+    if (current.is_active) {
+      const summary = await loadStoreWarehouseSummary(service, scope.tenantId, input.storeId)
+      if (summary.activeCount <= 1) {
+        throw err.conflict('门店必须保留至少一个启用中的仓库')
+      }
+    }
+  }
+
+  const { data, error } = await service
+    .from('warehouses')
+    .update({ is_active: input.isActive })
+    .eq('id', input.id)
+    .eq('tenant_id', scope.tenantId)
+    .eq('store_id', input.storeId)
+    .select()
+    .single()
+  if (error) {
+    throw err.internal(`更新仓库状态失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.warehouseStatus',
+    entityType: 'warehouse',
+    entityId: input.id,
+    tenantId: input.tenantId,
+    metadata: { isActive: input.isActive, storeId: input.storeId },
+  })
+
+  return ok(c, data)
+})
+
+// ============================================================
 // 采购订单(MXQ-P05)
 // 查询走浏览器直连(RLS 按 can_access_store);状态流转经 Hono Command + RPC
 // 状态机:draft → submitted → approved → received → posted;draft/submitted 可取消

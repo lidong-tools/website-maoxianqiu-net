@@ -1,3 +1,4 @@
+/* eslint-disable style/max-statements-per-line -- 查询参数映射使用紧凑守卫语句 */
 import type {
   CreateDewormingInput,
   CreateLabOrderInput,
@@ -11,21 +12,21 @@ import type {
   DewormingRecord,
   DiagReminder,
   DiagReminderListParams,
-  IssueCertificateInput,
-  LabOrderAnalyte,
-  LabOrderListParams,
-  LabOrderRecord,
-  LabResultReview,
-  LabWorkbenchListParams,
-  LabWorkbenchListResult,
   ImagingAttachmentRecord,
   ImagingOrderRecord,
   ImagingOrderWorkbenchRecord,
   ImagingReportRecord,
   ImagingType,
+  IssueCertificateInput,
+  LabOrderAnalyte,
+  LabOrderListParams,
+  LabOrderRecord,
+  LabResultReview,
   LabSampleListParams,
   LabSampleRecord,
   LabSpecimen,
+  LabWorkbenchListParams,
+  LabWorkbenchListResult,
   NotifyChannel,
   PublishLabResultsInput,
   ReviewLabResultsInput,
@@ -595,29 +596,9 @@ export default {
    * 自动生成申请单号:LAB-yyyymmdd-随机后缀
    */
   async createLabOrder(input: CreateLabOrderInput) {
-    const orderNo = `LAB-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
-
-    const { data, error } = await supabase
-      .from('lab_orders')
-      .insert({
-        tenant_id: input.tenantId,
-        store_id: input.storeId ?? null,
-        customer_id: input.customerId,
-        pet_id: input.petId,
-        encounter_id: input.encounterId ?? null,
-        panel_id: input.panelId ?? null,
-        order_no: orderNo,
-        status: 'requested',
-        remark: input.remark ?? null,
-      })
-      .select('*')
-      .single()
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return { status: 1, error: '', data: data as LabOrderRecord }
+    return api.post<{ data: LabOrderRecord }>('diagnostics/lab-orders', input, {
+      headers: { 'idempotency-key': crypto.randomUUID() },
+    })
   },
 
   /**
@@ -1021,7 +1002,7 @@ export default {
     clinicalQuestion?: string
     notes?: string
   }) {
-    const res = await api.post('diagnostics/imaging/orders', input)
+    const res = await api.post('diagnostics/imaging/orders', input, { headers: { 'idempotency-key': crypto.randomUUID() } })
     return { status: 1, error: '', data: (res as any).data as ImagingOrderRecord }
   },
 

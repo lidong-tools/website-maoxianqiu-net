@@ -18,6 +18,7 @@ defineOptions({
 
 const tenantStore = useAppTenantStore()
 const tabActive = ref<'rules' | 'profiles' | 'interactions'>('rules')
+const { pagination, onSizeChange, onCurrentChange } = usePagination()
 
 /** 编辑中的行(打开弹窗时由表格行赋值) */
 const editingRule = ref<{ id?: string, data?: Record<string, unknown> } | null>(null)
@@ -32,6 +33,7 @@ const interactionFormRef = ref<InstanceType<typeof InteractionForm> | null>(null
 // ==================== 规则列表 ====================
 const ruleLoading = ref(false)
 const ruleList = ref<MedicationSafetyRuleRecord[]>([])
+const ruleTotal = ref(0)
 
 /** 规则表格列 */
 const ruleColumns = computed<TableColumn<MedicationSafetyRuleRecord>[]>(() => [
@@ -70,12 +72,18 @@ const ruleColumns = computed<TableColumn<MedicationSafetyRuleRecord>[]>(() => [
 async function loadRules() {
   if (!tenantStore.currentTenantId) {
     ruleList.value = []
+    ruleTotal.value = 0
     return
   }
   ruleLoading.value = true
   try {
-    const res = await apiMedicationSafety.listRules(tenantStore.currentTenantId)
+    const res = await apiMedicationSafety.listRules(
+      tenantStore.currentTenantId,
+      pagination.value.page,
+      pagination.value.size,
+    )
     ruleList.value = res.data.list
+    ruleTotal.value = res.data.total
   }
   catch (e: unknown) {
     useFaToast().error((e as Error)?.message || '加载规则失败')
@@ -88,6 +96,7 @@ async function loadRules() {
 // ==================== 药品档案列表 ====================
 const profileLoading = ref(false)
 const profileList = ref<DrugProfileRecord[]>([])
+const profileTotal = ref(0)
 
 /** 药品档案表格列 */
 const profileColumns = computed<TableColumn<DrugProfileRecord>[]>(() => [
@@ -133,12 +142,18 @@ const profileColumns = computed<TableColumn<DrugProfileRecord>[]>(() => [
 async function loadProfiles() {
   if (!tenantStore.currentTenantId) {
     profileList.value = []
+    profileTotal.value = 0
     return
   }
   profileLoading.value = true
   try {
-    const res = await apiMedicationSafety.listDrugProfiles(tenantStore.currentTenantId)
+    const res = await apiMedicationSafety.listDrugProfiles(
+      tenantStore.currentTenantId,
+      pagination.value.page,
+      pagination.value.size,
+    )
     profileList.value = res.data.list
+    profileTotal.value = res.data.total
   }
   catch (e: unknown) {
     useFaToast().error((e as Error)?.message || '加载药品档案失败')
@@ -151,6 +166,7 @@ async function loadProfiles() {
 // ==================== 交互禁忌列表 ====================
 const interactionLoading = ref(false)
 const interactionList = ref<DrugInteractionRecord[]>([])
+const interactionTotal = ref(0)
 
 /** 交互禁忌表格列 */
 const interactionColumns = computed<TableColumn<DrugInteractionRecord>[]>(() => [
@@ -177,12 +193,18 @@ const interactionColumns = computed<TableColumn<DrugInteractionRecord>[]>(() => 
 async function loadInteractions() {
   if (!tenantStore.currentTenantId) {
     interactionList.value = []
+    interactionTotal.value = 0
     return
   }
   interactionLoading.value = true
   try {
-    const res = await apiMedicationSafety.listInteractions(tenantStore.currentTenantId)
+    const res = await apiMedicationSafety.listInteractions(
+      tenantStore.currentTenantId,
+      pagination.value.page,
+      pagination.value.size,
+    )
     interactionList.value = res.data.list
+    interactionTotal.value = res.data.total
   }
   catch (e: unknown) {
     useFaToast().error((e as Error)?.message || '加载相互作用禁忌失败')
@@ -192,10 +214,8 @@ async function loadInteractions() {
   }
 }
 
-/**
- * 切换 tab 时加载对应数据(首次进入加载规则)
- */
-function onTabChange() {
+/** 按当前 tab 加载对应列表(规则/药品档案/相互作用) */
+function loadByTab() {
   if (tabActive.value === 'rules') {
     loadRules()
   }
@@ -205,6 +225,21 @@ function onTabChange() {
   else {
     loadInteractions()
   }
+}
+
+/** 切换 tab 时回到第一页并加载对应数据 */
+function onTabChange() {
+  currentChange(1)
+}
+
+/** 翻页:更新页码后加载当前 tab 列表 */
+function currentChange(page = 1) {
+  onCurrentChange(page).then(loadByTab)
+}
+
+/** 修改每页条数:回到第一页后重新加载 */
+function sizeChange(size: number) {
+  onSizeChange(size).then(() => currentChange(1))
 }
 
 // ==================== 规则弹窗 ====================
@@ -367,7 +402,7 @@ loadRules()
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
     <!-- 注释掉标题和描述区域(UI界面-人工测试报告) -->
     <!--
     <EntityPageHeader
@@ -376,8 +411,8 @@ loadRules()
       description="用药安全规则引擎:规则配置 / 药品安全档案 / 药物相互作用禁忌(确定性、可解释、版本化、可审计)"
     />
     -->
-    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
-      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
         <!-- 工具栏:Tabs + 右功能按钮 -->
         <div class="px-4 pt-3 border-b shrink-0">
           <FaTabs
@@ -392,7 +427,7 @@ loadRules()
           />
           <div class="pb-3 flex items-center justify-between flex-wrap gap-2">
             <span class="text-sm text-muted-foreground">
-              共 {{ tabActive === 'rules' ? ruleList.length : tabActive === 'profiles' ? profileList.length : interactionList.length }} 条
+              共 {{ tabActive === 'rules' ? ruleTotal : tabActive === 'profiles' ? profileTotal : interactionTotal }} 条
             </span>
             <div class="flex gap-2 items-center">
               <FaButton v-if="tabActive === 'rules'" size="sm" @click="onCreateRule">
@@ -412,10 +447,11 @@ loadRules()
         </div>
 
         <!-- 表格区 -->
-        <div class="flex-1 min-h-0 overflow-auto">
+        <div class="flex-1 min-h-0 overflow-hidden">
           <!-- ==================== 规则 ==================== -->
           <template v-if="tabActive === 'rules'">
             <FaTable
+              class="h-full min-h-0"
               v-loading="ruleLoading"
               table-root-class="overflow-hidden"
               row-key="id"
@@ -440,6 +476,7 @@ loadRules()
           <!-- ==================== 药品档案 ==================== -->
           <template v-else-if="tabActive === 'profiles'">
             <FaTable
+              class="h-full min-h-0"
               v-loading="profileLoading"
               table-root-class="overflow-hidden"
               row-key="id"
@@ -461,6 +498,7 @@ loadRules()
           <!-- ==================== 相互作用 ==================== -->
           <template v-else>
             <FaTable
+              class="h-full min-h-0"
               v-loading="interactionLoading"
               table-root-class="overflow-hidden"
               row-key="id"
@@ -479,6 +517,16 @@ loadRules()
             </FaTable>
           </template>
         </div>
+
+        <!-- 分页区 -->
+        <FaPagination
+          :page="pagination.page"
+          :size="pagination.size"
+          :total="tabActive === 'rules' ? ruleTotal : tabActive === 'profiles' ? profileTotal : interactionTotal"
+          class="mt-2 px-4 pb-3 shrink-0"
+          @page-change="currentChange"
+          @size-change="sizeChange"
+        />
       </div>
     </div>
   </div>

@@ -10,6 +10,8 @@
   "scripts": {
     "dev": "tsx scripts/cli.ts --mode=dev",
     "dev:api": "tsx scripts/serve-api.ts",
+    "dev:web": "pnpm --filter @fantastic-admin/maoxianqiu run dev",
+    "dev:all": "run-p dev:web dev:api",
     "build": "tsx scripts/cli.ts --mode=build",
     "serve": "tsx scripts/cli.ts --mode=serve",
     "db:push": "supabase db push",

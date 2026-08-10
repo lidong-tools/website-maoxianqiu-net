@@ -22,6 +22,7 @@ import type {
   SupplierStatus,
   TransferInput,
   Warehouse,
+  WarehouseUpsertInput,
 } from '@/types/inventory'
 import { supabase } from '@/lib/supabase'
 import api from '../index'
@@ -75,6 +76,23 @@ export default {
       throw new Error(error.message)
     }
     return { status: 1, error: '', data: { list: (data ?? []) as Warehouse[] } }
+  },
+
+  // ===== 仓库(门店级主数据,写入经 Hono Command + 审计) =====
+
+  /** 新增仓库(Hono Command + 审计;约束:每门店仅一个默认仓库) */
+  createWarehouse(data: WarehouseUpsertInput) {
+    return api.post('inventory/warehouses', data)
+  },
+
+  /** 编辑仓库(名称/编码/是否默认,Hono Command + 审计) */
+  updateWarehouse(data: WarehouseUpsertInput & { id: string }) {
+    return api.post('inventory/warehouses/update', data)
+  },
+
+  /** 停用/恢复仓库(Hono Command + 审计;默认仓库与最后启用仓库不可停用) */
+  setWarehouseStatus(data: { id: string, tenantId: string, storeId: string, isActive: boolean }) {
+    return api.post('inventory/warehouses/status', data)
   },
 
   /**
