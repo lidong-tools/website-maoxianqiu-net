@@ -114,6 +114,9 @@ const previewWorkspace = ref<EncounterWorkspace | null>(null)
 /** 预览竞态令牌:每次点击自增,仅最新一次点击可清空预览 */
 let previewToken = 0
 
+/** 顶部安全条展示数据:预览优先,其次完整工作区(配合 v-if 收窄为非空) */
+const displayWorkspace = computed(() => previewWorkspace.value ?? workspaceData.value)
+
 /** 点击患者后立即高亮卡片并基于队列行构造预览工作区(不等接口返回);返回竞态令牌 */
 function setPreviewWorkspace(row: DoctorQueueRow): number {
   previewToken += 1
@@ -457,7 +460,9 @@ async function onConflictViewLatest() {
   const enc = workspace.activeEncounter.value
   if (!enc) { return }
   conflictVisible.value = false
-  await loadWorkspaceById(enc.id)
+  // 发起新加载须递增竞态令牌,加载完成后预览切换为完整工作区
+  previewToken += 1
+  await loadWorkspaceById(enc.id, previewToken)
   useFaToast().success('已载入服务器最新版本')
 }
 
@@ -474,7 +479,9 @@ async function onConflictKeepMine() {
     followUpDate: draft.form.followUpDate,
   }
   conflictVisible.value = false
-  await loadWorkspaceById(enc.id)
+  // 发起新加载须递增竞态令牌,加载完成后预览切换为完整工作区
+  previewToken += 1
+  await loadWorkspaceById(enc.id, previewToken)
   draft.form.chiefComplaint = mine.chiefComplaint
   draft.form.historyPresent = mine.historyPresent
   draft.form.examFindings = mine.examFindings
@@ -571,8 +578,8 @@ onBeforeUnmount(() => {
   <div ref="contentRef" class="flex flex-col h-full min-h-0">
     <!-- 顶部患者安全条(点击患者即展示预览,工作区加载完成后切换为完整数据) -->
     <PatientContextBar
-      v-if="previewWorkspace || workspaceData"
-      :workspace="previewWorkspace ?? workspaceData"
+      v-if="displayWorkspace"
+      :workspace="displayWorkspace"
       class="m-3 mb-0 shrink-0"
     />
 
