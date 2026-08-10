@@ -233,107 +233,106 @@ const tableColumns = computed<TableColumn<ProgressNoteRow>[]>(() => [
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="病程记录" description="日常/危重/术前/术后/出院病程 · draft→signed 终态" />
-    <FaPageMain>
-      <FaSearchBar :show-toggle="false">
-        <template #default>
-          <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-            <FaLabel label="门店" class="col-span-1">
-              <FaSelect v-model="search.storeId" :options="storeOptions" class="w-full" @change="currentChange()" />
-            </FaLabel>
-            <FaLabel label="状态" class="col-span-1">
-              <FaSelect
-                v-model="search.status"
-                :options="[
-                  { label: '全部', value: '' },
-                  { label: '草稿', value: 'draft' },
-                  { label: '已签署', value: 'signed' },
-                ]"
-                class="w-full"
-                @change="currentChange()"
-              />
-            </FaLabel>
-            <FaLabel label="类型" class="col-span-1">
-              <FaSelect
-                v-model="search.noteType"
-                :options="[
-                  { label: '全部', value: '' },
-                  { label: '日常病程', value: 'daily' },
-                  { label: '危重病程', value: 'critical' },
-                  { label: '术前病程', value: 'preop' },
-                  { label: '术后病程', value: 'postop' },
-                  { label: '出院病程', value: 'discharge' },
-                ]"
-                class="w-full"
-                @change="currentChange()"
-              />
-            </FaLabel>
-            <div class="flex gap-2 col-end--1 justify-end">
-              <FaButton variant="outline" @click="searchReset()">
-                重置
-              </FaButton>
-              <FaButton type="primary" @click="currentChange()">
-                <FaIcon name="i-ri:search-line" />
-                筛选
-              </FaButton>
-            </div>
-          </div>
-        </template>
-      </FaSearchBar>
-      <div class="mx--4 my-3 border-t border-t-dashed" />
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="tableColumns"
-        :data="dataList"
-      >
-        <template #toolbar>
-          <FaButton @click="openCreate()">
-            <FaIcon name="i-ri:add-line" />
-            记录病程
-          </FaButton>
-        </template>
-        <template #cell-operation="{ row }">
-          <div class="flex-center gap-1">
-            <FaButton v-if="row.original.status === 'draft'" variant="outline" size="sm" @click="onSign(row.original)">
-              签署
-            </FaButton>
-          </div>
-        </template>
-      </FaTable>
-      <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2" @page-change="currentChange" @size-change="sizeChange" />
+    -->
 
-      <!-- 记录病程弹窗 -->
-      <FaModal v-model:visible="createVisible" title="记录病程" :loading="creating" @confirm="onCreate">
-        <div class="space-y-3">
-          <FaLabel label="住院记录" required>
-            <FaSelect v-model="createForm.admissionId" :options="admissionOptions" class="w-full" placeholder="选择住院中的记录" />
-          </FaLabel>
-          <FaLabel label="病程类型">
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 表格上方工具栏:筛选 + 功能按钮 -->
+        <div class="px-4 py-3 border-b shrink-0">
+          <div class="flex flex-wrap gap-3 items-center">
+            <FaSelect v-model="search.storeId" :options="storeOptions" class="w-40" @change="currentChange()" />
             <FaSelect
-              v-model="createForm.noteType"
+              v-model="search.status"
               :options="[
+                { label: '全部', value: '' },
+                { label: '草稿', value: 'draft' },
+                { label: '已签署', value: 'signed' },
+              ]"
+              class="w-32"
+              @change="currentChange()"
+            />
+            <FaSelect
+              v-model="search.noteType"
+              :options="[
+                { label: '全部', value: '' },
                 { label: '日常病程', value: 'daily' },
                 { label: '危重病程', value: 'critical' },
                 { label: '术前病程', value: 'preop' },
                 { label: '术后病程', value: 'postop' },
                 { label: '出院病程', value: 'discharge' },
               ]"
-              class="w-full"
+              class="w-32"
+              @change="currentChange()"
             />
-          </FaLabel>
-          <FaLabel label="病程内容" required>
-            <FaInput v-model="createForm.content" type="textarea" :rows="4" placeholder="记录病情变化、处置措施等" class="w-full" />
-          </FaLabel>
-          <FaLabel label="记录时间">
-            <FaInput v-model="createForm.recordedAt" type="datetime-local" class="w-full" />
-          </FaLabel>
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton size="sm" variant="outline" @click="searchReset()">
+                重置
+              </FaButton>
+              <FaButton size="sm" @click="currentChange()">
+                <FaIcon name="i-ri:search-line" />
+                筛选
+              </FaButton>
+              <FaButton size="sm" @click="openCreate()">
+                <FaIcon name="i-ri:add-line" />
+                记录病程
+              </FaButton>
+            </div>
+          </div>
         </div>
-      </FaModal>
-    </FaPageMain>
+
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="tableColumns"
+            :data="dataList"
+          >
+            <template #cell-operation="{ row }">
+              <div class="flex-center gap-1">
+                <FaButton v-if="row.original.status === 'draft'" variant="outline" size="sm" @click="onSign(row.original)">
+                  签署
+                </FaButton>
+              </div>
+            </template>
+          </FaTable>
+        </div>
+        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2 px-4 pb-3 shrink-0" @page-change="currentChange" @size-change="sizeChange" />
+      </div>
+    </div>
+
+    <!-- 记录病程弹窗 -->
+    <FaModal v-model:visible="createVisible" title="记录病程" :loading="creating" @confirm="onCreate">
+      <div class="space-y-3">
+        <FaLabel label="住院记录" required>
+          <FaSelect v-model="createForm.admissionId" :options="admissionOptions" class="w-full" placeholder="选择住院中的记录" />
+        </FaLabel>
+        <FaLabel label="病程类型">
+          <FaSelect
+            v-model="createForm.noteType"
+            :options="[
+              { label: '日常病程', value: 'daily' },
+              { label: '危重病程', value: 'critical' },
+              { label: '术前病程', value: 'preop' },
+              { label: '术后病程', value: 'postop' },
+              { label: '出院病程', value: 'discharge' },
+            ]"
+            class="w-full"
+          />
+        </FaLabel>
+        <FaLabel label="病程内容" required>
+          <FaInput v-model="createForm.content" type="textarea" :rows="4" placeholder="记录病情变化、处置措施等" class="w-full" />
+        </FaLabel>
+        <FaLabel label="记录时间">
+          <FaInput v-model="createForm.recordedAt" type="datetime-local" class="w-full" />
+        </FaLabel>
+      </div>
+    </FaModal>
   </div>
 </template>

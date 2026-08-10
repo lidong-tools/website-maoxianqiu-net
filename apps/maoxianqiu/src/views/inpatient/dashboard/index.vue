@@ -95,6 +95,17 @@ function statusTagVariant(status: CageStatusView['cage_status']) {
   return 'secondary'
 }
 
+/** 笼位卡片的状态样式(bg-card 底色 + 按状态叠加浅色背景与边框) */
+function cageCardClass(status: CageStatusView['cage_status']) {
+  const statusClass: Record<CageStatusView['cage_status'], string> = {
+    available: 'border-success bg-success-50',
+    occupied: 'border-destructive bg-destructive-50',
+    maintenance: 'border-warning bg-warning-50',
+    cleaning: 'border-info bg-info-50',
+  }
+  return statusClass[status] ?? 'bg-card'
+}
+
 onMounted(loadCageStatus)
 
 // P0-06:切店后重载房态看板(避免旧门店笼位数据残留)
@@ -105,19 +116,21 @@ useStoreScopedPage({
 
 <template>
   <div class="flex flex-col h-full">
-    <EntityPageHeader compact title="房态看板" description="按房间分组 · 实时在院情况">
+    <!-- TODO: 暂不展示页头(标题/描述/刷新) -->
+    <!-- <EntityPageHeader compact>
+      title="房态看板" description="按房间分组 · 实时在院情况"
       <template #actions>
         <FaButton size="sm" variant="outline" @click="loadCageStatus">
           <FaIcon name="i-lucide:refresh-cw" />
           刷新
         </FaButton>
       </template>
-    </EntityPageHeader>
+    </EntityPageHeader> -->
 
     <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
       <!-- 整体房态统计卡片 -->
       <div class="gap-3 grid grid-cols-2 md:grid-cols-5">
-        <div class="p-3 text-center border rounded-lg">
+        <div class="bg-card p-3 text-center border rounded-lg">
           <div class="text-2xl font-bold">
             {{ summary.total }}
           </div>
@@ -125,7 +138,7 @@ useStoreScopedPage({
             笼位总数
           </div>
         </div>
-        <div class="text-success p-3 text-center border rounded-lg">
+        <div class="bg-card text-success p-3 text-center border rounded-lg">
           <div class="text-2xl font-bold">
             {{ summary.available }}
           </div>
@@ -133,7 +146,7 @@ useStoreScopedPage({
             空闲
           </div>
         </div>
-        <div class="text-destructive p-3 text-center border rounded-lg">
+        <div class="bg-card text-destructive p-3 text-center border rounded-lg">
           <div class="text-2xl font-bold">
             {{ summary.occupied }}
           </div>
@@ -141,7 +154,7 @@ useStoreScopedPage({
             占用
           </div>
         </div>
-        <div class="text-warning p-3 text-center border rounded-lg">
+        <div class="bg-card text-warning p-3 text-center border rounded-lg">
           <div class="text-2xl font-bold">
             {{ summary.maintenance }}
           </div>
@@ -149,7 +162,7 @@ useStoreScopedPage({
             维护中
           </div>
         </div>
-        <div class="text-info p-3 text-center border rounded-lg">
+        <div class="bg-card text-info p-3 text-center border rounded-lg">
           <div class="text-2xl font-bold">
             {{ summary.cleaning }}
           </div>
@@ -164,7 +177,7 @@ useStoreScopedPage({
         <div
           v-for="room in groupedByRoom"
           :key="room.room_id"
-          class="p-4 border rounded-lg"
+          class="bg-card p-4 border rounded-lg"
         >
           <div class="mb-3 flex items-center justify-between">
             <div class="flex gap-2 items-center">
@@ -194,12 +207,7 @@ useStoreScopedPage({
               v-for="cage in room.cages"
               :key="cage.cage_id"
               class="p-2 border rounded cursor-pointer transition hover:shadow"
-              :class="{
-                'border-success bg-success-50': cage.cage_status === 'available',
-                'border-destructive bg-destructive-50': cage.cage_status === 'occupied',
-                'border-warning bg-warning-50': cage.cage_status === 'maintenance',
-                'border-info bg-info-50': cage.cage_status === 'cleaning',
-              }"
+              :class="cageCardClass(cage.cage_status)"
             >
               <div class="text-sm font-bold truncate">
                 {{ cage.cage_name }}

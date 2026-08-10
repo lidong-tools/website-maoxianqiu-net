@@ -29,6 +29,7 @@ interface AdmissionRow {
 }
 
 const tenantStore = useAppTenantStore()
+const { pagination, onSizeChange, onCurrentChange } = usePagination()
 const loading = ref(false)
 const submitting = ref(false)
 const dataList = ref<AdmissionRow[]>([])
@@ -139,6 +140,9 @@ async function loadCages() {
   }
 }
 
+/**
+ * 加载住院记录列表(拉全量后客户端分页)
+ */
 async function loadAdmissions() {
   loading.value = true
   try {
@@ -146,7 +150,11 @@ async function loadAdmissions() {
       tenantStore.currentStoreId || undefined,
       search.value.status || undefined,
     )
-    dataList.value = res.data.list as AdmissionRow[]
+    const list = res.data.list as AdmissionRow[]
+    const page = pagination.value.page
+    const size = pagination.value.size
+    pagination.value.total = list.length
+    dataList.value = list.slice((page - 1) * size, page * size)
     await enrich(dataList.value)
   }
   catch (e: unknown) {
@@ -155,6 +163,22 @@ async function loadAdmissions() {
   finally {
     loading.value = false
   }
+}
+
+/**
+ * 修改每页条数后重新加载
+ * @param size 每页条数
+ */
+function sizeChange(size: number) {
+  onSizeChange(size).then(() => loadAdmissions())
+}
+
+/**
+ * 切换页码后重新加载
+ * @param page 目标页码
+ */
+function currentChange(page = 1) {
+  onCurrentChange(page).then(() => loadAdmissions())
 }
 
 async function onAdmit() {
@@ -289,7 +313,9 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="入院登记" description="办理入院 · 锁定笼位 · 生成住院记录">
       <template #actions>
         <FaSelect
@@ -308,12 +334,36 @@ onMounted(async () => {
         </FaButton>
       </template>
     </EntityPageHeader>
+    -->
 
-    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
-      <div v-loading="loading" class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
-        <div class="flex-1 min-h-0 overflow-auto">
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 表格上方工具栏:筛选 + 功能按钮 -->
+        <div class="px-4 py-3 border-b shrink-0">
+          <div class="flex flex-wrap gap-3 items-center">
+            <FaSelect
+              v-model="search.status"
+              :options="[
+                { label: '全部状态', value: '' },
+                { label: '在院', value: 'admitted' },
+                { label: '已出院', value: 'discharged' },
+              ]"
+              class="w-36"
+              @change="currentChange()"
+            />
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton size="sm" @click="onOpenAdmit">
+                <FaIcon name="i-lucide:plus" />
+                办理入院
+              </FaButton>
+            </div>
+          </div>
+        </div>
+
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
           <FaTable
-            table-root-class="rounded-lg overflow-hidden"
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
             row-key="id"
             stripe
             border
@@ -332,6 +382,7 @@ onMounted(async () => {
             </template>
           </FaTable>
         </div>
+        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2 px-4 pb-3 shrink-0" @page-change="currentChange" @size-change="sizeChange" />
       </div>
     </div>
 

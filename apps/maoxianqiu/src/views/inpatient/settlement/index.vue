@@ -307,6 +307,8 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
 
 <template>
   <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="出院结算" description="生成结算单 → 收款/减免 → 完成出院">
       <template #actions>
         <FaSelect v-model="search.storeId" :options="storeOptions" class="w-36" @change="currentChange()" />
@@ -328,6 +330,7 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
         </FaButton>
       </template>
     </EntityPageHeader>
+    -->
 
     <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
       <!-- 状态摘要 -->
@@ -359,10 +362,35 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
       </div>
 
       <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 表格上方工具栏:筛选 + 功能按钮 -->
+        <div class="px-4 py-3 border-b shrink-0">
+          <div class="flex flex-wrap gap-3 items-center">
+            <FaSelect v-model="search.storeId" :options="storeOptions" class="w-36" @change="currentChange()" />
+            <FaSelect
+              v-model="search.settlementStatus"
+              :options="[
+                { label: '全部状态', value: '' },
+                { label: '未结算', value: 'unsettled' },
+                { label: '已生成结算单', value: 'prepared' },
+                { label: '已收款', value: 'settled' },
+                { label: '已减免', value: 'waived' },
+                { label: '已完成出院', value: 'finalized' },
+              ]"
+              class="w-40"
+              @change="currentChange()"
+            />
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton size="sm" variant="outline" @click="searchReset">
+                重置
+              </FaButton>
+            </div>
+          </div>
+        </div>
+
         <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
           <FaTable
             class="h-full min-h-0"
-            table-root-class="rounded-lg overflow-hidden"
+            table-root-class="overflow-hidden"
             row-key="id"
             stripe
             border
