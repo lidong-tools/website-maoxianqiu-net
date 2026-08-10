@@ -3,6 +3,28 @@ import type { RouteRecordRaw } from 'vue-router'
 // Clinical 诊疗核心(MXQ-7001~7011)
 const routes: RouteRecordRaw[] = [
   {
+    path: '/workbenches/:role',
+    name: 'roleWorkbench',
+    component: () => import('@/views/workbenches/index.vue'),
+    meta: {
+      title: '岗位工作台',
+      icon: 'i-ri:dashboard-3-line',
+      keepAlive: true,
+    },
+  },
+  {
+    path: '/clinical/waiting-display',
+    name: 'clinicalWaitingDisplay',
+    component: () => import('@/views/clinical/waiting-display/index.vue'),
+    meta: {
+      title: '候诊叫号大屏',
+      menu: false,
+      breadcrumb: false,
+      activeMenu: '/clinical/waiting',
+      auth: 'queue.call',
+    },
+  },
+  {
     // 医生工作台(MXQ-7004)
     path: '/clinical/workbench',
     name: 'clinicalWorkbench',

@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import type { AppointmentRecord, EncounterRecord } from '@/types/clinical'
+import type { AppointmentRecord, EncounterRecord, PrescriptionItemInput } from '@/types/clinical'
 import type { CustomerRecord, PetRecord } from '@/types/customer'
+import type { WorkbenchRow } from '@/types/patient-journey'
 import apiClinical from '@/api/modules/clinical'
+import apiCompliance from '@/api/modules/compliance'
 import apiDiagnostics from '@/api/modules/diagnostics'
+import apiJourney from '@/api/modules/patient-journey'
+import BusinessCatalogItemPicker from '@/components/business/CatalogItemPicker/index.vue'
 import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { ENCOUNTER_STATUS_LABELS } from '@/types/clinical'
@@ -21,6 +25,7 @@ const activePet = ref<PetRecord | null>(null)
 const recentEncounters = ref<EncounterRecord[]>([])
 const prescriptions = ref<any[]>([])
 const labOrders = ref<any[]>([])
+const doctorQueue = ref<WorkbenchRow[]>([])
 const saving = ref(false)
 const lastSavedAt = ref<Date | null>(null)
 
@@ -33,6 +38,134 @@ const conflictVisible = ref(false)
 
 const petMap = ref<Record<string, PetRecord>>({})
 const customerMap = ref<Record<string, CustomerRecord>>({})
+
+const prescriptionVisible = ref(false)
+const prescriptionSubmitting = ref(false)
+const prescriptionItems = ref<PrescriptionItemInput[]>([])
+const diagnosticVisible = ref(false)
+const diagnosticSubmitting = ref(false)
+const diagnosticForm = reactive({
+  type: 'lab' as 'lab' | 'imaging',
+  catalogItemId: '',
+  imagingType: 'other' as 'ultrasound' | 'xray' | 'cr' | 'ct' | 'mri' | 'other',
+  question: '',
+})
+
+/** 创建一行可直接录入的处方明细。 */
+function emptyPrescriptionItem(): PrescriptionItemInput {
+  return { catalogItemId: '', drugName: '', dosage: '', frequency: '', quantity: 1, unit: '', instructions: '' }
+}
+
+/** 打开快捷开药并重置上一次未提交内容。 */
+function openPrescription() {
+  if (!activeEncounter.value) {
+    useFaToast().warning('请先接诊一位患者')
+    return
+  }
+  prescriptionItems.value = [emptyPrescriptionItem()]
+  prescriptionVisible.value = true
+}
+
+/** 增加一项处方药品。 */
+function addPrescriptionItem() {
+  prescriptionItems.value.push(emptyPrescriptionItem())
+}
+
+/** 删除一项处方药品，至少保留一个录入行。 */
+function removePrescriptionItem(index: number) {
+  prescriptionItems.value.splice(index, 1)
+  if (!prescriptionItems.value.length) {
+    addPrescriptionItem()
+  }
+}
+
+/** 选择价目后带出目录名称和计量单位，避免重复录入。 */
+async function onDrugCatalogChange(item: PrescriptionItemInput, catalogItemId?: string) {
+  if (!catalogItemId) {
+    item.drugName = ''
+    item.unit = ''
+    return
+  }
+  const { data } = await supabase.from('catalog_items').select('name,unit').eq('id', catalogItemId).maybeSingle()
+  if (data) {
+    item.drugName = data.name ?? item.drugName
+    item.unit = data.unit ?? item.unit
+  }
+}
+
+/** 保存并立即开具处方；开具成功后由数据库事务生成待收费项和药房任务。 */
+async function onSubmitPrescription() {
+  if (!activeEncounter.value) { return }
+  const items = prescriptionItems.value.filter(item => item.catalogItemId && item.drugName && Number(item.quantity) > 0)
+  if (!items.length) {
+    useFaToast().warning('请至少选择一种药品并填写有效数量')
+    return
+  }
+  prescriptionSubmitting.value = true
+  try {
+    const saved = await apiClinical.savePrescription({ encounterId: activeEncounter.value.id, items })
+    await apiCompliance.issuePrescription(saved.data.id, {})
+    prescriptionVisible.value = false
+    await loadPrescriptions(activeEncounter.value.id)
+    useFaToast().success('处方已开具，药品费用已同步到客户待付款')
+  }
+  catch (error: any) {
+    useFaToast().error(error?.message || '开具处方失败')
+  }
+  finally {
+    prescriptionSubmitting.value = false
+  }
+}
+
+/** 打开检验或影像快捷申请。 */
+function openDiagnostic(type: 'lab' | 'imaging') {
+  if (!activeEncounter.value) {
+    useFaToast().warning('请先接诊一位患者')
+    return
+  }
+  diagnosticForm.type = type
+  diagnosticForm.catalogItemId = ''
+  diagnosticForm.question = ''
+  diagnosticVisible.value = true
+}
+
+/** 创建检查申请并同步收费、执行岗位任务和操作留痕。 */
+async function onCreateDiagnosticOrder() {
+  if (!activeEncounter.value || !diagnosticForm.catalogItemId || !tenantStore.currentTenantId) {
+    useFaToast().warning('请选择检查价目')
+    return
+  }
+  diagnosticSubmitting.value = true
+  try {
+    const common = {
+      tenantId: tenantStore.currentTenantId,
+      storeId: tenantStore.currentStoreId || undefined,
+      encounterId: activeEncounter.value.id,
+      customerId: activeEncounter.value.customer_id,
+      petId: activeEncounter.value.pet_id,
+      catalogItemId: diagnosticForm.catalogItemId,
+    }
+    if (diagnosticForm.type === 'lab') {
+      await apiDiagnostics.createLabOrder({ ...common, remark: diagnosticForm.question || undefined })
+    }
+    else {
+      await apiDiagnostics.createImagingOrder({
+        ...common,
+        imagingType: diagnosticForm.imagingType,
+        clinicalQuestion: diagnosticForm.question || undefined,
+      })
+    }
+    diagnosticVisible.value = false
+    await loadLabOrders(activeEncounter.value.id)
+    useFaToast().success(`${diagnosticForm.type === 'lab' ? '检验' : '影像'}申请已创建，费用已同步到客户待付款`)
+  }
+  catch (error: any) {
+    useFaToast().error(error?.message || '创建检查申请失败')
+  }
+  finally {
+    diagnosticSubmitting.value = false
+  }
+}
 
 const encounterForm = reactive({
   chiefComplaint: '',
@@ -78,14 +211,40 @@ const queueRows = computed(() =>
     .map((a) => {
       const pet = a.pet_id ? petMap.value[a.pet_id] : undefined
       const customer = a.customer_id ? customerMap.value[a.customer_id] : undefined
+      const journey = doctorQueue.value.find(item => item.appointment_id === a.id)
       return {
         ...a,
         petName: pet?.name ?? '未知宠物',
         customerName: customer?.name ?? '未知主人',
         phone: customer?.phone ?? '',
+        queueId: journey?.id,
+        queueNo: journey?.queue_no,
+        queueStatus: journey?.status,
+        waitStartedAt: journey?.waiting_at ?? journey?.checked_in_at,
       }
     }),
 )
+
+const queueCounts = computed(() => ({
+  waiting: doctorQueue.value.filter(item => item.status === 'waiting').length,
+  called: doctorQueue.value.filter(item => item.status === 'called').length,
+  consulting: doctorQueue.value.filter(item => item.status === 'in_consultation').length,
+  unsigned: recentEncounters.value.filter(item => item.archive_status !== 'signed' && item.archive_status !== 'archived').length,
+}))
+
+async function loadDoctorQueue() {
+  if (!tenantStore.currentStoreId) {
+    doctorQueue.value = []
+    return
+  }
+  try {
+    const data = await apiJourney.getWorkbench('doctor', tenantStore.currentStoreId)
+    doctorQueue.value = data.list
+  }
+  catch {
+    doctorQueue.value = []
+  }
+}
 
 /** 批量富化 pet/customer 名称,替代 raw UUID */
 async function enrich(rows: Array<{ pet_id?: string | null, customer_id?: string | null }>) {
@@ -112,6 +271,7 @@ async function loadTodayAppointments() {
     })
     todayAppointments.value = res.data.list ?? []
     await enrich(todayAppointments.value)
+    await loadDoctorQueue()
   }
   catch (e: any) {
     useFaToast().error(e?.message || '加载今日预约失败')
@@ -119,6 +279,34 @@ async function loadTodayAppointments() {
   finally {
     loadingAppointments.value = false
   }
+}
+
+async function onCallPatient(row: AppointmentRecord & { queueId?: string }) {
+  if (!row.queueId) {
+    useFaToast().warning('该预约还没有候诊队列记录，请先由前台完成签到')
+    return
+  }
+  try {
+    await apiJourney.transitionQueue(row.queueId, 'doctor', 'called')
+    useFaToast().success('已叫号，候诊大屏将同步播报')
+    await loadTodayAppointments()
+  }
+  catch (error: any) {
+    useFaToast().error(error?.message || '叫号失败')
+  }
+}
+
+async function onStartConsultation(row: AppointmentRecord & { queueId?: string, queueStatus?: string }) {
+  if (row.queueId && row.queueStatus === 'called') {
+    try {
+      await apiJourney.transitionQueue(row.queueId, 'doctor', 'in_consultation')
+    }
+    catch (error: any) {
+      useFaToast().error(error?.message || '接诊状态更新失败')
+      return
+    }
+  }
+  await onSelectAppointment(row)
 }
 
 async function loadRecentEncounters() {
@@ -375,19 +563,33 @@ function onOpenDetail() {
   }
 }
 
+/** 将候诊起始时间转为医生可快速识别的等待时长。 */
+function waitingText(value?: string | null) {
+  if (!value) { return '等待时长未知' }
+  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000))
+  return minutes < 60 ? `已等待 ${minutes} 分钟` : `已等待 ${Math.floor(minutes / 60)}小时${minutes % 60}分`
+}
+
+/** 当前就诊对应的主人信息。 */
+const activeCustomer = computed(() => activeEncounter.value ? customerMap.value[activeEncounter.value.customer_id] : undefined)
+
 async function onComplete() {
   if (!activeEncounter.value) { return }
   useFaModal().confirm({
-    title: '完成就诊',
-    content: '确认完成本次就诊?完成后可进行病历签署。',
+    title: '提交诊疗方案',
+    content: '提交后患者将进入收费、检验/影像、护理和药房等下游环节；病历仍可稍后签署。',
     onConfirm: async () => {
       try {
-        await apiClinical.completeEncounter(activeEncounter.value!.id)
-        useFaToast().success('就诊已完成')
-        onOpenDetail()
+        if (isDirty.value) {
+          await onSaveDraft()
+          if (isDirty.value) { return }
+        }
+        await apiJourney.finishConsultation(activeEncounter.value!.id)
+        useFaToast().success('诊疗方案已提交，下游岗位待办已保留')
+        await loadTodayAppointments()
       }
       catch (e: any) {
-        useFaToast().error(e?.message || '完成就诊失败')
+        useFaToast().error(e?.message || '提交诊疗方案失败')
       }
     },
   })

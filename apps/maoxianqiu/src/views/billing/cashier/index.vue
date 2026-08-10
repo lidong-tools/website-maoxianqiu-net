@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/* eslint-disable style/max-statements-per-line -- 收银加载流程使用单行提示守卫 */
 import type {
   CreateInvoiceItemInput,
   InvoiceItemCategory,
@@ -8,6 +9,7 @@ import type {
 import apiBilling, { generateIdempotencyKey } from '@/api/modules/billing'
 import apiCustomer from '@/api/modules/customer'
 import apiOperations from '@/api/modules/operations'
+import apiJourney from '@/api/modules/patient-journey'
 import apiSettings from '@/api/modules/settings'
 import BusinessCustomerPicker from '@/components/business/CustomerPicker/index.vue'
 import BusinessPetPicker from '@/components/business/PetPicker/index.vue'
@@ -43,10 +45,12 @@ interface PaymentAllocation {
 }
 
 const tenantStore = useAppTenantStore()
+const route = useRoute()
 const submitting = ref(false)
 const catalogLoading = ref(false)
 const catalogList = ref<CatalogRow[]>([])
 const cart = ref<CartItem[]>([])
+const pendingChargeIds = ref<string[]>([])
 const keyword = ref('')
 const catalogCategory = ref('all')
 
@@ -271,6 +275,10 @@ async function loadCatalog() {
 }
 
 function addToCart(row: CatalogRow) {
+  if (pendingChargeIds.value.length) {
+    useFaToast().warning('医生开具的待付款项目需独立结算；如需临时收费，请完成本单后再新增')
+    return
+  }
   const existing = cart.value.find(item => item.catalogItemId === row.id)
   if (existing) {
     existing.quantity += 1
@@ -298,6 +306,9 @@ function recalcItemAmount(item: CartItem): number {
 
 function onRemoveItem(row: CartItem) {
   cart.value = cart.value.filter(item => item.key !== row.key)
+  if (row.key.startsWith('charge-')) {
+    pendingChargeIds.value = pendingChargeIds.value.filter(id => id !== row.key.slice('charge-'.length))
+  }
 }
 
 // S3.1 会员折扣:选客户后预览会员折扣,提交时由服务端权威计算写入快照
@@ -482,33 +493,38 @@ async function onSubmit() {
     // C1(审计 29-30):已有未完成确认的草稿发票时,跳过 Create 直接重试 Confirm(不重新 Create,避免多个草稿发票)
     let invoiceId = pendingInvoiceId.value
     if (!invoiceId) {
-      const createKey = generateIdempotencyKey()
-      const createRes = await apiBilling.createInvoice({
-        tenantId: tenantStore.currentTenantId,
-        storeId: tenantStore.currentStoreId,
-        customerId: form.customerId || undefined,
-        petId: form.petId || undefined,
-        encounterId: form.encounterId || undefined,
-        items: cart.value.map(item => ({
-          catalogItemId: item.catalogItemId,
-          storeCatalogItemId: item.storeCatalogItemId,
-          name: item.name,
-          unitPrice: item.unitPrice,
-          quantity: item.quantity,
-          discountAmount: item.discountAmount,
-          amount: item.amount,
-          sortOrder: item.sortOrder,
-          category: item.category,
-        })),
-        discountAmount: form.discountAmount,
-        discountReason: form.discountReason || undefined,
-        taxAmount: form.taxAmount,
-        paymentMethod: activePayments.value.length === 1 ? activePayments.value[0].method : undefined,
-        // P0-10:已选客户即交由服务端判断是否应用会员折扣,避免前端 Preview 决定真实收费
-        applyMembershipDiscount: !!form.customerId,
-      }, createKey)
+      const createRes = pendingChargeIds.value.length && form.encounterId
+        ? await apiJourney.createInvoiceFromCharges(form.encounterId, pendingChargeIds.value, {
+            discountAmount: form.discountAmount,
+            discountReason: form.discountReason || undefined,
+            taxAmount: form.taxAmount,
+          })
+        : await apiBilling.createInvoice({
+            tenantId: tenantStore.currentTenantId,
+            storeId: tenantStore.currentStoreId,
+            customerId: form.customerId || undefined,
+            petId: form.petId || undefined,
+            encounterId: form.encounterId || undefined,
+            items: cart.value.map(item => ({
+              catalogItemId: item.catalogItemId,
+              storeCatalogItemId: item.storeCatalogItemId,
+              name: item.name,
+              unitPrice: item.unitPrice,
+              quantity: item.quantity,
+              discountAmount: item.discountAmount,
+              amount: item.amount,
+              sortOrder: item.sortOrder,
+              category: item.category,
+            })),
+            discountAmount: form.discountAmount,
+            discountReason: form.discountReason || undefined,
+            taxAmount: form.taxAmount,
+            paymentMethod: activePayments.value.length === 1 ? activePayments.value[0].method : undefined,
+            // P0-10:已选客户即交由服务端判断是否应用会员折扣,避免前端 Preview 决定真实收费
+            applyMembershipDiscount: !!form.customerId,
+          }, generateIdempotencyKey())
 
-      invoiceId = (createRes as any).data?.invoiceId
+      invoiceId = (createRes as any).data?.invoiceId ?? (createRes as any).invoiceId
       if (!invoiceId) {
         throw new Error('创建发票失败')
       }
@@ -607,6 +623,7 @@ function resetCart() {
   pendingInvoiceId.value = null
   pendingInvoiceConfirmed.value = false
   pendingPaymentKeys.value = {}
+  pendingChargeIds.value = []
   cart.value = []
   form.customerId = ''
   form.petId = ''
@@ -634,10 +651,40 @@ useStoreScopedPage({
   reset: resetCart,
 })
 
+/** 从医生开具的医疗项目加载待付款购物车，保留收费条目与发票的来源关联。 */
+async function loadEncounterPendingCharges() {
+  const encounterId = typeof route.query.encounterId === 'string' ? route.query.encounterId : ''
+  if (!encounterId) { return }
+  try {
+    const workspace = await apiJourney.getWorkspace(encounterId)
+    const pending = (workspace.charges ?? []).filter((item: any) => item.status === 'pending')
+    form.encounterId = encounterId
+    form.customerId = workspace.encounter.customer_id
+    form.petId = workspace.encounter.pet_id
+    pendingChargeIds.value = pending.map((item: any) => item.id)
+    cart.value = pending.map((item: any, index: number) => ({
+      key: `charge-${item.id}`,
+      catalogItemId: item.catalog_item_id ?? undefined,
+      name: item.item_name,
+      unitPrice: Number(item.unit_price),
+      quantity: Number(item.quantity),
+      discountAmount: 0,
+      amount: Number(item.amount),
+      sortOrder: index,
+      category: item.source_type === 'prescription' ? 'drug' : ['lab_order', 'imaging_order'].includes(item.source_type) ? 'exam' : 'service',
+    }))
+    if (!pending.length) { useFaToast().warning('该患者当前没有待付款医疗项目') }
+  }
+  catch (error: any) {
+    useFaToast().error(error?.message || '加载患者待付款项目失败')
+  }
+}
+
 onMounted(async () => {
   await loadCatalog()
   await loadPaymentMethods()
   await loadApprovalThreshold()
+  await loadEncounterPendingCharges()
 })
 </script>
 

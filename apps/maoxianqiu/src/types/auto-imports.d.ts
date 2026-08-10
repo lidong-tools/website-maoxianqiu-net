@@ -97,6 +97,7 @@ declare global {
   const useStoreScopedPage: typeof import('../composables/business/useStoreScopedPage').useStoreScopedPage
   const useTemplateRef: typeof import('vue').useTemplateRef
   const useUnsavedChangesGuard: typeof import('../composables/business/useUnsavedChangesGuard').useUnsavedChangesGuard
+  const useWorkbenchStore: typeof import('../store/modules/app/workbench').useWorkbenchStore
   const watch: typeof import('vue').watch
   const watchEffect: typeof import('vue').watchEffect
   const watchPostEffect: typeof import('vue').watchPostEffect

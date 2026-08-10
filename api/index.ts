@@ -12,6 +12,7 @@ import auditRoutes from './routes/audit.js'
 import billingRoutes from './routes/billing.js'
 import catalogRoutes from './routes/catalog.js'
 import clinicalRoutes from './routes/clinical.js'
+import patientJourneyRoutes from './routes/patient-journey.js'
 import closingRoutes from './routes/closing.js'
 import complianceRoutes from './routes/compliance.js'
 import crmGrowthRoutes from './routes/crm-growth.js'
@@ -153,6 +154,7 @@ app.route('/messaging', messagingRoutes)
 app.route('/portal', portalRoutes)
 // MXQ-7001~7011:Clinical 预约/候诊/就诊/病历签署/修订/处方/护士任务
 app.route('/clinical', clinicalRoutes)
+app.route('/', patientJourneyRoutes)
 // MXQ-8001~8007:Billing 发票/折扣/支付/退款 RPC(幂等防重复)
 app.route('/billing', billingRoutes)
 // MXQ-11001~11009:Inpatient 房间/笼位/入院房位锁/护理/交接班/换房/自动计费/出院

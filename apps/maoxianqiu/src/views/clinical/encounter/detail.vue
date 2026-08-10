@@ -5,7 +5,11 @@ import type { PetRecord } from '@/types/customer'
 import type { StatusVariant } from '@/utils/status'
 import apiClinical from '@/api/modules/clinical'
 import apiCompliance from '@/api/modules/compliance'
+import apiDiagnostics from '@/api/modules/diagnostics'
+import BusinessCatalogItemPicker from '@/components/business/CatalogItemPicker/index.vue'
+import JourneyTimeline from '@/components/business/JourneyTimeline/index.vue'
 import { supabase } from '@/lib/supabase'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { ENCOUNTER_STATUS_LABELS, PRESCRIPTION_STATUS_LABELS } from '@/types/clinical'
 import { AMENDMENT_STATUS_LABELS, ARCHIVE_STATUS_LABELS } from '@/types/compliance'
 
@@ -17,6 +21,7 @@ const route = useRoute()
 const encounterId = computed(() => route.params.id as string)
 
 const { auth } = useAppAuth()
+const tenantStore = useAppTenantStore()
 
 const loading = ref(false)
 const encounter = ref<EncounterRecord | null>(null)
@@ -58,7 +63,7 @@ const encounterDirty = computed(() =>
   || form.treatmentPlan !== formBaseline.treatmentPlan
   || form.followUpDate !== formBaseline.followUpDate,
 )
-watch(encounterDirty, (d) => encounterGuard.setDirty(d), { immediate: true })
+watch(encounterDirty, d => encounterGuard.setDirty(d), { immediate: true })
 
 /** 将当前表单值同步为未保存快照(加载/保存成功后调用) */
 function syncFormBaseline() {
@@ -85,6 +90,44 @@ const reviseForm = reactive({
 /** 处方编辑 */
 const prescriptionItems = ref<PrescriptionItemInput[]>([{ drugName: '', dosage: '', frequency: '', quantity: 1, unit: '' }])
 const savingPrescription = ref(false)
+const diagnosticVisible = ref(false)
+const diagnosticSubmitting = ref(false)
+const diagnosticForm = reactive({ type: 'lab' as 'lab' | 'imaging', catalogItemId: '', question: '' })
+
+/** 医生开检查后，由数据库事务同步收费项和专业岗位任务。 */
+async function onCreateDiagnosticOrder() {
+  if (!encounter.value || !diagnosticForm.catalogItemId || !tenantStore.currentTenantId) {
+    useFaToast().warning('请选择检查价目')
+    return
+  }
+  diagnosticSubmitting.value = true
+  try {
+    const common = {
+      tenantId: tenantStore.currentTenantId,
+      storeId: tenantStore.currentStoreId || undefined,
+      encounterId: encounter.value.id,
+      customerId: encounter.value.customer_id,
+      petId: encounter.value.pet_id,
+      catalogItemId: diagnosticForm.catalogItemId,
+    }
+    if (diagnosticForm.type === 'lab') {
+      await apiDiagnostics.createLabOrder({ ...common, remark: diagnosticForm.question || undefined })
+    }
+    else {
+      await apiDiagnostics.createImagingOrder({ ...common, imagingType: 'other', clinicalQuestion: diagnosticForm.question || undefined })
+    }
+    diagnosticVisible.value = false
+    diagnosticForm.catalogItemId = ''
+    diagnosticForm.question = ''
+    useFaToast().success('检查申请已创建，并同步到收银台与执行岗位')
+  }
+  catch (error: any) {
+    useFaToast().error(error?.message || '创建检查申请失败')
+  }
+  finally {
+    diagnosticSubmitting.value = false
+  }
+}
 
 /** 修订申请弹窗(归档后) */
 const amendmentRequestVisible = ref(false)
@@ -496,9 +539,9 @@ async function onSavePrescription() {
     useFaToast().warning('处方已开具,明细不可修改')
     return
   }
-  const validItems = prescriptionItems.value.filter(i => i.drugName)
+  const validItems = prescriptionItems.value.filter(i => i.drugName && i.catalogItemId)
   if (validItems.length === 0) {
-    useFaToast().warning('请至少添加一条药品明细')
+    useFaToast().warning('请至少选择一项目录药品并填写药品名称，以便同步准确价格到收银台')
     return
   }
   savingPrescription.value = true
@@ -516,26 +559,6 @@ async function onSavePrescription() {
   finally {
     savingPrescription.value = false
   }
-}
-
-/**
- * 发药(RPC)
- */
-async function onDispense(rx: PrescriptionRecord) {
-  useFaModal().confirm({
-    title: '发药确认',
-    content: `确认发放处方药品?`,
-    onConfirm: async () => {
-      try {
-        await apiClinical.dispensePrescription(rx.id)
-        useFaToast().success('发药成功')
-        loadData()
-      }
-      catch (e: any) {
-        useFaToast().error(e?.message || '发药失败')
-      }
-    },
-  })
 }
 
 /** 打开开具处方弹窗 */
@@ -663,10 +686,14 @@ onMounted(loadData)
           <div class="px-4 py-3 border-t">
             <div class="mb-2 flex items-center justify-between">
               <span class="text-sm font-medium">处方({{ prescriptions.length }})</span>
-              <FaButton v-if="!isSigned" variant="outline" size="sm" :disabled="prescriptionLocked" :loading="savingPrescription" @click="onSavePrescription">
-                <FaIcon name="i-lucide:save" />
-                保存处方
-              </FaButton>
+              <div class="flex gap-2">
+                <FaButton v-if="!isSigned" variant="outline" size="sm" @click="diagnosticVisible = true">
+                  <FaIcon name="i-lucide:scan-line" />开检查
+                </FaButton>
+                <FaButton v-if="!isSigned" variant="outline" size="sm" :disabled="prescriptionLocked" :loading="savingPrescription" @click="onSavePrescription">
+                  <FaIcon name="i-lucide:save" />保存处方
+                </FaButton>
+              </div>
             </div>
             <div v-if="prescriptions.length > 0" class="mb-3 space-y-2">
               <div v-for="rx in prescriptions" :key="rx.id" class="p-2.5 border rounded-md">
@@ -684,9 +711,7 @@ onMounted(loadData)
                     <FaButton v-if="rx.status === 'draft' && auth('prescription.issue')" variant="outline" size="sm" @click="openIssue(rx)">
                       开具
                     </FaButton>
-                    <FaButton v-if="rx.status === 'issued' && auth('prescription.dispense')" variant="outline" size="sm" @click="onDispense(rx)">
-                      发药
-                    </FaButton>
+                    <span v-if="rx.status === 'issued'" class="text-xs text-muted-foreground">已同步收银台，付款后由药房发药</span>
                     <FaButton v-if="rx.status === 'issued' && auth('prescription.extend_validity')" variant="outline" size="sm" @click="openExtend(rx)">
                       延长
                     </FaButton>
@@ -709,6 +734,7 @@ onMounted(loadData)
             </div>
             <div v-if="!isSigned" class="space-y-2">
               <div v-for="(item, idx) in prescriptionItems" :key="idx" class="flex flex-wrap gap-2 items-center">
+                <BusinessCatalogItemPicker v-model="item.catalogItemId" billing-type="drug" :disabled="prescriptionLocked" class="w-52" />
                 <FaInput v-model="item.drugName" :disabled="prescriptionLocked" placeholder="药品名称" class="w-40" />
                 <FaInput v-model="item.dosage" :disabled="prescriptionLocked" placeholder="剂量" class="w-24" />
                 <FaInput v-model="item.frequency" :disabled="prescriptionLocked" placeholder="频次" class="w-24" />
@@ -728,6 +754,14 @@ onMounted(loadData)
 
         <!-- 右栏:修订历史 + 修订管理 -->
         <div class="flex flex-col gap-4 min-w-0 overflow-auto">
+          <div class="border rounded-lg bg-card">
+            <div class="text-sm font-medium px-4 py-2.5 border-b">
+              患者旅程与操作留痕
+            </div>
+            <div class="p-4">
+              <JourneyTimeline :encounter-id="encounterId" />
+            </div>
+          </div>
           <div class="border rounded-lg bg-card">
             <div class="text-sm font-medium px-4 py-2.5 border-b">
               修订历史({{ revisions.length }})
@@ -865,6 +899,24 @@ onMounted(loadData)
         <FaLabel label="治疗方案">
           <FaInput v-model="applyForm.treatmentPlan" type="textarea" :rows="2" class="w-full" />
         </FaLabel>
+      </div>
+    </FaModal>
+
+    <!-- 开具处方弹窗 -->
+    <FaModal v-model:visible="diagnosticVisible" title="开具检查申请" :loading="diagnosticSubmitting" @confirm="onCreateDiagnosticOrder">
+      <div class="space-y-3">
+        <FaLabel label="检查类型">
+          <FaSelect v-model="diagnosticForm.type" :options="[{ label: '检验', value: 'lab' }, { label: '影像', value: 'imaging' }]" />
+        </FaLabel>
+        <FaLabel label="检查价目（必选）">
+          <BusinessCatalogItemPicker v-model="diagnosticForm.catalogItemId" billing-type="exam" />
+        </FaLabel>
+        <FaLabel label="临床问题 / 备注">
+          <FaTextarea v-model="diagnosticForm.question" placeholder="请说明检查目的、重点关注和必要病史" />
+        </FaLabel>
+        <div class="text-sm text-blue-800 p-3 rounded-md bg-blue-50">
+          提交后将同时生成客户待付款条目和检验/影像岗位任务，默认付款后执行。
+        </div>
       </div>
     </FaModal>
 
