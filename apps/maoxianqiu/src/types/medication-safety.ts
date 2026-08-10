@@ -4,17 +4,17 @@
  */
 
 /** 规则类型枚举(与 DB check 约束一致) */
-export type MedicationSafetyRuleType =
-  | 'duplicate_ingredient'
-  | 'duplicate_drug'
-  | 'dose_range'
-  | 'duration_limit'
-  | 'frequency_limit'
-  | 'species_contraindication'
-  | 'age_constraint'
-  | 'weight_constraint'
-  | 'antimicrobial_notice'
-  | 'drug_interaction'
+export type MedicationSafetyRuleType
+  = | 'duplicate_ingredient'
+    | 'duplicate_drug'
+    | 'dose_range'
+    | 'duration_limit'
+    | 'frequency_limit'
+    | 'species_contraindication'
+    | 'age_constraint'
+    | 'weight_constraint'
+    | 'antimicrobial_notice'
+    | 'drug_interaction'
 
 /** 严重度 */
 export type MedicationSafetySeverity = 'info' | 'warning' | 'error'

@@ -1,3 +1,5 @@
+import type { FieldDef, ImportTypeMeta } from './fields.js'
+import type { LookupContext } from './lookup.js'
 /**
  * S32-A 导入中心 V2 —— 每类数据的行校验
  *
@@ -5,9 +7,7 @@
  * （主人 / 商品 / 仓库 / 类目）都按类型各自定义，禁止 Generic 一套逻辑。
  */
 import type { ImportRow } from './parse.js'
-import { fieldValue, toArray, toBoolean, toDate, toNumber } from './parse.js'
-import type { FieldDef, ImportTypeMeta } from './fields.js'
-import type { LookupContext } from './lookup.js'
+import { fieldValue, toBoolean, toDate, toNumber } from './parse.js'
 
 export interface RowError {
   rowNumber: number
@@ -150,7 +150,7 @@ export function validateRow(
     }
     case 'employee': {
       const email = v('email').trim()
-      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      if (email && !/^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/.test(email)) {
         push('email', 'INVALID_EMAIL', '邮箱格式无效')
       }
       break

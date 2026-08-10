@@ -279,6 +279,8 @@ const createLabOrderSchema = z.object({
   encounterId: z.string().uuid().optional(),
   panelId: z.string().uuid().optional(),
   catalogItemId: z.string().uuid().optional(),
+  /** 临床问题/检验目的(可选,随申请落库) */
+  clinicalQuestion: z.string().max(2000).optional(),
   remark: z.string().max(1000).optional(),
 })
 
@@ -311,6 +313,7 @@ diagnosticsRoutes.post('/lab-orders', async (c) => {
       status: 'requested',
       requested_by: user.id,
       remark: input.remark ?? null,
+      clinical_question: input.clinicalQuestion ?? null,
       idempotency_key: idempotencyKey,
     })
     .select('*')

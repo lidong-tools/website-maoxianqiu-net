@@ -11,12 +11,12 @@ export type StoredValueLedgerDirection = 'credit' | 'debit'
 
 /** 流水业务类型 */
 export type StoredValueLedgerType
-  = | 'recharge'    // 充值本金
-    | 'bonus'       // 充值赠送金
-    | 'payment'     // 收银消费扣款
-    | 'refund'      // 退款返还
-    | 'adjustment'  // 人工调整
-    | 'reversal'    // 冲正(预留)
+  = | 'recharge' // 充值本金
+    | 'bonus' // 充值赠送金
+    | 'payment' // 收银消费扣款
+    | 'refund' // 退款返还
+    | 'adjustment' // 人工调整
+    | 'reversal' // 冲正(预留)
 
 /** 储值账户(联客户后的展示模型) */
 export interface StoredValueAccount {

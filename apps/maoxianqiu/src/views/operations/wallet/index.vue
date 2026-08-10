@@ -4,13 +4,13 @@ import type {
   StoredValueAccount,
   StoredValueLedgerEntry,
 } from '@/types/wallet'
+import apiWallet from '@/api/modules/wallet'
+import BusinessCustomerPicker from '@/components/business/CustomerPicker/index.vue'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
 import {
   ACCOUNT_STATUS_LABELS,
   LEDGER_TYPE_LABELS,
 } from '@/types/wallet'
-import apiWallet from '@/api/modules/wallet'
-import BusinessCustomerPicker from '@/components/business/CustomerPicker/index.vue'
-import { useAppTenantStore } from '@/store/modules/app/tenant'
 
 defineOptions({
   name: 'OperationsWallet',
@@ -185,7 +185,12 @@ const rechargeForm = reactive({
 function openRechargeDialog(row: StoredValueAccount) {
   rechargeTarget.value = row
   Object.assign(rechargeForm, {
-    amount: 0, bonusAmount: 0, source: 'cash', externalMethod: '', externalTxnNo: '', reason: '',
+    amount: 0,
+    bonusAmount: 0,
+    source: 'cash',
+    externalMethod: '',
+    externalTxnNo: '',
+    reason: '',
   })
   rechargeVisible.value = true
 }
@@ -495,7 +500,7 @@ onMounted(load)
 
     <!-- 开户 -->
     <FaModal v-model="openVisible" title="储值开户" :show-cancel="true" confirm-text="开户" :loading="openSaving" @confirm="submitOpen">
-      <div class="grid grid-cols-1 gap-3 p-2">
+      <div class="p-2 gap-3 grid grid-cols-1">
         <FaLabel label="客户(必选)">
           <BusinessCustomerPicker v-model="openForm.customerId" placeholder="搜索选择客户" />
         </FaLabel>
@@ -511,7 +516,7 @@ onMounted(load)
       :loading="rechargeSaving"
       @confirm="submitRecharge"
     >
-      <div class="grid grid-cols-2 gap-3 p-2">
+      <div class="p-2 gap-3 grid grid-cols-2">
         <FaLabel label="充值本金(元)">
           <FaInputNumber v-model="rechargeForm.amount" :min="0" :precision="2" placeholder="0.00" />
         </FaLabel>
@@ -542,7 +547,7 @@ onMounted(load)
       :loading="adjustSaving"
       @confirm="submitAdjust"
     >
-      <div class="grid grid-cols-1 gap-3 p-2">
+      <div class="p-2 gap-3 grid grid-cols-1">
         <FaLabel label="调整金额(元,正数=增加,负数=减少)">
           <FaInputNumber v-model="adjustForm.delta" :precision="2" placeholder="如 100 或 -50" />
         </FaLabel>
@@ -561,7 +566,7 @@ onMounted(load)
       :loading="statusSaving"
       @confirm="submitStatus"
     >
-      <div class="grid grid-cols-1 gap-3 p-2">
+      <div class="p-2 gap-3 grid grid-cols-1">
         <p class="text-sm text-muted-foreground">
           当前余额 {{ formatMoney(statusTarget?.balance) }};{{ statusForm.status === 'closed' ? '销户须余额为 0。' : '' }}该操作会立即生效。
         </p>

@@ -222,6 +222,16 @@ export const SERVICE_ROLE_ONLY_RPC: readonly string[] = [
   'portal_verify_otp',
   'create_portal_appointment',
   'apply_provider_event',
+  // ---- patient journey / role workbench(Stage-04 岗位与医生工作台,migration 301~302) ----
+  'check_in_clinical_patient',
+  'record_clinical_triage',
+  'transition_clinical_queue',
+  'transition_workflow_task',
+  'upsert_encounter_charge_item',
+  'void_encounter_charge_item',
+  'create_invoice_from_pending_charges',
+  'commit_clinical_plan',
+  'transition_encounter_clinical_status',
 ]
 
 /** manifest 集合(去重后),供 CI 脚本 O(1) 判定 */

@@ -1,13 +1,12 @@
-import { loadMessagingConfig, isProductionEnv } from '../services/messaging/config.js'
+import type { MessageChannel, MessagingProvider, ProviderSendInput, ProviderSendResult } from './types.js'
+import { isProductionEnv, loadMessagingConfig } from '../services/messaging/config.js'
 import { EmailMessagingProvider } from './email.js'
 import { MockMessagingProvider } from './mock.js'
 import { SmsMessagingProvider, WechatMessagingProvider } from './sms.js'
 import {
+
   ProviderError,
-  type MessageChannel,
-  type MessagingProvider,
-  type ProviderSendInput,
-  type ProviderSendResult,
+
 } from './types.js'
 
 /**

@@ -1,6 +1,6 @@
-import process from 'node:process'
 import type { Context } from 'hono'
 import type { AppEnv } from '../../lib/types.js'
+import process from 'node:process'
 
 /**
  * Stage-04 Agent-06 — 电子签名 Provider 抽象(api/providers/signature)
@@ -26,13 +26,13 @@ export interface SignatureCreateInput {
 export interface SignatureProvider {
   readonly name: string
   /** 创建签名请求,返回 Provider 侧 request id */
-  createRequest(c: Context<AppEnv>, input: SignatureCreateInput): Promise<{ providerRequestId: string }>
+  createRequest: (c: Context<AppEnv>, input: SignatureCreateInput) => Promise<{ providerRequestId: string }>
   /** 查询 Provider 侧状态(内部 Provider 直接返回本地状态) */
-  getStatus(c: Context<AppEnv>, providerRequestId: string): Promise<{ status: string }>
+  getStatus: (c: Context<AppEnv>, providerRequestId: string) => Promise<{ status: string }>
   /** 校验 Provider webhook 签名(内部 Provider 无 webhook) */
-  verifyWebhook(c: Context<AppEnv>, rawBody: unknown): Promise<{ valid: boolean }>
+  verifyWebhook: (c: Context<AppEnv>, rawBody: unknown) => Promise<{ valid: boolean }>
   /** 下载已签产物(内部 Provider 无独立产物,返回 null) */
-  downloadArtifact(c: Context<AppEnv>, providerRequestId: string): Promise<{ bytes: Uint8Array, mimeType: string } | null>
+  downloadArtifact: (c: Context<AppEnv>, providerRequestId: string) => Promise<{ bytes: Uint8Array, mimeType: string } | null>
 }
 
 /**

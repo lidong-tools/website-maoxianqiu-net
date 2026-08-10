@@ -1,3 +1,4 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
 /**
  * Stage-04 Agent-07: Employee Import Consumer
  *
@@ -12,7 +13,6 @@
  * 边界:不直接写 auth.users(须经 IAM 域),多门店/多角色分配留待后续阶段(DEFERRED)。
  */
 import { randomBytes } from 'node:crypto'
-import type { SupabaseClient } from '@supabase/supabase-js'
 
 export interface InviteRow {
   id: string

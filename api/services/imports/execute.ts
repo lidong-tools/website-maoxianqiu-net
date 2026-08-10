@@ -13,10 +13,10 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { DuplicateStrategy, FieldDef, ImportTypeMeta } from './fields.js'
-import type { ImportRow } from './parse.js'
-import { toArray, toBoolean, toDate, toNumber } from './parse.js'
 import type { LookupContext } from './lookup.js'
+import type { ImportRow } from './parse.js'
 import type { Scope } from './validate.js'
+import { toArray, toBoolean, toDate, toNumber } from './parse.js'
 import { enumKey, resolveOwnerId, resolveWarehouseId } from './validate.js'
 
 export interface ExecuteResult {
@@ -75,14 +75,14 @@ async function executeCustomer(
       const birthday = toDate(fieldVal(opts.meta, mapped, 'birthday'))
       const memberLevel = enumKey(getField(opts.meta, 'memberLevel')?.enum ?? {}, fieldVal(opts.meta, mapped, 'memberLevel'))
       const remark = fieldVal(opts.meta, mapped, 'remark')
-      if (name) patch.name = name
-      if (gender) patch.gender = gender
-      if (email) patch.email = email
-      if (address) patch.address = address
-      if (birthday) patch.birthday = birthday
-      if (memberLevel) patch.member_level = memberLevel
-      if (remark) patch.remark = remark
-      if (phone) patch.phone = phone
+      if (name) { patch.name = name }
+      if (gender) { patch.gender = gender }
+      if (email) { patch.email = email }
+      if (address) { patch.address = address }
+      if (birthday) { patch.birthday = birthday }
+      if (memberLevel) { patch.member_level = memberLevel }
+      if (remark) { patch.remark = remark }
+      if (phone) { patch.phone = phone }
       if (Object.keys(patch).length === 0) {
         return { status: 'skipped' }
       }
@@ -117,8 +117,8 @@ async function executeCustomer(
     return { status: 'failed', error: dbErr(error) }
   }
   const id = (data as { id: string }).id
-  if (phone) ctx.customersByPhone.set(phone, id)
-  if (customerNo) ctx.customersByNo.set(customerNo, id)
+  if (phone) { ctx.customersByPhone.set(phone, id) }
+  if (customerNo) { ctx.customersByNo.set(customerNo, id) }
   return { status: 'success', entityId: id }
 }
 
@@ -150,16 +150,16 @@ async function executePet(
       const color = fieldVal(opts.meta, mapped, 'color')
       const riskTags = toArray(fieldVal(opts.meta, mapped, 'riskTags'))
       const remark = fieldVal(opts.meta, mapped, 'remark')
-      if (species) patch.species = species
-      if (breed) patch.breed = breed
-      if (gender) patch.gender = gender
-      if (birthDate) patch.birth_date = birthDate
-      if (weight !== null) patch.weight = weight
-      if (isNeutered !== null) patch.is_neutered = isNeutered
-      if (color) patch.color = color
-      if (riskTags.length > 0) patch.risk_tags = riskTags
-      if (remark) patch.medical_notes = remark
-      if (microchip) patch.microchip = microchip
+      if (species) { patch.species = species }
+      if (breed) { patch.breed = breed }
+      if (gender) { patch.gender = gender }
+      if (birthDate) { patch.birth_date = birthDate }
+      if (weight !== null) { patch.weight = weight }
+      if (isNeutered !== null) { patch.is_neutered = isNeutered }
+      if (color) { patch.color = color }
+      if (riskTags.length > 0) { patch.risk_tags = riskTags }
+      if (remark) { patch.medical_notes = remark }
+      if (microchip) { patch.microchip = microchip }
       if (Object.keys(patch).length === 0) {
         return { status: 'skipped' }
       }
@@ -192,7 +192,7 @@ async function executePet(
   }
   const id = (data as { id: string }).id
   ctx.petsByOwnerName.set(`${ownerId}:${name.toLowerCase()}`, id)
-  if (microchip) ctx.petsByChip.set(microchip, id)
+  if (microchip) { ctx.petsByChip.set(microchip, id) }
   return { status: 'success', entityId: id }
 }
 
@@ -217,17 +217,17 @@ async function executeCatalog(
       const tags = toArray(fieldVal(opts.meta, mapped, 'tags'))
       const catCode = fieldVal(opts.meta, mapped, 'categoryCode')
       const billingType = enumKey(getField(opts.meta, 'billingType')?.enum ?? {}, fieldVal(opts.meta, mapped, 'billingType'))
-      if (name) patch.name = name
-      if (unit) patch.unit = unit
-      if (defaultPrice !== null) patch.default_price = defaultPrice
-      if (costPrice !== null) patch.cost_price = costPrice
-      if (isActive !== null) patch.is_active = isActive
-      if (tags.length > 0) patch.tags = tags
+      if (name) { patch.name = name }
+      if (unit) { patch.unit = unit }
+      if (defaultPrice !== null) { patch.default_price = defaultPrice }
+      if (costPrice !== null) { patch.cost_price = costPrice }
+      if (isActive !== null) { patch.is_active = isActive }
+      if (tags.length > 0) { patch.tags = tags }
       if (catCode) {
         const catId = ctx.categoriesByCode.get(catCode.trim())
-        if (catId) patch.category_id = catId
+        if (catId) { patch.category_id = catId }
       }
-      if (billingType) patch.billing_type = billingType
+      if (billingType) { patch.billing_type = billingType }
       if (Object.keys(patch).length === 0) {
         return { status: 'skipped' }
       }

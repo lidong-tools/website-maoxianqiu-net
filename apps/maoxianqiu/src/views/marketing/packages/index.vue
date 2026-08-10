@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
 import type { CustomerPackage, ServicePackage, ServicePackageItem } from '@/api/modules/marketing'
-import apiMarketing from '@/api/modules/marketing'
 import apiCustomer from '@/api/modules/customer'
+import apiMarketing from '@/api/modules/marketing'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 
 defineOptions({
@@ -121,7 +121,14 @@ function emptyPkgItem() {
 
 function openCreatePkg() {
   Object.assign(pkgForm, {
-    id: '', code: '', name: '', description: '', price: 0, validityDays: null, storeId: '', isActive: true,
+    id: '',
+    code: '',
+    name: '',
+    description: '',
+    price: 0,
+    validityDays: null,
+    storeId: '',
+    isActive: true,
     items: [emptyPkgItem()],
   })
   pkgDialogVisible.value = true
@@ -276,7 +283,7 @@ const custColumns = computed<TableColumn<CustomerPackage>[]>(() => [
   {
     accessorKey: 'valid_from',
     header: '有效期',
-    cell: info => {
+    cell: (info) => {
       const row = info.row.original as CustomerPackage
       const from = row.valid_from ? String(row.valid_from).slice(0, 10) : ''
       const until = row.expires_at ? String(row.expires_at).slice(0, 10) : '永久'
@@ -286,7 +293,7 @@ const custColumns = computed<TableColumn<CustomerPackage>[]>(() => [
   {
     accessorKey: 'status',
     header: '状态',
-    cell: info => {
+    cell: (info) => {
       const map: Record<string, string> = { active: '生效中', expired: '已过期', refunded: '已退款', cancelled: '已取消' }
       return map[String(info.getValue())] ?? String(info.getValue())
     },
@@ -431,7 +438,7 @@ onMounted(() => {
 
           <!-- 套餐模板工具栏 -->
           <template v-if="activeTab === 'templates'">
-            <div class="flex justify-between items-center pb-3">
+            <div class="pb-3 flex items-center justify-between">
               <div class="flex gap-2 items-center">
                 <FaSelect
                   v-model="pkgStatus"
@@ -455,7 +462,7 @@ onMounted(() => {
           </template>
           <!-- 客户套餐工具栏 -->
           <template v-else>
-            <div class="flex gap-2 items-center pb-3">
+            <div class="pb-3 flex gap-2 items-center">
               <FaSelect
                 v-model="custStatus"
                 :options="[
@@ -566,7 +573,7 @@ onMounted(() => {
       width="720px"
       @confirm="savePkg"
     >
-      <div class="grid grid-cols-2 gap-3 p-2">
+      <div class="p-2 gap-3 grid grid-cols-2">
         <FaLabel label="编码">
           <FaInput v-model="pkgForm.code" placeholder="如 VACCINE_3" />
         </FaLabel>
@@ -590,7 +597,7 @@ onMounted(() => {
         </FaLabel>
       </div>
       <div class="px-2">
-        <div class="flex justify-between items-center mb-2">
+        <div class="mb-2 flex items-center justify-between">
           <span class="text-sm text-muted-foreground">包含项目({{ pkgForm.items.length }})</span>
           <FaButton size="sm" variant="outline" @click="addPkgItem">
             <FaIcon name="i-ri:add-line" />
@@ -600,7 +607,7 @@ onMounted(() => {
         <div
           v-for="(item, index) in pkgForm.items"
           :key="index"
-          class="grid grid-cols-[1fr_90px_100px_36px] gap-2 items-center mb-2"
+          class="mb-2 gap-2 grid grid-cols-[1fr_90px_100px_36px] items-center"
         >
           <FaInput v-model="item.name" size="small" placeholder="项目名称" />
           <FaInput v-model="item.catalogItemId" size="small" placeholder="目录UUID(可空)" />
@@ -621,7 +628,7 @@ onMounted(() => {
       :confirm-loading="buySaving"
       @confirm="doBuy"
     >
-      <div class="grid grid-cols-1 gap-3 p-2">
+      <div class="p-2 gap-3 grid grid-cols-1">
         <FaLabel label="选择客户(可搜索)">
           <FaSelect
             v-model="buyCustomerId"
@@ -643,7 +650,7 @@ onMounted(() => {
       :loading="redeemSaving"
       @confirm="doRedeem"
     >
-      <div class="grid grid-cols-1 gap-3 p-2">
+      <div class="p-2 gap-3 grid grid-cols-1">
         <FaLabel label="核销项目">
           <FaSelect
             v-model="redeemItemId"

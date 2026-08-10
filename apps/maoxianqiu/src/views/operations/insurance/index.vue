@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
-import apiClinical from '@/api/modules/clinical'
-import apiInsurance from '@/api/modules/insurance'
-import apiStore from '@/api/modules/store'
-import { supabase } from '@/lib/supabase'
-import { useAppTenantStore } from '@/store/modules/app/tenant'
 import type {
   InsurancePack,
   InsurancePackItem,
   InsurancePackWithItems,
 } from '@/types/insurance'
+import apiClinical from '@/api/modules/clinical'
+import apiInsurance from '@/api/modules/insurance'
+import apiStore from '@/api/modules/store'
+import { supabase } from '@/lib/supabase'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { INSURANCE_PACK_STATUS_LABELS, INSURANCE_SOURCE_LABELS } from '@/types/insurance'
 
 defineOptions({
@@ -361,7 +361,7 @@ loadPacks()
           创建后服务端将自动按合规白名单聚合已发布的材料(未发布检验/影像、草稿处方会被排除)。
         </p>
       </div>
-      <div class="flex justify-end gap-2 pt-4">
+      <div class="pt-4 flex gap-2 justify-end">
         <FaButton @click="createVisible = false">
           取消
         </FaButton>
@@ -374,7 +374,7 @@ loadPacks()
     <!-- 理赔包详情 -->
     <FaModal v-model="detailVisible" title="理赔包详情" width="860px" :footer="false">
       <div v-if="detail" v-loading="detailLoading" class="py-2 space-y-4">
-        <div class="flex items-center gap-3">
+        <div class="flex gap-3 items-center">
           <span class="font-semibold">{{ detail.pack.pack_no }}</span>
           <FaTag :color="detail.pack.status === 'draft' ? 'warning' : (detail.pack.status === 'generated' ? 'success' : 'info')">
             {{ INSURANCE_PACK_STATUS_LABELS[detail.pack.status] }}

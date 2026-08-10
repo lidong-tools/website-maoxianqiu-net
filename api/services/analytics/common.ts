@@ -12,12 +12,13 @@
  *   - 未指定 storeId(全院) → 要求 analytics.view.tenant,数据范围为被授权门店集。
  */
 import type { Context } from 'hono'
+import type { AccessScope } from '../../lib/permission.js'
+import type { createServiceClient } from '../../lib/supabase.js'
 import type { AppEnv } from '../../lib/types.js'
-import { err } from '../../lib/errors.js'
-import { requireScopedPermission, type AccessScope } from '../../lib/permission.js'
-import { resolveRequestedTenant } from '../../lib/request-context.js'
-import { createServiceClient } from '../../lib/supabase.js'
 import type { AnalyticsGroupBy, AnalyticsPeriod } from './types.js'
+import { err } from '../../lib/errors.js'
+import { requireScopedPermission } from '../../lib/permission.js'
+import { resolveRequestedTenant } from '../../lib/request-context.js'
 
 /** 时区回退(门店沿用租户时区,缺省 Asia/Shanghai) */
 export const DEFAULT_TZ = 'Asia/Shanghai'
@@ -242,7 +243,7 @@ export interface AnalyticsScopeResult {
  */
 export async function resolveAnalyticsScope(
   c: Context<AppEnv>,
-  opts: { tenantId?: string; storeId?: string },
+  opts: { tenantId?: string, storeId?: string },
 ): Promise<AnalyticsScopeResult> {
   const tenantId = resolveRequestedTenant(c, opts.tenantId)
   if (!tenantId) {
@@ -282,7 +283,7 @@ export async function loadStoreNameMap(
     .select('id, name')
     .eq('tenant_id', tenantId)
     .in('id', storeIds)
-  for (const s of (data ?? []) as Array<{ id: string; name: string }>) {
+  for (const s of (data ?? []) as Array<{ id: string, name: string }>) {
     map.set(s.id, s.name || s.id.slice(0, 8))
   }
   return map

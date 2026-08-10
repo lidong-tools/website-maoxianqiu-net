@@ -14,12 +14,15 @@ import { ensureChromium } from '../helpers/browser'
 test.skip(!ensureChromium(), 'Chromium 浏览器未安装且未设置 E2E_OPTIONAL=true')
 
 /**
- * 闭环 A: 客户 → 宠物 → 预约 → 候诊 → 就诊 → 病历 → 处方 → 收费 → 发药 → 库存扣减
+ * 闭环 A: 客户 → 宠物 → 预约 → 候诊 → 就诊 → 病历 → 提交诊疗方案 → 处方 → 收费 → 发药 → 库存扣减
  *
  * AUD-009 顺序依据(默认建议):prescription → invoice → payment → dispense;
  * 不允许测试代码擅自先发药后收费。发药步骤在病历详情页 UI 操作。
  *
- * P0-09 改造:
+ * P0-09 / 工作台改造(Phase 5):
+ *   - 步骤5 起在新版医生工作台完成:病历保存后点击「提交诊疗方案」(plan/commit 原子提交),
+ *     提交后停留工作台,encounter.clinical_status 推进到 plan_ready(status 仍为 in_progress,
+ *     待发药/签署);不再跳转病历详情页,也不再完成就诊(completed)。
  *   - test.describe.configure({ mode: 'serial' }):同一流程内串行,前序失败后续跳过
  *   - 前置数据(宠物/预约/药品库存)与收银走 Hono API(真实业务链路),
  *     病历编辑/发药等前端已有 UI 的操作走 UI,保证"真实闭环"而非仅页面出现
@@ -145,7 +148,7 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
     ))
     expect(appts2[0].status).toBe('in_progress')
 
-    /* ========== 5. 工作台 UI:创建就诊 + 病历 + 完成就诊 ========== */
+    /* ========== 5. 工作台 UI:创建就诊 + 病历 + 提交诊疗方案(原子提交) ========== */
     console.log('[闭环A] 步骤5 就诊与病历')
     await expect(page.getByText('医生工作台').first()).toBeVisible()
     // 点击今日预约卡片创建就诊(卡片文本包含预约原因)
@@ -155,22 +158,23 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
     await page.getByPlaceholder('宠物主诉').last().fill(complaint)
     await page.getByPlaceholder('病史描述').last().fill(`E2E现病史-${runId}`)
     await page.getByRole('button', { name: '保存草稿' }).click()
-    // 等待保存完成:若立刻点「完成就诊」,保存 PATCH 与完成 PATCH 并发,
-    // form 已改而 baseline 未更新,isDirty=true,未保存保护弹窗拦截路由跳转
-    await expect(page.getByText('病历已保存').first()).toBeVisible({ timeout: 30_000 })
-    // 完成就诊(确认弹窗)
-    await page.getByRole('button', { name: '完成就诊' }).click()
+    // 等待保存完成(底部状态栏出现"已保存 HH:MM:SS"):若立刻点「提交诊疗方案」,
+    // 保存 PATCH 与提交并发,表单基线未更新,提交摘要基于旧版本
+    await expect(page.getByText(/已保存 \d{1,2}:\d{2}:\d{2}/).first()).toBeVisible({ timeout: 30_000 })
+    // 提交诊疗方案(确认弹窗:标题「提交诊疗方案」,确认按钮「确认提交」)
+    await page.getByRole('button', { name: '提交诊疗方案' }).click()
     await clickConfirmInDialog(page)
-    // 完成后自动跳转病历详情页
-    await page.waitForURL(/\/#\/clinical\/encounter\/[^/]+$/, { timeout: 30_000 })
-    // 数据库断言:encounter 创建且 completed,归属正确
-    const encounters = (await supabaseSelect<{ id: string, status: string, customer_id: string, pet_id: string }[]>(
+    // 提交成功:plan/commit 原子落库后停留工作台并弹出成功提示(不再跳转病历详情页)
+    await expect(page.getByText('诊疗方案已提交,下游岗位待办已保留').first()).toBeVisible({ timeout: 30_000 })
+    // 数据库断言:encounter 创建,临床状态推进到 plan_ready(status 仍为 in_progress,待发药/签署),归属正确
+    const encounters = (await supabaseSelect<{ id: string, status: string, clinical_status: string, customer_id: string, pet_id: string }[]>(
       page,
       'encounters',
-      `select=id,status,customer_id,pet_id&appointment_id=eq.${appointmentId}`,
+      `select=id,status,clinical_status,customer_id,pet_id&appointment_id=eq.${appointmentId}`,
     ))
     expect(encounters.length).toBe(1)
-    expect(encounters[0].status).toBe('completed')
+    expect(encounters[0].status).toBe('in_progress')
+    expect(encounters[0].clinical_status).toBe('plan_ready')
     expect(encounters[0].customer_id).toBe(customerId)
     expect(encounters[0].pet_id).toBe(petId)
     const encounterId = encounters[0].id
@@ -307,19 +311,6 @@ test.describe('闭环 A — 核心就诊闭环(串行)', () => {
     console.log(`[闭环A] 完成:customer=${customerId} pet=${petId} encounter=${encounterId} rx=${prescriptionId} invoice=${invoiceId}`)
   })
 })
-
-/** 解析租户下第一个门店 id(客户未挂门店时使用) */
-async function resolveStoreId(page: import('@playwright/test').Page, api: ReturnType<typeof createApiClient>, tenantId: string): Promise<string> {
-  const stores = (await supabaseSelect<{ id: string }[]>(
-    page,
-    'stores',
-    `select=id&tenant_id=eq.${tenantId}&limit=1`,
-  ))
-  if (stores.length === 0) {
-    throw new Error(`租户 ${tenantId} 下无门店,无法创建预约/发票`)
-  }
-  return stores[0].id
-}
 
 /** 定位当前打开的确认弹窗并点击其"确定"按钮(FaModal 确认按钮文案兼容) */
 async function clickConfirmInDialog(page: import('@playwright/test').Page) {

@@ -292,14 +292,14 @@ tenantRoutes.get('/', async (c) => {
   // 聚合门店/员工计数(一次 grouped select,避免逐租户 N+1)
   const [storeRows, empRows] = tenantIds.length > 0
     ? await Promise.all([
-      service.from('stores')
-        .select('tenant_id')
-        .in('tenant_id', tenantIds)
-        .is('archived_at', null),
-      service.from('employees')
-        .select('tenant_id, status')
-        .in('tenant_id', tenantIds),
-    ])
+        service.from('stores')
+          .select('tenant_id')
+          .in('tenant_id', tenantIds)
+          .is('archived_at', null),
+        service.from('employees')
+          .select('tenant_id, status')
+          .in('tenant_id', tenantIds),
+      ])
     : [{ data: null, error: null }, { data: null, error: null }]
 
   if (storeRows.error || empRows.error) {
@@ -368,7 +368,8 @@ tenantRoutes.get('/:id/overview', async (c) => {
   }
   const totalEmployeeCount = (empRows.data ?? []).length
   const activeEmployeeCount = (empRows.data ?? [] as Array<{ status: string }>)
-    .filter((e: { status: string }) => e.status === 'active').length
+    .filter((e: { status: string }) => e.status === 'active')
+    .length
 
   return ok(c, {
     id: tenant.id,
@@ -445,15 +446,15 @@ tenantRoutes.get('/:id/employees', async (c) => {
 
   const [roleRows, storeAssignRows] = empIds.length > 0
     ? await Promise.all([
-      service.from('employee_role_assignments')
-        .select('employee_id, store_id, roles(code)')
-        .eq('tenant_id', id)
-        .in('employee_id', empIds),
-      service.from('employee_store_assignments')
-        .select('employee_id, store_id, is_primary, stores(name)')
-        .eq('tenant_id', id)
-        .in('employee_id', empIds),
-    ])
+        service.from('employee_role_assignments')
+          .select('employee_id, store_id, roles(code)')
+          .eq('tenant_id', id)
+          .in('employee_id', empIds),
+        service.from('employee_store_assignments')
+          .select('employee_id, store_id, is_primary, stores(name)')
+          .eq('tenant_id', id)
+          .in('employee_id', empIds),
+      ])
     : [{ data: null, error: null }, { data: null, error: null }]
   if (roleRows.error || storeAssignRows.error) {
     throw err.internal('查询人员归属失败')

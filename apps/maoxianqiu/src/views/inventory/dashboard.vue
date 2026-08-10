@@ -154,7 +154,7 @@ onMounted(async () => {
 
     <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
       <!-- KPI -->
-      <div class="gap-4 grid grid-cols-2 shrink-0 xl:grid-cols-4">
+      <div class="shrink-0 gap-4 grid grid-cols-2 xl:grid-cols-4">
         <div class="p-3 border rounded-lg bg-card">
           <div class="text-2xl font-semibold tabular-nums">
             {{ skuCount }}
@@ -224,8 +224,8 @@ onMounted(async () => {
         <!-- 表格区 -->
         <div class="flex-1 min-h-0 overflow-hidden">
           <FaTable
-            class="h-full min-h-0"
             v-loading="loading"
+            class="h-full min-h-0"
             table-root-class="overflow-hidden"
             row-key="batch_id"
             stripe

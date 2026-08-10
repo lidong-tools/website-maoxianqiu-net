@@ -15,11 +15,11 @@
  * 不再读取旧字段 customers.member_level。
  */
 import type { ServiceClient } from './common.js'
-import { fetchAll, toNum } from './common.js'
 import type { CustomerConsumptionTier, CustomerReport, CustomerTierRow, RevenueFilters } from './types.js'
+import { fetchAll, toNum } from './common.js'
 
 /** 消费分层桶(净消费,元) */
-const CONSUMPTION_BUCKETS: Array<{ key: string; label: string; min: number; max: number }> = [
+const CONSUMPTION_BUCKETS: Array<{ key: string, label: string, min: number, max: number }> = [
   { key: 'none', label: '未消费', min: 0, max: 0 },
   { key: 'lt500', label: '1–500', min: 1, max: 500 },
   { key: 'lt2000', label: '501–2000', min: 500.01, max: 2000 },
@@ -36,7 +36,7 @@ export async function buildCustomerReport(
 ): Promise<CustomerReport> {
   // 全部查询分页拉全,规避 PostgREST 行数上限导致静默少算(审计 v2 §14)
   const [customers, encounters, invoices, tierRes, memberships] = await Promise.all([
-    fetchAll<{ id: string; created_at: string }>('客户数据', (from, to) => service
+    fetchAll<{ id: string, created_at: string }>('客户数据', (from, to) => service
       .from('customers')
       .select('id, created_at')
       .eq('tenant_id', f.tenantId)
@@ -53,7 +53,7 @@ export async function buildCustomerReport(
       .lte('created_at', f.period.endISO)
       .order('id', { ascending: true })
       .range(from, to)),
-    fetchAll<{ customer_id: string | null; total: number }>('消费记录', (from, to) => service
+    fetchAll<{ customer_id: string | null, total: number }>('消费记录', (from, to) => service
       .from('invoices')
       .select('customer_id, total')
       .eq('tenant_id', f.tenantId)
@@ -68,7 +68,7 @@ export async function buildCustomerReport(
       .select('id, code, name, is_active')
       .eq('tenant_id', f.tenantId),
     // 当前有效会员关系(customer_memberships 为事实来源,审计 #21;分页拉全)
-    fetchAll<{ customer_id: string; tier_id: string | null; expires_at: string | null }>('会员关系数据', (from, to) => service
+    fetchAll<{ customer_id: string, tier_id: string | null, expires_at: string | null }>('会员关系数据', (from, to) => service
       .from('customer_memberships')
       .select('customer_id, tier_id, expires_at')
       .eq('tenant_id', f.tenantId)
@@ -79,7 +79,7 @@ export async function buildCustomerReport(
     throw new Error(`会员层级查询失败: ${tierRes.error.message}`)
   }
 
-  const tiers = (tierRes.data as Array<{ id: string; code: string; name: string; is_active: boolean }> | null) ?? []
+  const tiers = (tierRes.data as Array<{ id: string, code: string, name: string, is_active: boolean }> | null) ?? []
 
   // 新客户(周期内建档)
   const newCustomers = customers.filter(c => c.created_at >= f.period.startISO).length
@@ -108,7 +108,7 @@ export async function buildCustomerReport(
   const repeatRate = visitedCustomers > 0 ? repeatCustomers / visitedCustomers : 0
 
   // 有效会员关系:customer <-> tier.code(仅本报表覆盖门店 + 未过期)
-  const activeTierById = new Map<string, { code: string; name: string }>()
+  const activeTierById = new Map<string, { code: string, name: string }>()
   for (const t of tiers) {
     if (t.is_active) {
       activeTierById.set(t.id, { code: t.code, name: t.name })

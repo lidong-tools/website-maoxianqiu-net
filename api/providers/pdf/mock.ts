@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto'
 import type { PdfProvider, PdfRenderOptions, PdfRenderResult } from './types.js'
+import { createHash } from 'node:crypto'
 
 /**
  * Mock PDF Provider(Stage-04 Agent-06)
@@ -24,11 +24,11 @@ function extractPlainText(html: string): string {
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
+    .replace(/&#39;/g, '\'')
     .replace(/\s+/g, ' ')
     .trim()
   // 仅保留 ASCII(标准 Helvetica 不支持中文)
-  // eslint-disable-next-line no-control-regex
+
   return text.replace(/[^\x20-\x7E]/g, '?').slice(0, 2000)
 }
 

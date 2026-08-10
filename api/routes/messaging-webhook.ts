@@ -1,14 +1,10 @@
 import type { Context } from 'hono'
-import { Hono } from 'hono'
-import { createServiceClient } from '../lib/supabase.js'
 import type { AppEnv } from '../lib/types.js'
+import type { MessageChannel, MessagingWebhookProvider, ProviderWebhookEvent } from '../providers/types.js'
+import { Hono } from 'hono'
 import { err } from '../lib/errors.js'
+import { createServiceClient } from '../lib/supabase.js'
 import { getProviderForChannel } from '../providers/registry.js'
-import {
-  type MessageChannel,
-  type MessagingWebhookProvider,
-  type ProviderWebhookEvent,
-} from '../providers/types.js'
 
 /**
  * 消息 Provider 回调收件路由(Agent-08 DEEP §12)

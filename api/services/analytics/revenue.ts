@@ -26,7 +26,6 @@
  *     与 Overall 的发票开账(应计)口径不同,属 KPI 会计基础差异,不是对账 Bug(§16)。
  */
 import type { ServiceClient } from './common.js'
-import { bucketKey, chunk, loadStoreNameMap, toNum, UUID_CHUNK_SIZE } from './common.js'
 import type {
   AnalyticsGroupBy,
   RevenueDimension,
@@ -35,6 +34,7 @@ import type {
   RevenueReport,
   RevenueTrendRow,
 } from './types.js'
+import { bucketKey, chunk, loadStoreNameMap, toNum, UUID_CHUNK_SIZE } from './common.js'
 
 /** 有效收入发票状态(排除草稿与取消) */
 export const VALID_INVOICE_STATUSES = ['confirmed', 'paid', 'partially_paid', 'refunded']
@@ -119,7 +119,7 @@ async function fetchRefunds(
     // 审计 Full12 §11/§13:refunds→invoices 为 many-to-one 嵌套关系,
     // PostgREST 对 Embedded Relation 返回对象而非数组;client 泛型仍按数组推断,
     // 经 unknown 桥接修正真实形状。
-    const rows = (data as unknown as Array<{ amount: number; created_at: string; invoice_id: string | null; invoices?: { store_id: string | null } | null }> | null) ?? []
+    const rows = (data as unknown as Array<{ amount: number, created_at: string, invoice_id: string | null, invoices?: { store_id: string | null } | null }> | null) ?? []
     for (const r of rows) {
       out.push({ amount: toNum(r.amount), created_at: r.created_at, store_id: r.invoices?.store_id ?? null, invoice_id: r.invoice_id ?? null })
     }
@@ -157,7 +157,7 @@ export async function computeRevenueSummary(
   if (error) {
     throw new Error(`收入汇总查询失败: ${error.message}`)
   }
-  const s = (data as { gross?: number; refund?: number; net?: number; invoiceCount?: number } | null) ?? {}
+  const s = (data as { gross?: number, refund?: number, net?: number, invoiceCount?: number } | null) ?? {}
   const gross = toNum(s.gross)
   const refund = toNum(s.refund)
   const net = toNum(s.net)
@@ -176,8 +176,8 @@ export async function computeRevenueSummary(
  * refunds 需包含 created_at。
  */
 export function buildTrendFromRows(
-  invoices: Array<{ total: number; created_at: string }>,
-  refunds: Array<{ amount: number; created_at: string }>,
+  invoices: Array<{ total: number, created_at: string }>,
+  refunds: Array<{ amount: number, created_at: string }>,
   groupBy: AnalyticsGroupBy,
   tz: string,
 ): RevenueTrendRow[] {
@@ -301,7 +301,7 @@ async function buildPaymentChannelDimension(
     if (error) {
       throw new Error(`支付渠道维度查询失败: ${error.message}`)
     }
-    const rows = (data as Array<{ method: string | null; amount: number; invoice_id: string }> | null) ?? []
+    const rows = (data as Array<{ method: string | null, amount: number, invoice_id: string }> | null) ?? []
     for (const r of rows) {
       const ch = r.method ?? 'other'
       payByChannel.set(ch, (payByChannel.get(ch) ?? 0) + toNum(r.amount))
@@ -332,7 +332,7 @@ async function buildPaymentChannelDimension(
     // 审计 Full12 §11/§13:refunds→invoices / refunds→payments 均为 many-to-one
     // 嵌套关系,PostgREST 对 Embedded Relation 返回对象而非数组;client 泛型仍
     // 按数组推断,经 unknown 桥接修正真实形状。
-    const rows = (data as unknown as Array<{ amount: number; invoices?: { store_id: string | null } | null; payments?: { method: string | null } | null }> | null) ?? []
+    const rows = (data as unknown as Array<{ amount: number, invoices?: { store_id: string | null } | null, payments?: { method: string | null } | null }> | null) ?? []
     for (const r of rows) {
       const ch = r.payments?.method ?? 'other'
       refundByChannel.set(ch, (refundByChannel.get(ch) ?? 0) + toNum(r.amount))
@@ -343,7 +343,7 @@ async function buildPaymentChannelDimension(
   }
 
   const channelKeys = new Set([...payByChannel.keys(), ...refundByChannel.keys()])
-  const accs: DimensionAcc[] = [...channelKeys].map((ch) => ({
+  const accs: DimensionAcc[] = [...channelKeys].map(ch => ({
     key: ch,
     label: CHANNEL_LABELS[ch] ?? ch,
     gross: payByChannel.get(ch) ?? 0,
@@ -388,7 +388,7 @@ async function buildCatalogDimension(
       if (error) {
         throw new Error(`目录类型维度查询失败: ${error.message}`)
       }
-      const items = (data as Array<{ invoice_id: string; category: string; amount: number }> | null) ?? []
+      const items = (data as Array<{ invoice_id: string, category: string, amount: number }> | null) ?? []
       for (const it of items) {
         grossByCat.set(it.category, (grossByCat.get(it.category) ?? 0) + toNum(it.amount))
         const set = invoiceByCat.get(it.category) ?? new Set<string>()
@@ -475,29 +475,29 @@ async function buildDoctorDimension(
   const group = new Map<string, DimensionAcc>()
   const encounterIds = invoices.map(i => i.encounter_id).filter((x): x is string => !!x)
   // 函数级声明:refund 归属需复用 encounter→doctor 映射(审计 v2 §15)
-  let encs: Array<{ id: string; doctor_id: string | null }> = []
+  let encs: Array<{ id: string, doctor_id: string | null }> = []
   if (encounterIds.length > 0) {
     // 大 IN 分批(审计 v3 §11 + v4 §4 + v5 §5):encounterIds 量级可能很大,按 UUID_CHUNK_SIZE 分批
-    const encOut: Array<{ id: string; doctor_id: string | null }> = []
+    const encOut: Array<{ id: string, doctor_id: string | null }> = []
     for (const chunkIds of chunk(encounterIds, UUID_CHUNK_SIZE)) {
       const { data } = await service
         .from('encounters')
         .select('id, doctor_id')
         .in('id', chunkIds)
-      encOut.push(...((data as Array<{ id: string; doctor_id: string | null }> | null) ?? []))
+      encOut.push(...((data as Array<{ id: string, doctor_id: string | null }> | null) ?? []))
     }
     encs = encOut
     const doctorIds = [...new Set(encs.map((e: { doctor_id: string | null }) => e.doctor_id).filter(Boolean))] as string[]
     const doctorMap = new Map<string, string>()
     if (doctorIds.length > 0) {
-      const empOut: Array<{ user_id: string; name: string | null }> = []
+      const empOut: Array<{ user_id: string, name: string | null }> = []
       for (const chunkIds of chunk(doctorIds, UUID_CHUNK_SIZE)) {
         const { data: employees } = await service
           .from('employees')
           .select('user_id, name')
           .eq('tenant_id', f.tenantId)
           .in('user_id', chunkIds)
-        empOut.push(...((employees ?? []) as Array<{ user_id: string; name: string | null }>))
+        empOut.push(...((employees ?? []) as Array<{ user_id: string, name: string | null }>))
       }
       for (const emp of empOut) {
         doctorMap.set(emp.user_id, emp.name ?? emp.user_id.slice(0, 8))
@@ -602,7 +602,7 @@ function finalizeDimensionRows(accs: DimensionAcc[]): RevenueDimensionRow[] {
 export async function buildRevenueReport(
   service: ServiceClient,
   f: RevenueFilters,
-  opts: { groupBy: AnalyticsGroupBy; dimension: RevenueDimension },
+  opts: { groupBy: AnalyticsGroupBy, dimension: RevenueDimension },
 ): Promise<RevenueReport> {
   const [summary, invoices, refunds] = await Promise.all([
     computeRevenueSummary(service, f),

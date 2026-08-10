@@ -80,8 +80,8 @@ export interface AdapterResult {
 export interface DocumentAdapter {
   documentType: DocumentType
   businessPermission: string | null
-  resolveScope(service: Service, entityId: string): Promise<{ tenantId: string, storeId: string | null }>
-  fetch(service: Service, entityId: string): Promise<AdapterResult>
+  resolveScope: (service: Service, entityId: string) => Promise<{ tenantId: string, storeId: string | null }>
+  fetch: (service: Service, entityId: string) => Promise<AdapterResult>
 }
 
 /** document_type → 数据树区段 key */

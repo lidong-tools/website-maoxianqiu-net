@@ -11,10 +11,10 @@ import type { ImportTypeMeta } from './fields.js'
 import { buildXlsx } from './codec.js'
 
 const EXAMPLES: Record<string, string[]> = {
-  customer: ['C-20260808-001', '张三', '13800000000', '男', 'zhangsan@example.com', '北京市朝阳区', '1990-01-01', '银卡', '老客户'],
-  pet: ['13800000000', '', '旺财', 'dog', '金毛', '公', '2020-05-01', '12.5', 'CHIP0001', '金色', '是', 'allergy', '注意饮食'],
+  'customer': ['C-20260808-001', '张三', '13800000000', '男', 'zhangsan@example.com', '北京市朝阳区', '1990-01-01', '银卡', '老客户'],
+  'pet': ['13800000000', '', '旺财', 'dog', '金毛', '公', '2020-05-01', '12.5', 'CHIP0001', '金色', '是', 'allergy', '注意饮食'],
   'catalog-item': ['D0001', '阿莫西林胶囊', '药品', 'MED', '盒', '25.00', '15.00', '是', '抗生素'],
-  employee: ['zhang@hospital.com', '张医生', '13800000000', 'E001', '主治医师', 'veterinarian', '主院'],
+  'employee': ['zhang@hospital.com', '张医生', '13800000000', 'E001', '主治医师', 'veterinarian', '主院'],
   'opening-stock': ['D0001', 'WH-01', 'B20260808', '100', '15.00', '2026-12-31'],
 }
 
@@ -58,5 +58,5 @@ export function buildTemplateCsv(meta: ImportTypeMeta): Buffer {
     }
   }
   const bom = '﻿'
-  return Buffer.from(bom + lines.join('\r\n') + '\r\n', 'utf8')
+  return Buffer.from(`${bom + lines.join('\r\n')}\r\n`, 'utf8')
 }

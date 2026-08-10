@@ -1,10 +1,26 @@
 <script setup lang="ts">
 import type { JourneyEvent } from '@/types/patient-journey'
 import apiJourney from '@/api/modules/patient-journey'
+import { JOURNEY_EVENT_TYPE_LABELS, JOURNEY_STATUS_LABELS, ROLE_CODE_LABELS } from '@/types/patient-journey'
 
 const props = defineProps<{ encounterId: string }>()
 const events = ref<JourneyEvent[]>([])
 const loading = ref(false)
+
+/** 事件类型中文,未收录时回退原始 key */
+function eventTypeLabel(type: string) {
+  return JOURNEY_EVENT_TYPE_LABELS[type] ?? type
+}
+
+/** 状态变更中文,空值显示默认文案 */
+function statusLabel(status: string | null | undefined, fallback: string) {
+  return status ? (JOURNEY_STATUS_LABELS[status] ?? status) : fallback
+}
+
+/** 操作人岗位中文 */
+function roleLabel(role: string) {
+  return ROLE_CODE_LABELS[role] ?? role
+}
 
 /** 显示专用患者旅程事件，不以通用审计日志替代业务时间线。 */
 async function load() {
@@ -25,13 +41,13 @@ watch(() => props.encounterId, load, { immediate: true })
     <div v-for="event in events" :key="event.id" class="pl-3 border-l-2 border-primary/30 relative">
       <span class="rounded-full bg-primary h-2 w-2 top-1.5 absolute -left-[5px]" />
       <div class="text-sm font-medium">
-        {{ event.event_type }}
+        {{ eventTypeLabel(event.event_type) }}
       </div>
       <div class="text-xs text-muted-foreground mt-1">
-        {{ event.actor_name }} · {{ event.actor_role }} · {{ new Date(event.occurred_at).toLocaleString('zh-CN') }}
+        {{ event.actor_name }} · {{ roleLabel(event.actor_role) }} · {{ new Date(event.occurred_at).toLocaleString('zh-CN') }}
       </div>
       <div v-if="event.from_status || event.to_status" class="text-xs mt-1">
-        {{ event.from_status ?? '开始' }} → {{ event.to_status ?? '完成' }}
+        {{ statusLabel(event.from_status, '开始') }} → {{ statusLabel(event.to_status, '完成') }}
       </div>
       <div v-if="event.reason" class="text-xs text-amber-700 mt-1">
         原因：{{ event.reason }}

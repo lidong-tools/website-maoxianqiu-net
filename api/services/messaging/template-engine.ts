@@ -32,7 +32,7 @@ export const VARIABLE_WHITELIST: readonly WhitelistVariable[] = [
 const WHITELIST_KEYS = new Set(VARIABLE_WHITELIST.map(v => v.key))
 
 /** 占位符匹配:{{ key }} 或 {{key}},key 仅允许字母/数字/点/下划线 */
-const PLACEHOLDER_RE = /\{\{\s*([A-Za-z0-9._]+)\s*\}\}/g
+const PLACEHOLDER_RE = /\{\{\s*([\w.]+)\s*\}\}/g
 
 export interface RenderContext {
   [key: string]: string | number | boolean | null | undefined

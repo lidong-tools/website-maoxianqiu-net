@@ -159,21 +159,21 @@ marketingRoutes.patch('/coupons/:id', async (c) => {
   await requireScopedPermission(c, { code: 'marketing.manage', tenantId: existing.tenant_id })
 
   const patch: Record<string, unknown> = {}
-  if (input.code !== undefined) patch.code = input.code
-  if (input.name !== undefined) patch.name = input.name
-  if (input.type !== undefined) patch.type = input.type
-  if (input.value !== undefined) patch.value = input.value
-  if (input.minSpend !== undefined) patch.min_spend = input.minSpend
-  if (input.maxDiscount !== undefined) patch.max_discount = input.maxDiscount ?? null
-  if (input.catalogType !== undefined) patch.catalog_type = input.catalogType ?? null
-  if (input.catalogItemId !== undefined) patch.catalog_item_id = input.catalogItemId ?? null
-  if (input.storeId !== undefined) patch.store_id = input.storeId ?? null
-  if (input.validFrom !== undefined) patch.valid_from = input.validFrom ?? null
-  if (input.validUntil !== undefined) patch.valid_until = input.validUntil ?? null
-  if (input.quota !== undefined) patch.quota = input.quota
-  if (input.perCustomerLimit !== undefined) patch.per_customer_limit = input.perCustomerLimit
-  if (input.stackingPolicy !== undefined) patch.stacking_policy = input.stackingPolicy
-  if (input.isActive !== undefined) patch.is_active = input.isActive
+  if (input.code !== undefined) { patch.code = input.code }
+  if (input.name !== undefined) { patch.name = input.name }
+  if (input.type !== undefined) { patch.type = input.type }
+  if (input.value !== undefined) { patch.value = input.value }
+  if (input.minSpend !== undefined) { patch.min_spend = input.minSpend }
+  if (input.maxDiscount !== undefined) { patch.max_discount = input.maxDiscount ?? null }
+  if (input.catalogType !== undefined) { patch.catalog_type = input.catalogType ?? null }
+  if (input.catalogItemId !== undefined) { patch.catalog_item_id = input.catalogItemId ?? null }
+  if (input.storeId !== undefined) { patch.store_id = input.storeId ?? null }
+  if (input.validFrom !== undefined) { patch.valid_from = input.validFrom ?? null }
+  if (input.validUntil !== undefined) { patch.valid_until = input.validUntil ?? null }
+  if (input.quota !== undefined) { patch.quota = input.quota }
+  if (input.perCustomerLimit !== undefined) { patch.per_customer_limit = input.perCustomerLimit }
+  if (input.stackingPolicy !== undefined) { patch.stacking_policy = input.stackingPolicy }
+  if (input.isActive !== undefined) { patch.is_active = input.isActive }
 
   const { data, error } = await service.from('coupons').update(patch).eq('id', id).select().single()
   if (error) {
@@ -390,14 +390,14 @@ marketingRoutes.post('/coupon-issues/:id/cancel', async (c) => {
 
 /** 优惠券 RPC 错误码 → 中文提示 */
 function mapCouponError(message: string): string {
-  if (message.includes('ISSUE_NOT_FOUND')) return '优惠券记录不存在'
-  if (message.includes('COUPON_NOT_AVAILABLE')) return '优惠券不可用(可能已核销)'
-  if (message.includes('COUPON_EXPIRED')) return '优惠券已过期'
-  if (message.includes('COUPON_WRONG_STORE')) return '优惠券不适用于当前门店'
-  if (message.includes('COUPON_MIN_SPEND_NOT_MET')) return '未达到使用门槛金额'
-  if (message.includes('COUPON_QUOTA_EXHAUSTED')) return '优惠券额度已用完'
-  if (message.includes('COUPON_CUSTOMER_MISMATCH')) return '优惠券不属于该客户'
-  if (message.includes('ISSUE_NOT_CANCELLABLE')) return '当前状态不可作废'
+  if (message.includes('ISSUE_NOT_FOUND')) { return '优惠券记录不存在' }
+  if (message.includes('COUPON_NOT_AVAILABLE')) { return '优惠券不可用(可能已核销)' }
+  if (message.includes('COUPON_EXPIRED')) { return '优惠券已过期' }
+  if (message.includes('COUPON_WRONG_STORE')) { return '优惠券不适用于当前门店' }
+  if (message.includes('COUPON_MIN_SPEND_NOT_MET')) { return '未达到使用门槛金额' }
+  if (message.includes('COUPON_QUOTA_EXHAUSTED')) { return '优惠券额度已用完' }
+  if (message.includes('COUPON_CUSTOMER_MISMATCH')) { return '优惠券不属于该客户' }
+  if (message.includes('ISSUE_NOT_CANCELLABLE')) { return '当前状态不可作废' }
   return message
 }
 
@@ -547,13 +547,13 @@ marketingRoutes.patch('/packages/:id', async (c) => {
   await requireScopedPermission(c, { code: 'marketing.manage', tenantId: existing.tenant_id })
 
   const patch: Record<string, unknown> = {}
-  if (input.code !== undefined) patch.code = input.code
-  if (input.name !== undefined) patch.name = input.name
-  if (input.description !== undefined) patch.description = input.description ?? null
-  if (input.price !== undefined) patch.price = input.price
-  if (input.validityDays !== undefined) patch.validity_days = input.validityDays ?? null
-  if (input.storeId !== undefined) patch.store_id = input.storeId ?? null
-  if (input.isActive !== undefined) patch.is_active = input.isActive
+  if (input.code !== undefined) { patch.code = input.code }
+  if (input.name !== undefined) { patch.name = input.name }
+  if (input.description !== undefined) { patch.description = input.description ?? null }
+  if (input.price !== undefined) { patch.price = input.price }
+  if (input.validityDays !== undefined) { patch.validity_days = input.validityDays ?? null }
+  if (input.storeId !== undefined) { patch.store_id = input.storeId ?? null }
+  if (input.isActive !== undefined) { patch.is_active = input.isActive }
 
   // 若携带 items,整体重写明细(先删后插,配置数据低频变更可接受)
   if (input.items && input.items.length > 0) {
@@ -829,15 +829,15 @@ marketingRoutes.post('/package-redemptions/:id/reverse', async (c) => {
 
 /** 套餐 RPC 错误码 → 中文提示 */
 function mapPackageError(message: string): string {
-  if (message.includes('CUSTOMER_PACKAGE_NOT_FOUND')) return '客户套餐不存在'
-  if (message.includes('PACKAGE_NOT_ACTIVE')) return '套餐已失效'
-  if (message.includes('PACKAGE_EXPIRED')) return '套餐已过期'
-  if (message.includes('PACKAGE_QUANTITY_EXHAUSTED')) return '套餐剩余次数不足'
-  if (message.includes('PACKAGE_ITEM_NOT_FOUND')) return '核销项目不属于该套餐'
-  if (message.includes('PACKAGE_CUSTOMER_MISMATCH')) return '套餐不属于该客户'
-  if (message.includes('PACKAGE_NOT_REFUNDABLE')) return '套餐当前状态不可退款'
-  if (message.includes('REDEMPTION_NOT_FOUND')) return '核销记录不存在'
-  if (message.includes('REDEMPTION_NOT_REVERSIBLE')) return '核销记录已冲正,不可重复操作'
+  if (message.includes('CUSTOMER_PACKAGE_NOT_FOUND')) { return '客户套餐不存在' }
+  if (message.includes('PACKAGE_NOT_ACTIVE')) { return '套餐已失效' }
+  if (message.includes('PACKAGE_EXPIRED')) { return '套餐已过期' }
+  if (message.includes('PACKAGE_QUANTITY_EXHAUSTED')) { return '套餐剩余次数不足' }
+  if (message.includes('PACKAGE_ITEM_NOT_FOUND')) { return '核销项目不属于该套餐' }
+  if (message.includes('PACKAGE_CUSTOMER_MISMATCH')) { return '套餐不属于该客户' }
+  if (message.includes('PACKAGE_NOT_REFUNDABLE')) { return '套餐当前状态不可退款' }
+  if (message.includes('REDEMPTION_NOT_FOUND')) { return '核销记录不存在' }
+  if (message.includes('REDEMPTION_NOT_REVERSIBLE')) { return '核销记录已冲正,不可重复操作' }
   return message
 }
 
@@ -902,7 +902,7 @@ marketingRoutes.get('/campaigns', async (c) => {
   }
   const runMap: Record<string, any> = {}
   runs.forEach((r: any) => {
-    if (!runMap[r.campaign_id]) runMap[r.campaign_id] = r
+    if (!runMap[r.campaign_id]) { runMap[r.campaign_id] = r }
   })
 
   return ok(c, {
@@ -984,19 +984,19 @@ marketingRoutes.patch('/campaigns/:id', async (c) => {
   }
 
   const patch: Record<string, unknown> = {}
-  if (input.code !== undefined) patch.code = input.code
-  if (input.name !== undefined) patch.name = input.name
-  if (input.description !== undefined) patch.description = input.description ?? null
-  if (input.type !== undefined) patch.type = input.type
-  if (input.segmentId !== undefined) patch.segment_id = input.segmentId ?? null
-  if (input.storeId !== undefined) patch.store_id = input.storeId ?? null
-  if (input.offerType !== undefined) patch.offer_type = input.offerType ?? null
-  if (input.offerId !== undefined) patch.offer_id = input.offerId ?? null
-  if (input.channel !== undefined) patch.channel = input.channel
-  if (input.messageTemplateId !== undefined) patch.message_template_id = input.messageTemplateId ?? null
-  if (input.startsAt !== undefined) patch.starts_at = input.startsAt ?? null
-  if (input.endsAt !== undefined) patch.ends_at = input.endsAt ?? null
-  if (input.status !== undefined) patch.status = input.status
+  if (input.code !== undefined) { patch.code = input.code }
+  if (input.name !== undefined) { patch.name = input.name }
+  if (input.description !== undefined) { patch.description = input.description ?? null }
+  if (input.type !== undefined) { patch.type = input.type }
+  if (input.segmentId !== undefined) { patch.segment_id = input.segmentId ?? null }
+  if (input.storeId !== undefined) { patch.store_id = input.storeId ?? null }
+  if (input.offerType !== undefined) { patch.offer_type = input.offerType ?? null }
+  if (input.offerId !== undefined) { patch.offer_id = input.offerId ?? null }
+  if (input.channel !== undefined) { patch.channel = input.channel }
+  if (input.messageTemplateId !== undefined) { patch.message_template_id = input.messageTemplateId ?? null }
+  if (input.startsAt !== undefined) { patch.starts_at = input.startsAt ?? null }
+  if (input.endsAt !== undefined) { patch.ends_at = input.endsAt ?? null }
+  if (input.status !== undefined) { patch.status = input.status }
 
   const { data, error } = await service.from('marketing_campaigns').update(patch).eq('id', id).select().single()
   if (error) {

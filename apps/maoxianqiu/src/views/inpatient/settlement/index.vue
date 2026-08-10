@@ -331,7 +331,7 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
 
     <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
       <!-- 状态摘要 -->
-      <div class="gap-4 grid grid-cols-3 shrink-0">
+      <div class="shrink-0 gap-4 grid grid-cols-3">
         <div class="p-3 border border-amber-200 rounded-lg bg-amber-50">
           <div class="text-2xl text-amber-600 font-semibold tabular-nums">
             {{ pendingSettleCount }}

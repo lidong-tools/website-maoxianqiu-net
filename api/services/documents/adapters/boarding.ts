@@ -1,7 +1,7 @@
+import type { DocumentAdapter, Service } from '../types.js'
 import { err } from '../../../lib/errors.js'
 import { fetchDocumentBase } from '../base.js'
-import { fmtDateTime, fmtDate, fmtMoney, fmtBool } from '../format.js'
-import type { DocumentAdapter, Service } from '../types.js'
+import { fmtBool, fmtDate, fmtDateTime, fmtMoney } from '../format.js'
 
 /**
  * 寄养交接单 Adapter(S32-C)

@@ -386,7 +386,7 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
 
     <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
       <!-- 顶部统计 -->
-      <div class="gap-4 grid grid-cols-3 shrink-0">
+      <div class="shrink-0 gap-4 grid grid-cols-3">
         <div class="p-3 border border-amber-200 rounded-lg bg-amber-50">
           <div class="text-2xl text-amber-600 font-semibold tabular-nums">
             {{ overdueCount }}
@@ -417,7 +417,7 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
         <!-- 工具栏:Tabs + 左筛选右功能按钮 -->
         <div class="px-4 pt-3 border-b shrink-0">
           <FaTabs v-model="activeTab" :list="TABS" class="mb-2" @update:model-value="onTabChange" />
-          <div class="pb-3 flex items-center justify-between flex-wrap gap-2">
+          <div class="pb-3 flex flex-wrap gap-2 items-center justify-between">
             <div class="flex gap-2 items-center">
               <FaSelect v-model="search.storeId" :options="storeOptions" class="w-36" @change="currentChange()" />
               <FaSelect

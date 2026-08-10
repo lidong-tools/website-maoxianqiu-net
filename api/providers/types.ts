@@ -44,8 +44,8 @@ export class ProviderError extends Error {
 export interface MessagingProvider {
   readonly name: string
   /** 是否已正确配置凭据(未配置时应回退 Mock 或在生产环境拒绝) */
-  isConfigured(): boolean
-  send(input: ProviderSendInput): Promise<ProviderSendResult>
+  isConfigured: () => boolean
+  send: (input: ProviderSendInput) => Promise<ProviderSendResult>
 }
 
 /**
@@ -61,12 +61,12 @@ export interface MessagingWebhookProvider {
    * 验签 Provider 回调(原始 body + 请求头)
    * 返回 false 时消息中心应拒绝处理并返回 401
    */
-  verifyWebhook(rawBody: string, headers: Record<string, string | undefined>): Promise<boolean>
+  verifyWebhook: (rawBody: string, headers: Record<string, string | undefined>) => Promise<boolean>
   /**
    * 解析 Provider 回调为统一事件(验签通过后调用)
    * 返回 null 表示该回调与本 Provider 无关(如 email 退信校验回调)
    */
-  parseWebhook(rawBody: string, headers: Record<string, string | undefined>): Promise<ProviderWebhookEvent[]>
+  parseWebhook: (rawBody: string, headers: Record<string, string | undefined>) => Promise<ProviderWebhookEvent[]>
 }
 
 /** 统一 Provider 回调事件(Agent-08 DEEP §12) */
@@ -84,5 +84,5 @@ export interface ProviderWebhookEvent {
  * 某些 Provider 支持按消息 id 主动查询回执;未实现时 queryStatus 返回 null。
  */
 export interface MessagingQueryableProvider {
-  queryStatus(providerMessageId: string): Promise<ProviderSendResult | null>
+  queryStatus: (providerMessageId: string) => Promise<ProviderSendResult | null>
 }

@@ -65,7 +65,7 @@ const resultsDirty = computed(() => {
       || f.note !== b.note
   })
 })
-watch(resultsDirty, (d) => labGuard.setDirty(d), { immediate: true })
+watch(resultsDirty, d => labGuard.setDirty(d), { immediate: true })
 
 /** P0-27:工作台按业务状态分页(前端只消费后端 DTO) */
 const activeTab = ref<LabWorkflowStage | 'all'>('all')

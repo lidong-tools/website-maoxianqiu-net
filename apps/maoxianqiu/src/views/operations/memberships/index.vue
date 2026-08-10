@@ -4,8 +4,8 @@ import type {
   CustomerMembershipWithCustomer,
   MembershipDiscountRule,
   MembershipTier,
-  PointTransactionWithCustomer,
   PointReason,
+  PointTransactionWithCustomer,
 } from '@/types/operations'
 import apiOperations from '@/api/modules/operations'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
@@ -100,7 +100,13 @@ async function loadTiers() {
 
 function openCreateTier() {
   Object.assign(tierForm, {
-    id: '', code: '', name: '', discountPercent: 100, pointsMultiplier: 1, isActive: true, sortOrder: tiers.value.length,
+    id: '',
+    code: '',
+    name: '',
+    discountPercent: 100,
+    pointsMultiplier: 1,
+    isActive: true,
+    sortOrder: tiers.value.length,
   })
   tierDialogVisible.value = true
 }
@@ -290,7 +296,7 @@ const pointColumns = computed<TableColumn<PointTransactionWithCustomer>[]>(() =>
   {
     accessorKey: 'delta',
     header: '变动',
-    cell: info => {
+    cell: (info) => {
       const v = Number(info.getValue())
       return `<span class="${v > 0 ? 'text-green-600' : 'text-red-600'}">${v > 0 ? '+' : ''}${v}</span>`
     },
@@ -406,8 +412,14 @@ async function loadRules() {
 
 function openCreateRule() {
   Object.assign(ruleForm, {
-    id: '', tierId: tiers.value[0]?.id ?? '', storeId: '', catalogItemId: '', catalogType: '',
-    discountPercent: 100, priority: 100, isActive: true,
+    id: '',
+    tierId: tiers.value[0]?.id ?? '',
+    storeId: '',
+    catalogItemId: '',
+    catalogType: '',
+    discountPercent: 100,
+    priority: 100,
+    isActive: true,
   })
   ruleDialogVisible.value = true
 }
@@ -505,7 +517,7 @@ onMounted(() => {
 
       <!-- 会员等级 -->
       <template v-if="activeTab === 'tiers'">
-        <div class="mb-3 flex justify-between items-center">
+        <div class="mb-3 flex items-center justify-between">
           <div class="text-sm text-muted-foreground">
             共 {{ tiers.length }} 个等级;折扣按 100%=不打折,90=9折
           </div>
@@ -574,7 +586,7 @@ onMounted(() => {
 
       <!-- 积分流水 -->
       <template v-else-if="activeTab === 'points'">
-        <div class="mb-3 text-sm text-muted-foreground">
+        <div class="text-sm text-muted-foreground mb-3">
           积分流水不可修改;余额由系统在消费/兑换/调整时维护
         </div>
         <FaTable
@@ -599,7 +611,7 @@ onMounted(() => {
 
       <!-- 折扣规则 -->
       <template v-else-if="activeTab === 'rules'">
-        <div class="mb-3 flex justify-between items-center">
+        <div class="mb-3 flex items-center justify-between">
           <div class="text-sm text-muted-foreground">
             匹配优先级:具体项目 &gt; 目录类型 &gt; 等级默认;同维度下指定门店 &gt; 全门店
           </div>
@@ -634,7 +646,7 @@ onMounted(() => {
 
     <!-- 会员等级表单 -->
     <FaModal v-model="tierDialogVisible" :title="tierForm.id ? '编辑等级' : '新建等级'" :show-cancel="true" confirm-text="保存" @confirm="saveTier">
-      <div class="grid grid-cols-2 gap-3 p-2">
+      <div class="p-2 gap-3 grid grid-cols-2">
         <FaLabel label="等级编码">
           <FaInput v-model="tierForm.code" placeholder="如 GOLD" />
         </FaLabel>
@@ -658,7 +670,7 @@ onMounted(() => {
 
     <!-- 客户会员表单 -->
     <FaModal v-model="customerDialogVisible" :title="`调整等级 · ${customerForm.customerName}`" :show-cancel="true" confirm-text="保存" @confirm="saveCustomer">
-      <div class="grid grid-cols-1 gap-3 p-2">
+      <div class="p-2 gap-3 grid grid-cols-1">
         <FaLabel label="等级">
           <FaSelect
             v-model="customerForm.tierId"
@@ -674,7 +686,7 @@ onMounted(() => {
 
     <!-- 折扣规则表单 -->
     <FaModal v-model="ruleDialogVisible" :title="ruleForm.id ? '编辑规则' : '新建规则'" :show-cancel="true" confirm-text="保存" @confirm="saveRule">
-      <div class="grid grid-cols-2 gap-3 p-2">
+      <div class="p-2 gap-3 grid grid-cols-2">
         <FaLabel label="等级">
           <FaSelect
             v-model="ruleForm.tierId"

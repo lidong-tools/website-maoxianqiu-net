@@ -72,14 +72,14 @@ export interface CustomerConsent {
 export type PortalChannel = 'sms' | 'email' | 'wechat'
 
 /** 通知场景 */
-export type NotificationScene =
-  | 'appointment'
-  | 'vaccine'
-  | 'deworming'
-  | 'report_published'
-  | 'followup'
-  | 'marketing'
-  | 'billing'
+export type NotificationScene
+  = | 'appointment'
+    | 'vaccine'
+    | 'deworming'
+    | 'report_published'
+    | 'followup'
+    | 'marketing'
+    | 'billing'
 
 /** 通知订阅(notification_subscriptions,客户+渠道+场景) */
 export interface NotificationSubscription {

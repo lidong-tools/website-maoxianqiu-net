@@ -14,8 +14,6 @@ defineOptions({
   name: 'FollowupDetailDrawer',
 })
 
-const router = useRouter()
-
 const props = defineProps<{
   taskId: string
 }>()
@@ -23,6 +21,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   changed: [task: FollowupTaskRecord]
 }>()
+
+const router = useRouter()
 
 const model = defineModel<boolean>({ default: false })
 
@@ -176,7 +176,7 @@ function onField(label: string, value: string) {
     <div v-loading="loading" class="flex flex-col gap-4">
       <template v-if="task">
         <!-- 状态与主操作 -->
-        <div class="flex items-center gap-2">
+        <div class="flex gap-2 items-center">
           <BusinessEntityStatusTag
             :label="FOLLOWUP_STATUS_LABELS[task.status] ?? task.status"
             :variant="task.status === 'completed' ? 'success' : task.status === 'cancelled' ? 'neutral' : task.status === 'in_progress' ? 'info' : 'warning'"
@@ -189,22 +189,26 @@ function onField(label: string, value: string) {
 
         <!-- 基本信息 -->
         <div class="gap-3 grid grid-cols-2">
-          <div v-for="f in [
-            onField('客户', task.customer_name ?? task.customer_id),
-            onField('宠物', task.pet_name ?? ''),
-            onField('来源', FOLLOWUP_SOURCE_LABELS[task.source_type] ?? task.source_type),
-            onField('任务类型', FOLLOWUP_TASK_TYPE_LABELS[task.task_type] ?? task.task_type),
-            onField('负责人', task.assignee_name ?? ''),
-            onField('渠道', task.channel ? (FOLLOWUP_CHANNEL_LABELS[task.channel] ?? task.channel) : ''),
-          ]" :key="f.label" class="flex flex-col gap-0.5">
+          <div
+            v-for="f in [
+              onField('客户', task.customer_name ?? task.customer_id),
+              onField('宠物', task.pet_name ?? ''),
+              onField('来源', FOLLOWUP_SOURCE_LABELS[task.source_type] ?? task.source_type),
+              onField('任务类型', FOLLOWUP_TASK_TYPE_LABELS[task.task_type] ?? task.task_type),
+              onField('负责人', task.assignee_name ?? ''),
+              onField('渠道', task.channel ? (FOLLOWUP_CHANNEL_LABELS[task.channel] ?? task.channel) : ''),
+            ]" :key="f.label" class="flex flex-col gap-0.5"
+          >
             <span class="text-xs text-muted-foreground">{{ f.label }}</span>
             <span class="text-sm">{{ f.value }}</span>
           </div>
         </div>
 
         <!-- 结果(已完成后) -->
-        <div v-if="task.status === 'completed'" class="border rounded-lg bg-muted/40 p-3">
-          <div class="text-xs text-muted-foreground mb-1">回访结果</div>
+        <div v-if="task.status === 'completed'" class="p-3 border rounded-lg bg-muted/40">
+          <div class="text-xs text-muted-foreground mb-1">
+            回访结果
+          </div>
           <div class="text-sm">
             {{ task.result_code ? (FOLLOWUP_RESULT_LABELS[task.result_code] ?? task.result_code) : '' }}
             {{ task.result_note ? ` · ${task.result_note}` : '' }}
@@ -218,14 +222,20 @@ function onField(label: string, value: string) {
         </div>
 
         <!-- 取消原因(已取消后) -->
-        <div v-if="task.status === 'cancelled' && task.cancel_reason" class="border rounded-lg bg-muted/40 p-3">
-          <div class="text-xs text-muted-foreground mb-1">取消原因</div>
-          <div class="text-sm">{{ task.cancel_reason }}</div>
+        <div v-if="task.status === 'cancelled' && task.cancel_reason" class="p-3 border rounded-lg bg-muted/40">
+          <div class="text-xs text-muted-foreground mb-1">
+            取消原因
+          </div>
+          <div class="text-sm">
+            {{ task.cancel_reason }}
+          </div>
         </div>
 
         <!-- 登记结果表单 -->
-        <div v-if="mode === 'complete'" class="border rounded-lg p-3 flex flex-col gap-3">
-          <div class="text-sm font-medium">登记回访结果</div>
+        <div v-if="mode === 'complete'" class="p-3 border rounded-lg flex flex-col gap-3">
+          <div class="text-sm font-medium">
+            登记回访结果
+          </div>
           <FaLabel label="结果">
             <FaSelect
               v-model="completeForm.resultCode"
@@ -254,8 +264,10 @@ function onField(label: string, value: string) {
         </div>
 
         <!-- 取消表单 -->
-        <div v-if="mode === 'cancel'" class="border rounded-lg p-3 flex flex-col gap-3">
-          <div class="text-sm font-medium">取消回访</div>
+        <div v-if="mode === 'cancel'" class="p-3 border rounded-lg flex flex-col gap-3">
+          <div class="text-sm font-medium">
+            取消回访
+          </div>
           <FaLabel label="取消原因" required>
             <FaInput v-model="cancelReason" type="textarea" :rows="3" placeholder="必填,请说明取消原因" />
           </FaLabel>
@@ -290,7 +302,7 @@ function onField(label: string, value: string) {
         </div>
 
         <!-- 深链 -->
-        <div class="border-t pt-3 flex flex-wrap gap-2">
+        <div class="pt-3 border-t flex flex-wrap gap-2">
           <FaButton variant="ghost" size="sm" @click="router.push(`/crm/customer/${task.customer_id}`)">
             <FaIcon name="i-lucide:user-round" />
             查看客户

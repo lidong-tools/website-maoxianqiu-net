@@ -3,15 +3,15 @@
  */
 
 /** 8 类业务文档 */
-export type DocumentType =
-  | 'prescription'
-  | 'invoice'
-  | 'medical_record_summary'
-  | 'lab_report'
-  | 'imaging_report'
-  | 'discharge_summary'
-  | 'vaccination_certificate'
-  | 'boarding_handover'
+export type DocumentType
+  = | 'prescription'
+    | 'invoice'
+    | 'medical_record_summary'
+    | 'lab_report'
+    | 'imaging_report'
+    | 'discharge_summary'
+    | 'vaccination_certificate'
+    | 'boarding_handover'
 
 /** 纸型 */
 export type PaperSize = 'A4' | '80mm' | '58mm'

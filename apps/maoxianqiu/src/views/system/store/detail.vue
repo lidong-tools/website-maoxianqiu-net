@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
 import type { Warehouse } from '@/types/inventory'
-import apiStore from '@/api/modules/store'
 import apiInventory from '@/api/modules/inventory'
+import apiStore from '@/api/modules/store'
 
 defineOptions({
   name: 'SystemStoreDetail',
@@ -251,10 +251,10 @@ const employeeColumns = computed<TableColumn<StoreEmployee>[]>(() => [
 
     <div v-loading="loading">
       <template v-if="detail">
-        <div class="p-5 rounded-lg border bg-card">
-          <div class="flex flex-wrap items-start justify-between gap-4">
+        <div class="p-5 border rounded-lg bg-card">
+          <div class="flex flex-wrap gap-4 items-start justify-between">
             <div class="min-w-0">
-              <div class="flex items-center gap-2">
+              <div class="flex gap-2 items-center">
                 <h2 class="text-xl font-bold truncate">
                   {{ detail.name }}
                 </h2>
@@ -269,7 +269,7 @@ const employeeColumns = computed<TableColumn<StoreEmployee>[]>(() => [
             </div>
           </div>
 
-          <div class="gap-x-8 gap-y-4 grid grid-cols-2 mt-5 sm:grid-cols-3">
+          <div class="mt-5 gap-x-8 gap-y-4 grid grid-cols-2 sm:grid-cols-3">
             <FaLabel label="地址" class="block">
               <FaInput :model-value="detail.address || '-'" disabled class="w-full" />
             </FaLabel>
@@ -329,10 +329,10 @@ const employeeColumns = computed<TableColumn<StoreEmployee>[]>(() => [
           empty-text="暂无仓库"
         >
           <template #cell-is_default="{ value }">
-            <span v-if="value" class="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-xs text-green-600">
+            <span v-if="value" class="text-xs text-green-600 px-2 py-0.5 rounded-full bg-green-500/10 inline-flex gap-1 items-center">
               默认仓库
             </span>
-            <span v-else class="text-muted-foreground text-sm">普通仓库</span>
+            <span v-else class="text-sm text-muted-foreground">普通仓库</span>
           </template>
           <template #cell-is_active="{ value }">
             <FaTag :variant="value ? 'default' : 'secondary'">
@@ -379,7 +379,7 @@ const employeeColumns = computed<TableColumn<StoreEmployee>[]>(() => [
           <FaInput v-model="warehouseForm.code" placeholder="同一门店内唯一,如 WH-DRUG" class="w-full" />
         </FaLabel>
         <FaLabel label="设为默认仓库" class="block">
-          <div class="flex items-center gap-2">
+          <div class="flex gap-2 items-center">
             <FaSwitch v-model="warehouseForm.isDefault" />
             <span class="text-sm text-muted-foreground">每门店仅一个默认仓库</span>
           </div>

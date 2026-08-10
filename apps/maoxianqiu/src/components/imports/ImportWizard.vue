@@ -9,13 +9,13 @@ import type {
   StartResult,
   ValidateResult,
 } from '@/types/imports'
+import apiImports from '@/api/modules/imports'
 import {
   DUPLICATE_STRATEGY_LABELS,
   IMPORT_TYPE_LABELS,
   IMPORT_TYPE_META,
   IMPORT_TYPES_ENABLED,
 } from '@/types/imports'
-import apiImports from '@/api/modules/imports'
 import ImportResultSummary from './ImportResultSummary.vue'
 
 const props = defineProps<{
@@ -207,9 +207,9 @@ function resetAndClose() {
     <!-- 步骤条 -->
     <div class="flex items-center">
       <template v-for="(s, i) in steps" :key="s.title">
-        <div class="flex items-center gap-2">
+        <div class="flex gap-2 items-center">
           <div
-            class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition-colors"
+            class="text-sm font-semibold rounded-full flex h-8 w-8 transition-colors items-center justify-center"
             :class="i + 1 < step
               ? 'bg-green-500 text-white'
               : i + 1 === step
@@ -223,34 +223,42 @@ function resetAndClose() {
             <div class="text-sm font-medium" :class="i + 1 === step ? 'text-foreground' : 'text-gray-500'">
               {{ s.title }}
             </div>
-            <div class="text-xs text-gray-400">{{ s.desc }}</div>
+            <div class="text-xs text-gray-400">
+              {{ s.desc }}
+            </div>
           </div>
         </div>
-        <div v-if="i < steps.length - 1" class="mx-3 h-px flex-1 bg-gray-200" />
+        <div v-if="i < steps.length - 1" class="mx-3 bg-gray-200 flex-1 h-px" />
       </template>
     </div>
 
-    <div class="rounded-xl border bg-card p-5">
+    <div class="p-5 border rounded-xl bg-card">
       <!-- Step 1: 选择类型与文件 -->
       <div v-if="step === 1" class="space-y-5">
         <div>
-          <h3 class="mb-2 font-medium">1. 选择数据类型</h3>
-          <div class="grid grid-cols-2 gap-3 md:grid-cols-5">
+          <h3 class="font-medium mb-2">
+            1. 选择数据类型
+          </h3>
+          <div class="gap-3 grid grid-cols-2 md:grid-cols-5">
             <button
               v-for="t in IMPORT_TYPES_ENABLED"
               :key="t"
               type="button"
-              class="rounded-lg border p-3 text-left transition-colors"
+              class="p-3 text-left border rounded-lg transition-colors"
               :class="type === t ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-gray-200 hover:border-gray-300'"
               @click="type = t"
             >
-              <div class="font-medium">{{ IMPORT_TYPE_LABELS[t] }}</div>
-              <div class="mt-1 text-xs text-gray-400">{{ IMPORT_TYPE_META[t].description }}</div>
+              <div class="font-medium">
+                {{ IMPORT_TYPE_LABELS[t] }}
+              </div>
+              <div class="text-xs text-gray-400 mt-1">
+                {{ IMPORT_TYPE_META[t].description }}
+              </div>
             </button>
           </div>
         </div>
 
-        <div class="flex flex-wrap items-end gap-4">
+        <div class="flex flex-wrap gap-4 items-end">
           <div class="w-56">
             <FaLabel label="门店" />
             <FaSelect v-model="storeId" :options="storeOptions" class="w-full" />
@@ -279,7 +287,9 @@ function resetAndClose() {
       <!-- Step 2: 字段映射 -->
       <div v-if="step === 2" class="space-y-5">
         <div class="flex items-center justify-between">
-          <h3 class="font-medium">2. 字段映射与去重策略</h3>
+          <h3 class="font-medium">
+            2. 字段映射与去重策略
+          </h3>
           <FaTag variant="secondary">
             共 {{ totalRows }} 行
           </FaTag>
@@ -288,14 +298,16 @@ function resetAndClose() {
           <div
             v-for="field in meta.fields"
             :key="field.key"
-            class="grid grid-cols-[220px_1fr] items-center gap-3"
+            class="gap-3 grid grid-cols-[220px_1fr] items-center"
           >
             <FaLabel :label="`${field.label}${field.required ? '*' : ''}`" :title="field.description" />
             <FaSelect v-model="mapping[field.key]" :options="headerOptions" class="w-full" clearable />
           </div>
         </div>
-        <div class="rounded-lg bg-gray-50 p-3">
-          <div class="mb-2 text-sm font-medium">重复数据策略（{{ meta.duplicateHints.join('；') }}）</div>
+        <div class="p-3 rounded-lg bg-gray-50">
+          <div class="text-sm font-medium mb-2">
+            重复数据策略（{{ meta.duplicateHints.join('；') }}）
+          </div>
           <div class="w-64">
             <FaSelect v-model="duplicateStrategy" :options="strategyOptions" class="w-full" />
           </div>
@@ -305,8 +317,10 @@ function resetAndClose() {
       <!-- Step 3: 预览校验 -->
       <div v-if="step === 3" class="space-y-4">
         <div class="flex items-center justify-between">
-          <h3 class="font-medium">3. 数据预览与校验</h3>
-          <div class="flex items-center gap-2">
+          <h3 class="font-medium">
+            3. 数据预览与校验
+          </h3>
+          <div class="flex gap-2 items-center">
             <FaTag variant="secondary">
               预览前 {{ preview.length }} / {{ totalRows }} 行
             </FaTag>
@@ -316,11 +330,13 @@ function resetAndClose() {
             </FaButton>
           </div>
         </div>
-        <div class="overflow-auto rounded-lg border">
-          <table class="min-w-full text-sm">
-            <thead class="bg-gray-50 text-left text-xs text-gray-500">
+        <div class="border rounded-lg overflow-auto">
+          <table class="text-sm min-w-full">
+            <thead class="text-xs text-gray-500 text-left bg-gray-50">
               <tr>
-                <th class="px-3 py-2">行号</th>
+                <th class="px-3 py-2">
+                  行号
+                </th>
                 <th v-for="col in previewColumns" :key="col.key" class="px-3 py-2">
                   {{ col.label }}
                 </th>
@@ -328,7 +344,9 @@ function resetAndClose() {
             </thead>
             <tbody>
               <tr v-for="r in preview" :key="r.rowNumber" class="border-t">
-                <td class="px-3 py-1.5 text-gray-400">{{ r.rowNumber }}</td>
+                <td class="text-gray-400 px-3 py-1.5">
+                  {{ r.rowNumber }}
+                </td>
                 <td v-for="col in previewColumns" :key="col.key" class="px-3 py-1.5">
                   {{ r.values[col.key] ?? '' }}
                 </td>
@@ -340,27 +358,43 @@ function resetAndClose() {
 
       <!-- Step 4: 确认执行 -->
       <div v-if="step === 4" class="space-y-4">
-        <h3 class="font-medium">4. 确认执行</h3>
-        <div v-if="validateResult" class="grid grid-cols-3 gap-4">
+        <h3 class="font-medium">
+          4. 确认执行
+        </h3>
+        <div v-if="validateResult" class="gap-4 grid grid-cols-3">
           <FaCard class="p-4">
-            <div class="text-2xl font-bold text-green-600">{{ validateResult.validRows }}</div>
-            <div class="mt-1 text-sm text-gray-500">有效行</div>
+            <div class="text-2xl text-green-600 font-bold">
+              {{ validateResult.validRows }}
+            </div>
+            <div class="text-sm text-gray-500 mt-1">
+              有效行
+            </div>
           </FaCard>
           <FaCard class="p-4">
-            <div class="text-2xl font-bold text-red-500">{{ validateResult.invalidRows }}</div>
-            <div class="mt-1 text-sm text-gray-500">无效行</div>
+            <div class="text-2xl text-red-500 font-bold">
+              {{ validateResult.invalidRows }}
+            </div>
+            <div class="text-sm text-gray-500 mt-1">
+              无效行
+            </div>
           </FaCard>
           <FaCard class="p-4">
-            <div class="text-2xl font-bold text-amber-500">{{ validateResult.errorCount }}</div>
-            <div class="mt-1 text-sm text-gray-500">错误数</div>
+            <div class="text-2xl text-amber-500 font-bold">
+              {{ validateResult.errorCount }}
+            </div>
+            <div class="text-sm text-gray-500 mt-1">
+              错误数
+            </div>
           </FaCard>
         </div>
 
         <div
           v-if="validateResult && validateResult.errorGroups.length > 0"
-          class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm"
+          class="text-sm p-3 border border-amber-200 rounded-lg bg-amber-50"
         >
-          <div class="mb-1 font-medium text-amber-700">错误分组</div>
+          <div class="text-amber-700 font-medium mb-1">
+            错误分组
+          </div>
           <div class="flex flex-wrap gap-2">
             <FaTag
               v-for="g in validateResult.errorGroups"
@@ -375,13 +409,13 @@ function resetAndClose() {
 
         <div
           v-if="validateResult && validateResult.invalidRows > 0"
-          class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          class="text-sm text-red-700 px-4 py-3 border border-red-200 rounded-lg bg-red-50"
         >
           存在 {{ validateResult.invalidRows }} 行校验失败，执行时将跳过这些行并计入失败。
         </div>
 
-        <div class="rounded-lg bg-gray-50 px-4 py-3 text-sm">
-          <span class="mr-3 text-gray-500">重复策略：</span>
+        <div class="text-sm px-4 py-3 rounded-lg bg-gray-50">
+          <span class="text-gray-500 mr-3">重复策略：</span>
           <span class="font-medium">{{ DUPLICATE_STRATEGY_LABELS[duplicateStrategy] }}</span>
         </div>
       </div>
@@ -393,7 +427,7 @@ function resetAndClose() {
     </div>
 
     <!-- 底部操作 -->
-    <div class="flex items-center justify-end gap-2 border-t pt-4">
+    <div class="pt-4 border-t flex gap-2 items-center justify-end">
       <FaButton variant="outline" @click="resetAndClose">
         关闭
       </FaButton>
@@ -439,7 +473,7 @@ function resetAndClose() {
     <!-- 错误明细抽屉 -->
     <FaDrawer v-model="errorsVisible" title="错误明细" :width="640">
       <div class="space-y-2">
-        <div class="flex items-center justify-between text-sm text-gray-500">
+        <div class="text-sm text-gray-500 flex items-center justify-between">
           <span>共 {{ errorTotal }} 条</span>
           <FaTag variant="outline">
             行号
@@ -448,19 +482,19 @@ function resetAndClose() {
         <div
           v-for="e in errorList"
           :key="e.id"
-          class="rounded-lg border p-2 text-sm"
+          class="text-sm p-2 border rounded-lg"
         >
-          <div class="flex items-center gap-2">
+          <div class="flex gap-2 items-center">
             <FaTag variant="destructive">
               第 {{ e.row_number }} 行
             </FaTag>
-            <span class="font-medium text-red-600">{{ e.message }}</span>
+            <span class="text-red-600 font-medium">{{ e.message }}</span>
           </div>
-          <div v-if="e.raw_data" class="mt-1 truncate text-xs text-gray-400">
+          <div v-if="e.raw_data" class="text-xs text-gray-400 mt-1 truncate">
             {{ JSON.stringify(e.raw_data) }}
           </div>
         </div>
-        <div v-if="errorList.length === 0" class="py-8 text-center text-gray-400">
+        <div v-if="errorList.length === 0" class="text-gray-400 py-8 text-center">
           暂无错误
         </div>
       </div>

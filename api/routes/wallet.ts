@@ -1,4 +1,3 @@
-import type { Context } from 'hono'
 import type { AppEnv } from '../lib/types.js'
 import { Hono } from 'hono'
 import { z } from 'zod'

@@ -7,16 +7,16 @@ import type {
   RevenueDimensionRow,
   RevenueReport,
 } from '@/types/analytics'
+import apiAnalytics from '@/api/modules/analytics'
+import AnalyticsChartCard from '@/components/analytics/ChartCard.vue'
+import AnalyticsKpiCard from '@/components/analytics/KpiCard.vue'
+import { useAnalyticsContext } from '@/composables/business/useAnalyticsContext'
 import {
   CATALOG_TYPE_LABELS,
   GROUP_BY_LABELS,
   PAYMENT_CHANNEL_LABELS,
   REVENUE_DIMENSION_LABELS,
 } from '@/types/analytics'
-import apiAnalytics from '@/api/modules/analytics'
-import { useAnalyticsContext } from '@/composables/business/useAnalyticsContext'
-import AnalyticsKpiCard from '@/components/analytics/KpiCard.vue'
-import AnalyticsChartCard from '@/components/analytics/ChartCard.vue'
 import { formatMoney } from '@/utils/format'
 
 defineOptions({
@@ -170,9 +170,9 @@ async function onExport() {
 
 <template>
   <FaPageMain>
-    <div class="mb-4 flex flex-wrap items-center gap-3">
+    <div class="mb-4 flex flex-wrap gap-3 items-center">
       <FaLabel label="时间范围" class="mb-0">
-        <div class="flex items-center gap-2">
+        <div class="flex gap-2 items-center">
           <FaDatePicker v-model="startAt" type="date" value-type="format" class="w-36" />
           <span>至</span>
           <FaDatePicker v-model="endAt" type="date" value-type="format" class="w-36" />
@@ -185,7 +185,7 @@ async function onExport() {
         <FaSelect v-model="dimension" :options="dimensionOptions" class="w-32" />
       </FaLabel>
       <FaTooltip v-if="canViewTenant" content="全院模式需要 analytics.view.tenant 权限">
-        <label class="flex cursor-pointer items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+        <label class="text-sm text-gray-600 flex gap-2 cursor-pointer items-center dark:text-gray-300">
           <FaSwitch v-model="allStores" size="sm" />
           全院
         </label>
@@ -202,11 +202,11 @@ async function onExport() {
       </FaButton>
     </div>
 
-    <div v-if="error" class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
+    <div v-if="error" class="text-sm text-red-600 mb-4 px-4 py-3 rounded-lg bg-red-50 dark:text-red-400 dark:bg-red-950/40">
       {{ error }}
     </div>
 
-    <div class="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
+    <div class="gap-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
       <AnalyticsKpiCard
         v-for="kpi in report?.kpis ?? []"
         :key="kpi.key"
@@ -226,7 +226,7 @@ async function onExport() {
       <FaCard :title="`按${REVENUE_DIMENSION_LABELS[dimension]}汇总`">
         <div
           v-if="dimension === 'payment_channel'"
-          class="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+          class="text-xs text-amber-700 mb-3 px-3 py-2 rounded-lg bg-amber-50 dark:text-amber-300 dark:bg-amber-950/40"
         >
           收款渠道按实际收款时间(payments.created_at)统计,与 Overall 的发票开账(应计)口径不同,合计可能与总净收入不一致(审计 v2 §16)。
         </div>
@@ -237,7 +237,7 @@ async function onExport() {
           :columns="tableColumns"
           :data="report?.dimensionRows ?? []"
         />
-        <div v-if="!loading && report && report.dimensionRows.length === 0" class="py-8 text-center text-sm text-gray-400">
+        <div v-if="!loading && report && report.dimensionRows.length === 0" class="text-sm text-gray-400 py-8 text-center">
           该维度暂无数据
         </div>
       </FaCard>

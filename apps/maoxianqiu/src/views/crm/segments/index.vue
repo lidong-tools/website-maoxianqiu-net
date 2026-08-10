@@ -157,8 +157,13 @@ function emptyCondition(): SegmentCondition {
 
 function openCreate() {
   Object.assign(form, {
-    id: '', code: '', name: '', description: '',
-    priority: segments.value.length * 10 + 10, active: true, logic: 'and',
+    id: '',
+    code: '',
+    name: '',
+    description: '',
+    priority: segments.value.length * 10 + 10,
+    active: true,
+    logic: 'and',
     conditions: [emptyCondition()],
   })
   dialogVisible.value = true
@@ -328,7 +333,7 @@ onMounted(() => {
     -->
     <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
       <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
-        <div class="px-4 py-3 border-b flex shrink-0 justify-between items-center">
+        <div class="px-4 py-3 border-b flex shrink-0 items-center justify-between">
           <div class="flex gap-2 items-center">
             <FaSelect
               v-model="filterName"
@@ -397,7 +402,7 @@ onMounted(() => {
       width="720px"
       @confirm="saveSegment"
     >
-      <div class="grid grid-cols-2 gap-3 p-2">
+      <div class="p-2 gap-3 grid grid-cols-2">
         <FaLabel label="编码">
           <FaInput v-model="form.code" placeholder="如 VIP_365" />
         </FaLabel>
@@ -424,7 +429,7 @@ onMounted(() => {
         </FaLabel>
       </div>
       <div class="px-2">
-        <div class="flex justify-between items-center mb-2">
+        <div class="mb-2 flex items-center justify-between">
           <span class="text-sm text-muted-foreground">规则条件({{ form.conditions.length }})</span>
           <FaButton size="sm" variant="outline" @click="addCondition">
             <FaIcon name="i-ri:add-line" />
@@ -434,7 +439,7 @@ onMounted(() => {
         <div
           v-for="(cond, index) in form.conditions"
           :key="index"
-          class="grid grid-cols-[1fr_110px_1fr_36px] gap-2 items-center mb-2"
+          class="mb-2 gap-2 grid grid-cols-[1fr_110px_1fr_36px] items-center"
         >
           <FaSelect v-model="cond.dim" :options="DIMS" size="small" />
           <FaSelect v-model="cond.op" :options="OPS" size="small" />

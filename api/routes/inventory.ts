@@ -1117,7 +1117,7 @@ const purchaseItemSchema = z.object({
 
 /** 空字符串/undefined 统一转 null,避免 RPC 内 ''::date 报错 */
 function dateOrNull(v?: string): string | null {
-  return v ? v : null
+  return v || null
 }
 
 const purchaseCreateSchema = z.object({

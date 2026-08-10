@@ -260,7 +260,7 @@ storeRoutes.get('/:id/employees', async (c) => {
   }>
 
   const empIds = [...new Set(assignments.map(a => a.employee_id))]
-  let roleMap = new Map<string, string[]>()
+  const roleMap = new Map<string, string[]>()
   if (empIds.length > 0) {
     const { data: roleRows, error: roleErr } = await service
       .from('employee_role_assignments')

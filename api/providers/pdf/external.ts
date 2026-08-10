@@ -1,6 +1,6 @@
-import process from 'node:process'
-import { createHash } from 'node:crypto'
 import type { PdfProvider, PdfRenderOptions, PdfRenderResult } from './types.js'
+import { createHash } from 'node:crypto'
+import process from 'node:process'
 
 /**
  * External PDF 渲染 Worker Provider(Stage-04 Agent-06)

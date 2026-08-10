@@ -457,7 +457,8 @@ const createEncounterSchema = z.object({
 /**
  * 创建就诊(MXQ-7003)
  * - 权限:encounter.work
- * - 创建时 status=in_progress,关联预约若有则同步推进到 in_progress
+ * - 幂等防重:同一预约若已有进行中的就诊则直接复用,避免工作台重复点击产生多条就诊
+ * - 创建后回写临床候诊队列的 encounter_id,保证工作台选中高亮与工作区数据关联
  */
 clinicalRoutes.post('/encounters', async (c) => {
   const input = await parseJsonBody(c, createEncounterSchema)
@@ -466,6 +467,26 @@ clinicalRoutes.post('/encounters', async (c) => {
 
   const service = createServiceClient()
   const user = c.get('user')
+
+  // 幂等防重:若预约已关联进行中的就诊(状态 in_progress/active),直接返回既有就诊
+  if (input.appointmentId) {
+    const { data: queueRow } = await service
+      .from('clinical_queue_entries')
+      .select('encounter_id')
+      .eq('appointment_id', input.appointmentId)
+      .maybeSingle()
+    if (queueRow?.encounter_id) {
+      const { data: existing } = await service
+        .from('encounters')
+        .select('*')
+        .eq('id', queueRow.encounter_id)
+        .maybeSingle()
+      if (existing && existing.status === 'in_progress') {
+        return ok(c, existing)
+      }
+    }
+  }
+
   const { data, error } = await service
     .from('encounters')
     .insert({
@@ -484,6 +505,15 @@ clinicalRoutes.post('/encounters', async (c) => {
 
   if (error) {
     throw err.internal(`创建就诊失败: ${error.message}`)
+  }
+
+  // 回写临床候诊队列:同一预约若存在未关联就诊的队列记录,关联本次新建的就诊
+  if (input.appointmentId) {
+    await service
+      .from('clinical_queue_entries')
+      .update({ encounter_id: data.id, updated_at: new Date().toISOString() })
+      .eq('appointment_id', input.appointmentId)
+      .is('encounter_id', null)
   }
 
   // 若关联预约,同步推进预约到 in_progress

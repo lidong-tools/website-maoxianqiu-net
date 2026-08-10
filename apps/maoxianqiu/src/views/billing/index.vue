@@ -285,8 +285,8 @@ onMounted(getDataList)
         <!-- 表格区 -->
         <div class="flex-1 min-h-0 overflow-hidden">
           <FaTable
-            class="h-full min-h-0"
             v-loading="loading"
+            class="h-full min-h-0"
             table-root-class="overflow-hidden"
             row-key="id"
             stripe

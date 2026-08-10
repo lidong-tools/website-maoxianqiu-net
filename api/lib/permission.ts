@@ -291,45 +291,129 @@ export async function resolveScopedAccess(
   // 不再从 employee_role_assignments / store_members 推导平台管理员。
   const platformAdmin = await loadPlatformAdminPermissions(service, user.id)
   if (platformAdmin.isPlatformAdmin) {
-    const adminRoleIds = platformAdmin.roleIds
-    const permissions = platformAdmin.permissions
+    const adminRoleIds = [...platformAdmin.roleIds]
+    const adminPerms = [...platformAdmin.permissions]
+    let employeeId = ''
+    let tenantRoleIds: string[] = []
+    let tenantRoleRows: Array<{ id: string, permissions: string[] | null }> = []
+
+    // 平台管理员在目标租户下同时具备员工档案时,合并其租户业务角色权限:
+    // platform_admin 账号既承担平台运维,又常作为租户门店员工执行业务 Command
+    // (如医生接诊 queue.call)。若仅取 system_admin 平台模板权限,业务操作会被误拦 403。
+    // 员工链解析与门店校验并行发起,减少顺序网络往返。
+    const [empChain, allowedStoreIds] = await Promise.all([
+      (async (): Promise<{ employeeId: string, tenantRoleIds: string[], tenantRoleRows: Array<{ id: string, permissions: string[] | null }> }> => {
+        if (!requirement.tenantId) {
+          return { employeeId: '', tenantRoleIds: [], tenantRoleRows: [] }
+        }
+        const { data: empRows, error: empError } = await service
+          .from('employees')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('tenant_id', requirement.tenantId)
+          .eq('status', 'active')
+          .limit(1)
+        if (empError) {
+          throw err.internal(`查询员工档案失败: ${empError.message}`)
+        }
+        const emp = (empRows as EmployeeRow[] | null)?.[0]
+        if (!emp) {
+          return { employeeId: '', tenantRoleIds: [], tenantRoleRows: [] }
+        }
+        // 与租户分支一致的 S30-R01/R02 分类:按 role.scope + assignment.store_id 双重校验
+        const { data: assignRows, error: assignError } = await service
+          .from('employee_role_assignments')
+          .select('role_id, store_id')
+          .eq('employee_id', emp.id)
+          .eq('tenant_id', requirement.tenantId)
+        if (assignError) {
+          throw err.internal(`查询角色分配失败: ${assignError.message}`)
+        }
+        const assignList = (assignRows as EmployeeRoleAssignmentRow[] | null) ?? []
+        const assignRoleIds = [...new Set(assignList.map(a => a.role_id))]
+        let roleRows: RoleRow[] = []
+        if (assignRoleIds.length > 0) {
+          const { data: rr, error: rrError } = await service
+            .from('roles')
+            .select('id, code, scope, is_system, permissions')
+            .in('id', assignRoleIds)
+          if (rrError) {
+            throw err.internal(`查询角色失败: ${rrError.message}`)
+          }
+          roleRows = (rr as RoleRow[] | null) ?? []
+        }
+        const roleScope = new Map(roleRows.map(r => [r.id, r.scope]))
+        const isTenantWideRole = (roleId: string): boolean => {
+          const scope = roleScope.get(roleId)
+          return scope === 'system' || scope === 'tenant'
+        }
+        const isStoreRole = (roleId: string): boolean => roleScope.get(roleId) === 'store'
+
+        // 匹配目标门店:该门店的 store 角色分配或 tenant-wide 角色分配(与租户分支一致)
+        const matched = assignList.filter((a) => {
+          if (requirement.storeId) {
+            return (a.store_id === requirement.storeId && isStoreRole(a.role_id))
+              || (a.store_id === null && isTenantWideRole(a.role_id))
+          }
+          return a.store_id === null && isTenantWideRole(a.role_id)
+        })
+        const matchedRoleIds = [...new Set(matched.map(a => a.role_id))]
+        return {
+          employeeId: emp.id,
+          tenantRoleIds: matchedRoleIds,
+          tenantRoleRows: roleRows.filter(r => matchedRoleIds.includes(r.id)),
+        }
+      })(),
+      (async (): Promise<string[]> => {
+        // 平台管理员跨租户放行;仍校验目标门店属于目标租户(若提供)
+        if (requirement.storeId) {
+          const { data: store, error: storeError } = await service
+            .from('stores')
+            .select('tenant_id')
+            .eq('id', requirement.storeId)
+            .single()
+          if (storeError || !store) {
+            throw err.notFound('门店不存在')
+          }
+          if (store.tenant_id !== requirement.tenantId) {
+            throw err.forbidden('门店不属于该租户')
+          }
+        }
+        // 平台管理员可访问目标租户下全部门店(tenantId 为空时放行,系统级操作如自动计费)
+        if (!requirement.tenantId) {
+          return []
+        }
+        const { data: tenantStores, error: tenantStoresError } = await service
+          .from('stores')
+          .select('id')
+          .eq('tenant_id', requirement.tenantId)
+        if (tenantStoresError) {
+          throw err.internal(`查询门店失败: ${tenantStoresError.message}`)
+        }
+        return (tenantStores as { id: string }[] | null ?? []).map(s => s.id)
+      })(),
+    ])
+    employeeId = empChain.employeeId
+    tenantRoleIds = empChain.tenantRoleIds
+    tenantRoleRows = empChain.tenantRoleRows
+
+    // 有效权限 = 平台权限 ∪ 目标租户业务角色权限
+    const permissions = [...new Set([
+      ...adminPerms,
+      ...await collectRolePermissions(service, tenantRoleIds, tenantRoleRows),
+    ])]
+    const roleIds = [...new Set([...adminRoleIds, ...tenantRoleIds])]
     if (!permissions.includes(requirement.code)) {
       throw err.forbidden(`缺少权限: ${requirement.code}`)
     }
-    // 平台管理员跨租户放行;仍校验目标门店属于目标租户(若提供)
-    if (requirement.storeId) {
-      const { data: store, error: storeError } = await service
-        .from('stores')
-        .select('tenant_id')
-        .eq('id', requirement.storeId)
-        .single()
-      if (storeError || !store) {
-        throw err.notFound('门店不存在')
-      }
-      if (store.tenant_id !== requirement.tenantId) {
-        throw err.forbidden('门店不属于该租户')
-      }
-    }
-    // 平台管理员可访问目标租户下全部门店(tenantId 为空时放行,系统级操作如自动计费)
-    let allowedStoreIds: string[] = []
-    if (requirement.tenantId) {
-      const { data: tenantStores, error: tenantStoresError } = await service
-        .from('stores')
-        .select('id')
-        .eq('tenant_id', requirement.tenantId)
-      if (tenantStoresError) {
-        throw err.internal(`查询门店失败: ${tenantStoresError.message}`)
-      }
-      allowedStoreIds = (tenantStores as { id: string }[] | null ?? []).map(s => s.id)
-    }
-    // 平台管理员不依赖租户员工档案,employeeId 可为空
+    // 平台管理员不依赖租户员工档案,employeeId 可为空(目标租户下无员工时保持空)
     return {
       userId: user.id,
-      employeeId: '',
+      employeeId,
       tenantId: requirement.tenantId,
       storeId: requirement.storeId,
       allowedStoreIds,
-      roleIds: adminRoleIds,
+      roleIds,
       permissions,
       isPlatformAdmin: true,
     }

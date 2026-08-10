@@ -458,6 +458,8 @@ export interface CreateLabOrderInput {
   panelId?: string
   catalogItemId?: string
   remark?: string
+  /** 临床问题(检验目的描述,随申请单落库) */
+  clinicalQuestion?: string
 }
 
 // ===== 检验结果项(MXQ-10006/10008) =====

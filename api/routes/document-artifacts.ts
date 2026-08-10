@@ -5,12 +5,12 @@ import { writeAudit } from '../lib/audit.js'
 import { err } from '../lib/errors.js'
 import { getRequestIdempotencyKey } from '../lib/idempotency.js'
 import { requireScopedPermission } from '../lib/permission.js'
-import { loadContext, resolveRequestedTenant, resolveRequestedStore } from '../lib/request-context.js'
+import { createPresignedDownloadUrl } from '../lib/r2.js'
+import { loadContext, resolveRequestedStore, resolveRequestedTenant } from '../lib/request-context.js'
 import { ok } from '../lib/result.js'
 import { createServiceClient } from '../lib/supabase.js'
 import { parseJsonBody } from '../lib/validation.js'
 import { authMiddleware, loadCaller } from '../middlewares/auth.js'
-import { createPresignedDownloadUrl } from '../lib/r2.js'
 import {
   createSignatureRequest,
   DOCUMENT_SOURCE_TABLES,

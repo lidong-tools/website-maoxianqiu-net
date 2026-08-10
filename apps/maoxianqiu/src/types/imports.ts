@@ -4,9 +4,9 @@
  */
 
 export type ImportJobType = 'customer' | 'pet' | 'catalog-item' | 'employee' | 'opening-stock'
-export type ImportJobStatus =
-  | 'uploaded' | 'mapped' | 'validated' | 'queued' | 'pending'
-  | 'processing' | 'completed' | 'failed' | 'cancelled' | 'awaiting_domain_apply'
+export type ImportJobStatus
+  = | 'uploaded' | 'mapped' | 'validated' | 'queued' | 'pending'
+    | 'processing' | 'completed' | 'failed' | 'cancelled' | 'awaiting_domain_apply'
 export type DuplicateStrategy = 'skip' | 'update' | 'create_duplicate'
 
 export interface ImportFieldDef {
@@ -107,10 +107,10 @@ export const IMPORT_TYPES: ImportJobType[] = ['customer', 'pet', 'catalog-item',
 export const IMPORT_TYPES_ENABLED: ImportJobType[] = ['customer', 'pet', 'catalog-item', 'employee', 'opening-stock']
 
 export const IMPORT_TYPE_LABELS: Record<ImportJobType, string> = {
-  customer: '客户',
-  pet: '宠物',
+  'customer': '客户',
+  'pet': '宠物',
   'catalog-item': '商品/药品',
-  employee: '员工',
+  'employee': '员工',
   'opening-stock': '库存期初',
 }
 
@@ -134,8 +134,11 @@ export const DUPLICATE_STRATEGY_LABELS: Record<DuplicateStrategy, string> = {
 }
 
 export const IMPORT_TYPE_META: Record<ImportJobType, ImportTypeMeta> = {
-  customer: {
-    type: 'customer', label: '客户', description: '批量导入客户档案', duplicateStrategies: ['skip', 'update', 'create_duplicate'],
+  'customer': {
+    type: 'customer',
+    label: '客户',
+    description: '批量导入客户档案',
+    duplicateStrategies: ['skip', 'update', 'create_duplicate'],
     duplicateHints: ['按手机号识别重复', '按客户编号识别重复'],
     fields: [
       { key: 'customerNo', label: '客户编号', description: '留空自动生成' },
@@ -149,8 +152,11 @@ export const IMPORT_TYPE_META: Record<ImportJobType, ImportTypeMeta> = {
       { key: 'remark', label: '备注' },
     ],
   },
-  pet: {
-    type: 'pet', label: '宠物', description: '批量导入宠物档案（需关联主人）', duplicateStrategies: ['skip', 'update', 'create_duplicate'],
+  'pet': {
+    type: 'pet',
+    label: '宠物',
+    description: '批量导入宠物档案（需关联主人）',
+    duplicateStrategies: ['skip', 'update', 'create_duplicate'],
     duplicateHints: ['按 主人+宠物名 识别重复', '按芯片号识别重复'],
     fields: [
       { key: 'ownerPhone', label: '主人手机号' },
@@ -169,7 +175,10 @@ export const IMPORT_TYPE_META: Record<ImportJobType, ImportTypeMeta> = {
     ],
   },
   'catalog-item': {
-    type: 'catalog-item', label: '商品/药品', description: '批量导入价目表', duplicateStrategies: ['skip', 'update', 'create_duplicate'],
+    type: 'catalog-item',
+    label: '商品/药品',
+    description: '批量导入价目表',
+    duplicateStrategies: ['skip', 'update', 'create_duplicate'],
     duplicateHints: ['按商品编码识别重复'],
     fields: [
       { key: 'code', label: '编码', required: true },
@@ -183,8 +192,11 @@ export const IMPORT_TYPE_META: Record<ImportJobType, ImportTypeMeta> = {
       { key: 'tags', label: '标签', type: 'string[]' },
     ],
   },
-  employee: {
-    type: 'employee', label: '员工', description: '批量导入待邀请员工（由 IAM 邀请）', duplicateStrategies: ['skip', 'create_duplicate'],
+  'employee': {
+    type: 'employee',
+    label: '员工',
+    description: '批量导入待邀请员工（由 IAM 邀请）',
+    duplicateStrategies: ['skip', 'create_duplicate'],
     duplicateHints: ['按邮箱识别重复'],
     fields: [
       { key: 'email', label: '邮箱', required: true },
@@ -197,7 +209,10 @@ export const IMPORT_TYPE_META: Record<ImportJobType, ImportTypeMeta> = {
     ],
   },
   'opening-stock': {
-    type: 'opening-stock', label: '库存期初', description: '批量导入库存期初（生成期初入账命令）', duplicateStrategies: ['skip', 'update'],
+    type: 'opening-stock',
+    label: '库存期初',
+    description: '批量导入库存期初（生成期初入账命令）',
+    duplicateStrategies: ['skip', 'update'],
     duplicateHints: ['按 商品+仓库+批次 识别重复'],
     fields: [
       { key: 'catalogCode', label: '商品编码', required: true },

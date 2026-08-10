@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
-import apiMessaging from '@/api/modules/messaging'
-import { useAppTenantStore } from '@/store/modules/app/tenant'
 import type {
+  MessageDeliveryAttempt,
   MessagingChannel,
   MessagingDelivery,
   MessagingStatus,
   MessagingTemplate,
-  MessageDeliveryAttempt,
   ProviderSummary,
   WhitelistVariable,
 } from '@/types/messaging'
+import apiMessaging from '@/api/modules/messaging'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
 import {
   MESSAGING_CHANNEL_LABELS,
   MESSAGING_SCENE_LABELS,
@@ -148,7 +148,7 @@ const editForm = ref({
 
 /** 点击变量白名单插入 {{key}} 到内容末尾 */
 function insertVariable(key: string) {
-  if (!key) return
+  if (!key) { return }
   editForm.value.body = `${editForm.value.body}${editForm.value.body ? '\n' : ''}{{${key}}}`
 }
 
@@ -181,7 +181,7 @@ function openEditTemplate(row: MessagingTemplate) {
 }
 
 async function submitTemplate() {
-  if (!tenantStore.currentTenantId) return
+  if (!tenantStore.currentTenantId) { return }
   if (!editForm.value.code.trim() || !editForm.value.name.trim() || !editForm.value.body.trim()) {
     useFaToast().warning('模板编码、名称和内容不能为空')
     return
@@ -223,7 +223,7 @@ async function submitTemplate() {
 }
 
 async function toggleTemplateActive(row: MessagingTemplate) {
-  if (!tenantStore.currentTenantId) return
+  if (!tenantStore.currentTenantId) { return }
   try {
     await apiMessaging.updateTemplate(row.id, {
       tenantId: tenantStore.currentTenantId,
@@ -256,7 +256,7 @@ const activeTemplate = computed<MessagingTemplate | null>(() => {
 /** 模板用到的变量 key(来自服务端自动提取的白名单子集) */
 const activeVariableKeys = computed<string[]>(() => {
   const t = activeTemplate.value
-  if (!t) return []
+  if (!t) { return [] }
   return Object.keys(t.variables ?? {})
 })
 
@@ -282,7 +282,7 @@ function variableLabelWithKey(key: string): string {
 let pendingSendKey: string | null = null
 
 async function submitSend() {
-  if (!tenantStore.currentTenantId) return
+  if (!tenantStore.currentTenantId) { return }
   if (!sendForm.value.templateId) {
     useFaToast().warning('请选择消息模板')
     return
@@ -543,7 +543,7 @@ async function openDetail(row: MessagingDelivery) {
 
       <!-- ===== 发送 ===== -->
       <template v-else-if="activeTab === 'send'">
-        <div class="space-y-4 max-w-3xl">
+        <div class="max-w-3xl space-y-4">
           <FaLabel label="消息模板">
             <FaSelect
               v-model="sendForm.templateId"
@@ -554,7 +554,7 @@ async function openDetail(row: MessagingDelivery) {
             />
           </FaLabel>
 
-          <div class="grid grid-cols-2 gap-4">
+          <div class="gap-4 grid grid-cols-2">
             <FaLabel label="渠道">
               <FaSelect v-model="sendForm.channel" :options="channelOptions" class="w-full" />
             </FaLabel>
@@ -662,7 +662,7 @@ async function openDetail(row: MessagingDelivery) {
         <FaLabel label="模板名称">
           <FaInput v-model="editForm.name" placeholder="例如: 疫苗提醒模板" class="w-full" />
         </FaLabel>
-        <div class="grid grid-cols-2 gap-4">
+        <div class="gap-4 grid grid-cols-2">
           <FaLabel label="渠道">
             <FaSelect v-model="editForm.channel" :options="channelOptions" class="w-full" />
           </FaLabel>
@@ -677,7 +677,9 @@ async function openDetail(row: MessagingDelivery) {
           <FaInput v-model="editForm.body" type="textarea" :rows="5" class="w-full" />
         </FaLabel>
         <div>
-          <div class="mb-2 text-sm text-slate-600">可用变量（点击插入）</div>
+          <div class="text-sm text-slate-600 mb-2">
+            可用变量（点击插入）
+          </div>
           <div class="flex flex-wrap gap-2">
             <button
               v-for="v in whitelist"
@@ -695,39 +697,57 @@ async function openDetail(row: MessagingDelivery) {
 
     <!-- 发送结果 -->
     <FaModal v-model="sendResultVisible" title="发送结果" :footer="false">
-      <div v-if="sendResult" class="space-y-3 text-sm">
+      <div v-if="sendResult" class="text-sm space-y-3">
         <div>状态：<span :style="{ color: sendResult.status.includes('失败') ? '#ef4444' : '#22c55e', fontWeight: 500 }">{{ sendResult.status }}</span></div>
         <div>接收人：{{ sendResult.delivery.recipient }}</div>
         <div>尝试次数：{{ sendResult.attempts }}</div>
-        <div v-if="sendResult.delivery.provider_message_id">Provider ID：{{ sendResult.delivery.provider_message_id }}</div>
-        <div v-if="sendResult.error" class="text-red-600">{{ sendResult.error }}</div>
+        <div v-if="sendResult.delivery.provider_message_id">
+          Provider ID：{{ sendResult.delivery.provider_message_id }}
+        </div>
+        <div v-if="sendResult.error" class="text-red-600">
+          {{ sendResult.error }}
+        </div>
         <div>
-          <div class="mb-1 font-medium">内容快照：</div>
-          <pre class="whitespace-pre-wrap rounded-md bg-gray-50 p-3 text-xs text-gray-700">{{ sendResult.delivery.content_snapshot }}</pre>
+          <div class="font-medium mb-1">
+            内容快照：
+          </div>
+          <pre class="text-xs text-gray-700 p-3 rounded-md bg-gray-50 whitespace-pre-wrap">{{ sendResult.delivery.content_snapshot }}</pre>
         </div>
       </div>
     </FaModal>
 
     <!-- 投递详情 -->
     <FaModal v-model="detailVisible" title="投递详情" :footer="false" :loading="detailLoading">
-      <div v-if="detail" class="space-y-4 text-sm">
-        <div class="space-y-1 text-slate-600">
+      <div v-if="detail" class="text-sm space-y-4">
+        <div class="text-slate-600 space-y-1">
           <div>接收人：{{ detail.delivery.recipient }}　状态：{{ MESSAGING_STATUS_LABELS[detail.delivery.status] }}</div>
-          <div v-if="detail.delivery.provider_message_id">Provider ID：{{ detail.delivery.provider_message_id }}</div>
-          <div v-if="detail.delivery.error" class="text-red-600">错误：{{ detail.delivery.error }}</div>
+          <div v-if="detail.delivery.provider_message_id">
+            Provider ID：{{ detail.delivery.provider_message_id }}
+          </div>
+          <div v-if="detail.delivery.error" class="text-red-600">
+            错误：{{ detail.delivery.error }}
+          </div>
         </div>
         <div>
-          <div class="mb-2 font-medium">发送尝试（{{ detail.attempts.length }} 次）</div>
-          <div v-if="detail.attempts.length === 0" class="text-slate-400">暂无尝试记录</div>
-          <div v-for="a in detail.attempts" :key="a.id" class="rounded-md border border-slate-200 p-3">
-            <div class="flex items-center gap-2">
+          <div class="font-medium mb-2">
+            发送尝试（{{ detail.attempts.length }} 次）
+          </div>
+          <div v-if="detail.attempts.length === 0" class="text-slate-400">
+            暂无尝试记录
+          </div>
+          <div v-for="a in detail.attempts" :key="a.id" class="p-3 border border-slate-200 rounded-md">
+            <div class="flex gap-2 items-center">
               <span class="font-medium">第 {{ a.attempt_no }} 次</span>
               <span :style="{ color: a.status === 'failed' ? '#ef4444' : '#22c55e', fontWeight: 500 }">{{ MESSAGING_STATUS_LABELS[a.status] }}</span>
               <span class="text-slate-400">（{{ a.provider }}）</span>
             </div>
-            <div class="mt-1 text-xs text-slate-500">时间：{{ new Date(a.created_at).toLocaleString('zh-CN') }}</div>
-            <div v-if="a.error_code" class="mt-1 text-xs text-red-500">错误码：{{ a.error_code }}　{{ a.error_message ?? '' }}</div>
-            <div v-if="a.request_snapshot && Object.keys(a.request_snapshot).length" class="mt-2 text-xs text-slate-500">
+            <div class="text-xs text-slate-500 mt-1">
+              时间：{{ new Date(a.created_at).toLocaleString('zh-CN') }}
+            </div>
+            <div v-if="a.error_code" class="text-xs text-red-500 mt-1">
+              错误码：{{ a.error_code }}　{{ a.error_message ?? '' }}
+            </div>
+            <div v-if="a.request_snapshot && Object.keys(a.request_snapshot).length" class="text-xs text-slate-500 mt-2">
               请求：{{ JSON.stringify(a.request_snapshot) }}
             </div>
           </div>

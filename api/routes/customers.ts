@@ -96,10 +96,28 @@ customerRoutes.get('/', async (c) => {
 // ============================================================
 
 const followupSelect = [
-  'id', 'tenant_id', 'store_id', 'customer_id', 'pet_id', 'source_type', 'source_id',
-  'task_type', 'scheduled_at', 'assignee_employee_id', 'channel', 'status',
-  'result_code', 'result_note', 'started_at', 'completed_at', 'completed_by',
-  'cancel_reason', 'next_followup_at', 'created_by', 'created_at', 'updated_at',
+  'id',
+  'tenant_id',
+  'store_id',
+  'customer_id',
+  'pet_id',
+  'source_type',
+  'source_id',
+  'task_type',
+  'scheduled_at',
+  'assignee_employee_id',
+  'channel',
+  'status',
+  'result_code',
+  'result_note',
+  'started_at',
+  'completed_at',
+  'completed_by',
+  'cancel_reason',
+  'next_followup_at',
+  'created_by',
+  'created_at',
+  'updated_at',
 ].join(', ')
 
 /**
@@ -134,10 +152,12 @@ async function resolveFollowupTimezone(
   return resolveTenantTimezone(service, tenantId)
 }
 
-const followupDatetime = (msg = '时间格式错误') => z
-  .string()
-  .max(40)
-  .refine(v => !Number.isNaN(new Date(v).getTime()), msg)
+function followupDatetime(msg = '时间格式错误') {
+  return z
+    .string()
+    .max(40)
+    .refine(v => !Number.isNaN(new Date(v).getTime()), msg)
+}
 
 /** 批量回填客户/宠物/负责人名称,供列表与详情展示 */
 async function enrichFollowups(

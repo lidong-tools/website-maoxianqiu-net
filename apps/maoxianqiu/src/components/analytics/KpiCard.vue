@@ -32,17 +32,17 @@ const valueText = computed(() => displayValue(kpi.value))
 </script>
 
 <template>
-  <div class="relative rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-shadow hover:shadow-md dark:border-gray-800 dark:bg-gray-900">
-    <div class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+  <div class="p-4 border border-gray-100 rounded-xl bg-white shadow-sm transition-shadow relative dark:border-gray-800 dark:bg-gray-900 hover:shadow-md">
+    <div class="text-xs text-gray-500 flex gap-1 items-center dark:text-gray-400">
       <span class="truncate">{{ kpi.label }}</span>
       <FaTooltip :content="kpi.definition">
-        <FaIcon name="i-carbon:information" class="cursor-help text-gray-400" />
+        <FaIcon name="i-carbon:information" class="text-gray-400 cursor-help" />
       </FaTooltip>
     </div>
-    <div class="mt-2 text-2xl font-semibold text-gray-900 dark:text-gray-100">
+    <div class="text-2xl text-gray-900 font-semibold mt-2 dark:text-gray-100">
       {{ valueText }}
     </div>
-    <div v-if="kpi.hint" class="mt-1 truncate text-xs text-gray-400 dark:text-gray-500">
+    <div v-if="kpi.hint" class="text-xs text-gray-400 mt-1 truncate dark:text-gray-500">
       {{ kpi.hint }}
     </div>
   </div>

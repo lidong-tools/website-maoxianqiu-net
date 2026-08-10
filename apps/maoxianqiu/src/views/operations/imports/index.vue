@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
 import type { ImportErrorRow, ImportJob, ImportJobStatus, ImportJobType } from '@/types/imports'
-import { IMPORT_JOB_STATUS_LABELS, IMPORT_TYPE_LABELS, IMPORT_TYPES_ENABLED } from '@/types/imports'
 import apiImports from '@/api/modules/imports'
 import apiStore from '@/api/modules/store'
-import { useAppTenantStore } from '@/store/modules/app/tenant'
 import ImportWizard from '@/components/imports/ImportWizard.vue'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
+import { IMPORT_JOB_STATUS_LABELS, IMPORT_TYPE_LABELS, IMPORT_TYPES_ENABLED } from '@/types/imports'
 
 defineOptions({
   name: 'OperationsImports',
@@ -249,7 +249,7 @@ useStoreScopedPage({
 
       <!-- 任务列表 -->
       <template v-else>
-        <div class="mb-3 flex items-center gap-1">
+        <div class="mb-3 flex gap-1 items-center">
           <FaButton
             v-for="t in tabs"
             :key="t.key"
@@ -325,7 +325,7 @@ useStoreScopedPage({
             </div>
           </template>
           <template #empty>
-            <div class="py-12 text-center text-gray-400">
+            <div class="text-gray-400 py-12 text-center">
               暂无导入任务
             </div>
           </template>
@@ -333,7 +333,7 @@ useStoreScopedPage({
 
         <div class="mt-3 flex items-center justify-between">
           <span class="text-sm text-gray-400">共 {{ total }} 条</span>
-          <div class="flex items-center gap-2">
+          <div class="flex gap-2 items-center">
             <FaButton variant="outline" size="sm" :disabled="page === 0" @click="goPage(page - 1)">
               上一页
             </FaButton>
@@ -353,8 +353,8 @@ useStoreScopedPage({
 
     <!-- 任务详情抽屉 -->
     <FaDrawer v-model="detailVisible" title="任务详情" :width="480">
-      <div v-if="detailJob" class="space-y-3 text-sm">
-        <div class="grid grid-cols-2 gap-y-2">
+      <div v-if="detailJob" class="text-sm space-y-3">
+        <div class="gap-y-2 grid grid-cols-2">
           <span class="text-gray-400">类型</span>
           <span>{{ IMPORT_TYPE_LABELS[detailJob.type] }}</span>
           <span class="text-gray-400">状态</span>
@@ -370,9 +370,11 @@ useStoreScopedPage({
           <span class="text-gray-400">创建时间</span>
           <span>{{ new Date(detailJob.created_at).toLocaleString('zh-CN') }}</span>
         </div>
-        <div v-if="detailJob.mapping" class="rounded-lg bg-gray-50 p-3">
-          <div class="mb-2 font-medium">字段映射</div>
-          <div v-for="(header, key) in detailJob.mapping" :key="key" class="flex justify-between py-0.5">
+        <div v-if="detailJob.mapping" class="p-3 rounded-lg bg-gray-50">
+          <div class="font-medium mb-2">
+            字段映射
+          </div>
+          <div v-for="(header, key) in detailJob.mapping" :key="key" class="py-0.5 flex justify-between">
             <span class="text-gray-500">{{ key }}</span>
             <span class="text-gray-400">← {{ header }}</span>
           </div>
@@ -389,22 +391,22 @@ useStoreScopedPage({
         <div
           v-for="e in errorList"
           :key="e.id"
-          class="rounded-lg border p-2 text-sm"
+          class="text-sm p-2 border rounded-lg"
         >
-          <div class="flex items-center gap-2">
+          <div class="flex gap-2 items-center">
             <FaTag variant="destructive">
               第 {{ e.row_number }} 行
             </FaTag>
-            <span class="font-medium text-red-600">{{ e.message }}</span>
+            <span class="text-red-600 font-medium">{{ e.message }}</span>
           </div>
-          <div v-if="e.raw_data" class="mt-1 truncate text-xs text-gray-400">
+          <div v-if="e.raw_data" class="text-xs text-gray-400 mt-1 truncate">
             {{ JSON.stringify(e.raw_data) }}
           </div>
         </div>
-        <div v-if="errorList.length === 0" class="py-8 text-center text-gray-400">
+        <div v-if="errorList.length === 0" class="text-gray-400 py-8 text-center">
           暂无错误
         </div>
-        <div v-if="errorTotal > errorList.length" class="flex justify-center pt-2">
+        <div v-if="errorTotal > errorList.length" class="pt-2 flex justify-center">
           <FaButton variant="outline" size="sm" @click="loadErrorPage(errorPage + 1)">
             加载更多
           </FaButton>

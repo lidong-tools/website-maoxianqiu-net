@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
-import apiPortal from '@/api/modules/portal'
-import { useAppTenantStore } from '@/store/modules/app/tenant'
 import type {
   CustomerConsent,
   NotificationSubscription,
@@ -14,6 +12,8 @@ import type {
   ProviderChannelStatus,
   ProviderWebhookEventRow,
 } from '@/types/portal'
+import apiPortal from '@/api/modules/portal'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
 import {
   CONSENT_TYPE_LABELS,
   NOTIFICATION_SCENE_LABELS,
@@ -133,7 +133,7 @@ function openCreateIdentity() {
 }
 
 async function submitIdentity() {
-  if (!tenantStore.currentTenantId) return
+  if (!tenantStore.currentTenantId) { return }
   if (!identityForm.value.customerId.trim() || !identityForm.value.subject.trim()) {
     useFaToast().warning('客户 id 与身份标识不能为空')
     return
@@ -161,7 +161,7 @@ async function submitIdentity() {
 const revokingIdentityId = ref<string | null>(null)
 
 async function onRevokeIdentity(row: PortalIdentity) {
-  if (!tenantStore.currentTenantId) return
+  if (!tenantStore.currentTenantId) { return }
   revokingIdentityId.value = row.id
   try {
     await apiPortal.revokeIdentity(row.id, { tenantId: tenantStore.currentTenantId, reason: '管理端停用' })
@@ -268,7 +268,7 @@ const petPermissionOptions = [
 ]
 
 async function submitPetAccess() {
-  if (!tenantStore.currentTenantId) return
+  if (!tenantStore.currentTenantId) { return }
   if (!petAccessForm.value.petId.trim() || !petAccessForm.value.customerId.trim()) {
     useFaToast().warning('宠物 id 与客户 id 不能为空')
     return
@@ -302,7 +302,7 @@ async function submitPetAccess() {
 const revokingPetAccessId = ref<string | null>(null)
 
 async function onRevokePetAccess(row: PortalPetAccess) {
-  if (!tenantStore.currentTenantId) return
+  if (!tenantStore.currentTenantId) { return }
   revokingPetAccessId.value = row.id
   try {
     await apiPortal.revokePetAccess(row.id, { tenantId: tenantStore.currentTenantId })
@@ -444,7 +444,7 @@ const webhookColumns = computed<TableColumn<ProviderWebhookEventRow>[]>(() => [
       return h('span', { style: { color, fontWeight: 500 } }, WEBHOOK_EVENT_STATUS_LABELS[v as keyof typeof WEBHOOK_EVENT_STATUS_LABELS] ?? v)
     },
   },
-  { accessorKey: 'delivery_id', header: '投递 ID', cell: (info: any) => info.getValue() ? info.getValue().slice(0, 8) + '…' : '-' },
+  { accessorKey: 'delivery_id', header: '投递 ID', cell: (info: any) => info.getValue() ? `${info.getValue().slice(0, 8)}…` : '-' },
   { accessorKey: 'provider_event_id', header: '事件 ID', cell: (info: any) => info.getValue() ?? '-' },
   {
     accessorKey: 'received_at',
@@ -493,7 +493,7 @@ const TABS = [
       <span>
         <strong>消息通道状态：</strong>
         <template v-for="s in channelStatus" :key="s.channel">
-          {{ s.channel.toUpperCase() }}={{ s.configured ? '已配置' : '未配置' }}　
+          {{ s.channel.toUpperCase() }}={{ s.configured ? '已配置' : '未配置' }}
         </template>
         未配置通道在生产环境拒绝发送与回调接收。
       </span>
@@ -627,7 +627,7 @@ const TABS = [
         <FaLabel label="客户 ID（uuid）">
           <FaInput v-model="identityForm.customerId" placeholder="从客户列表复制的 customer id" class="w-full" />
         </FaLabel>
-        <div class="grid grid-cols-2 gap-4">
+        <div class="gap-4 grid grid-cols-2">
           <FaLabel label="渠道">
             <FaSelect
               v-model="identityForm.provider"
@@ -655,7 +655,7 @@ const TABS = [
       @confirm="submitPetAccess"
     >
       <div class="space-y-4">
-        <div class="grid grid-cols-2 gap-4">
+        <div class="gap-4 grid grid-cols-2">
           <FaLabel label="宠物 ID（uuid）">
             <FaInput v-model="petAccessForm.petId" placeholder="宠物 id" class="w-full" />
           </FaLabel>
@@ -663,7 +663,7 @@ const TABS = [
             <FaInput v-model="petAccessForm.customerId" placeholder="客户 id" class="w-full" />
           </FaLabel>
         </div>
-        <div class="grid grid-cols-2 gap-4">
+        <div class="gap-4 grid grid-cols-2">
           <FaLabel label="关系">
             <FaSelect
               v-model="petAccessForm.accessType"

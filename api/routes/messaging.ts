@@ -1,25 +1,27 @@
+import type { AccessScope } from '../lib/permission.js'
 import type { AppEnv } from '../lib/types.js'
+import type { SendRequest } from '../services/messaging/engine.js'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit.js'
 import { err } from '../lib/errors.js'
 import { getRequestIdempotencyKey } from '../lib/idempotency.js'
 import {
+
   requireScopedPermission,
-  type AccessScope,
 } from '../lib/permission.js'
 import { getContext, loadContext } from '../lib/request-context.js'
 import { ok } from '../lib/result.js'
 import { createServiceClient } from '../lib/supabase.js'
 import { parseJsonBody } from '../lib/validation.js'
 import { authMiddleware, loadCaller } from '../middlewares/auth.js'
+import { getProviderSummary } from '../providers/registry.js'
 import {
   loadDelivery,
   retryDelivery,
   sendMessage,
-  type SendRequest,
+
 } from '../services/messaging/engine.js'
-import { getProviderSummary } from '../providers/registry.js'
 import { listWhitelistVariables, validateTemplatePlaceholders } from '../services/messaging/template-engine.js'
 
 /**
@@ -237,10 +239,10 @@ messagingRoutes.patch('/templates/:id', async (c) => {
   }
 
   const patch: Record<string, unknown> = { version: (existing.version ?? 1) + 1 }
-  if (input.name !== undefined) patch.name = input.name
-  if (input.channel !== undefined) patch.channel = input.channel
-  if (input.subject !== undefined) patch.subject = input.subject ?? null
-  if (input.isActive !== undefined) patch.is_active = input.isActive
+  if (input.name !== undefined) { patch.name = input.name }
+  if (input.channel !== undefined) { patch.channel = input.channel }
+  if (input.subject !== undefined) { patch.subject = input.subject ?? null }
+  if (input.isActive !== undefined) { patch.is_active = input.isActive }
   if (input.body !== undefined) {
     const used = validateTemplatePlaceholders(input.body)
     patch.body = input.body
@@ -340,9 +342,9 @@ messagingRoutes.get('/deliveries', async (c) => {
   else if (scope.allowedStoreIds.length > 0 && !scope.isPlatformAdmin) {
     query = query.in('store_id', scope.allowedStoreIds)
   }
-  if (input.status) query = query.eq('status', input.status)
-  if (input.scene) query = query.eq('scene', input.scene)
-  if (input.channel) query = query.eq('channel', input.channel)
+  if (input.status) { query = query.eq('status', input.status) }
+  if (input.scene) { query = query.eq('scene', input.scene) }
+  if (input.channel) { query = query.eq('channel', input.channel) }
 
   const { data, error, count } = await query
     .order('created_at', { ascending: false })

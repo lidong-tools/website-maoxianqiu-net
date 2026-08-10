@@ -1,9 +1,9 @@
 <script setup lang="ts">
+import type { CustomerInsights } from '@/api/modules/crmGrowth'
 import type { Customer360Result, CustomerRecord, FollowupTaskRecord, PetRecord } from '@/types/customer'
 import type { AttachmentWithFile } from '@/types/file'
-import type { CustomerInsights } from '@/api/modules/crmGrowth'
-import apiCustomer from '@/api/modules/customer'
 import apiCrmGrowth from '@/api/modules/crmGrowth'
+import apiCustomer from '@/api/modules/customer'
 import apiFile from '@/api/modules/file'
 import FollowupCreateDrawer from '@/components/followups/FollowupCreateDrawer/index.vue'
 import FollowupDetailDrawer from '@/components/followups/FollowupDetailDrawer/index.vue'
@@ -455,9 +455,9 @@ onMounted(loadDetail)
       <FaCard v-if="!isNew" title="最近就诊" class="mt-4">
         <FaEmptyState v-if="!customer360?.recentEncounters?.length" description="暂无就诊记录" />
         <div v-else class="flex flex-col divide-y">
-          <div v-for="enc in customer360?.recentEncounters" :key="enc.id" class="flex items-center gap-3 py-2">
-            <span class="w-24 text-xs text-muted-foreground">{{ fmtFollowupTime(enc.started_at) }}</span>
-            <span class="flex-1 truncate text-sm">{{ enc.chief_complaint || '主诉未记录' }}</span>
+          <div v-for="enc in customer360?.recentEncounters" :key="enc.id" class="py-2 flex gap-3 items-center">
+            <span class="text-xs text-muted-foreground w-24">{{ fmtFollowupTime(enc.started_at) }}</span>
+            <span class="text-sm flex-1 truncate">{{ enc.chief_complaint || '主诉未记录' }}</span>
             <FaButton variant="ghost" size="sm" @click="router.push(`/clinical/encounter/${enc.id}`)">
               查看
             </FaButton>
@@ -469,9 +469,9 @@ onMounted(loadDetail)
       <FaCard v-if="!isNew" title="最近消费" class="mt-4">
         <FaEmptyState v-if="!customer360?.recentInvoices?.length" description="暂无消费记录" />
         <div v-else class="flex flex-col divide-y">
-          <div v-for="inv in customer360?.recentInvoices" :key="inv.id" class="flex items-center gap-3 py-2">
-            <span class="w-24 text-xs text-muted-foreground">{{ fmtFollowupTime(inv.created_at) }}</span>
-            <span class="flex-1 truncate text-sm">{{ inv.invoice_no }}</span>
+          <div v-for="inv in customer360?.recentInvoices" :key="inv.id" class="py-2 flex gap-3 items-center">
+            <span class="text-xs text-muted-foreground w-24">{{ fmtFollowupTime(inv.created_at) }}</span>
+            <span class="text-sm flex-1 truncate">{{ inv.invoice_no }}</span>
             <span class="text-sm font-medium">¥{{ Number(inv.total ?? 0).toFixed(2) }}</span>
           </div>
         </div>
@@ -479,14 +479,16 @@ onMounted(loadDetail)
 
       <!-- 分层与流失风险(Stage-04 Agent-05) -->
       <FaCard v-if="!isNew" title="分层与流失风险" class="mt-4">
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div class="gap-4 grid grid-cols-1 md:grid-cols-2">
           <div>
-            <div class="text-sm font-medium mb-2">命中分层</div>
+            <div class="text-sm font-medium mb-2">
+              命中分层
+            </div>
             <div v-if="insights?.segments?.length" class="flex flex-wrap gap-2">
               <span
                 v-for="seg in insights.segments"
                 :key="seg.segment_id"
-                class="px-2 py-0.5 rounded text-xs bg-primary/10 text-primary"
+                class="text-xs text-primary px-2 py-0.5 rounded bg-primary/10"
               >
                 {{ seg.name }}({{ seg.score }})
               </span>
@@ -494,12 +496,14 @@ onMounted(loadDetail)
             <FaEmptyState v-else description="暂无命中分层" class="!p-0" />
           </div>
           <div>
-            <div class="text-sm font-medium mb-2">流失风险</div>
+            <div class="text-sm font-medium mb-2">
+              流失风险
+            </div>
             <div v-if="insights?.churn" class="flex flex-col gap-1">
-              <div class="flex items-center gap-2">
+              <div class="flex gap-2 items-center">
                 <span class="text-lg font-bold">{{ insights.churn.score }}</span>
                 <span
-                  class="inline-flex items-center rounded px-2 py-0.5 text-xs"
+                  class="text-xs px-2 py-0.5 rounded inline-flex items-center"
                   :style="{
                     color: CHURN_LEVEL_META[insights.churn.level]?.color,
                     border: `1px solid ${CHURN_LEVEL_META[insights.churn.level]?.color}`,
@@ -521,12 +525,14 @@ onMounted(loadDetail)
 
       <!-- 优惠券与套餐(Stage-04 Agent-05) -->
       <FaCard v-if="!isNew" title="优惠券与套餐" class="mt-4">
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div class="gap-4 grid grid-cols-1 md:grid-cols-2">
           <div>
-            <div class="text-sm font-medium mb-2">有效优惠券</div>
+            <div class="text-sm font-medium mb-2">
+              有效优惠券
+            </div>
             <div v-if="insights?.activeCoupons?.length" class="flex flex-col divide-y">
-              <div v-for="c in insights.activeCoupons" :key="c.id" class="flex items-center gap-3 py-2">
-                <span class="flex-1 truncate text-sm">{{ c.coupons?.name ?? c.code }}</span>
+              <div v-for="c in insights.activeCoupons" :key="c.id" class="py-2 flex gap-3 items-center">
+                <span class="text-sm flex-1 truncate">{{ c.coupons?.name ?? c.code }}</span>
                 <span class="text-xs">{{ c.coupons?.type === 'fixed' ? '满减' : '折扣' }}</span>
                 <span class="text-xs text-muted-foreground">{{ c.status === 'redeemed' ? '已核销' : '可用' }}</span>
               </div>
@@ -534,10 +540,12 @@ onMounted(loadDetail)
             <FaEmptyState v-else description="暂无优惠券" class="!p-0" />
           </div>
           <div>
-            <div class="text-sm font-medium mb-2">客户套餐</div>
+            <div class="text-sm font-medium mb-2">
+              客户套餐
+            </div>
             <div v-if="insights?.packages?.length" class="flex flex-col divide-y">
-              <div v-for="p in insights.packages" :key="p.id" class="flex items-center gap-3 py-2">
-                <span class="flex-1 truncate text-sm">{{ p.service_packages?.name }}</span>
+              <div v-for="p in insights.packages" :key="p.id" class="py-2 flex gap-3 items-center">
+                <span class="text-sm flex-1 truncate">{{ p.service_packages?.name }}</span>
                 <span class="text-sm font-medium">{{ p.remaining_quantity }}/{{ p.total_quantity }}</span>
                 <span class="text-xs text-muted-foreground">{{ p.status === 'active' ? '生效中' : p.status }}</span>
               </div>
@@ -551,9 +559,9 @@ onMounted(loadDetail)
       <FaCard v-if="!isNew" title="活动记录" class="mt-4">
         <FaEmptyState v-if="!insights?.campaignHistory?.length" description="暂无活动记录" />
         <div v-else class="flex flex-col divide-y">
-          <div v-for="h in insights.campaignHistory" :key="h.id" class="flex items-center gap-3 py-2">
-            <span class="w-24 text-xs text-muted-foreground">{{ fmtFollowupTime(h.matched_at) }}</span>
-            <span class="flex-1 truncate text-sm">{{ h.marketing_campaigns?.name }}</span>
+          <div v-for="h in insights.campaignHistory" :key="h.id" class="py-2 flex gap-3 items-center">
+            <span class="text-xs text-muted-foreground w-24">{{ fmtFollowupTime(h.matched_at) }}</span>
+            <span class="text-sm flex-1 truncate">{{ h.marketing_campaigns?.name }}</span>
             <span class="text-xs">{{ h.marketing_campaigns?.type }}</span>
             <span class="text-xs text-muted-foreground">规则 v{{ h.rule_version }}</span>
           </div>
@@ -582,11 +590,11 @@ onMounted(loadDetail)
             <div
               v-for="t in pendingFollowups"
               :key="t.id"
-              class="flex items-center gap-3 py-2 rounded cursor-pointer hover:bg-muted/40"
+              class="py-2 rounded flex gap-3 cursor-pointer items-center hover:bg-muted/40"
               @click="openFollowupDetail(t)"
             >
-              <span class="w-24 text-xs text-muted-foreground">{{ fmtFollowupTime(t.scheduled_at) }}</span>
-              <span class="flex-1 truncate text-sm">{{ FOLLOWUP_TASK_TYPE_LABELS[t.task_type] ?? t.task_type }} · {{ t.pet_name ?? '无宠物' }}</span>
+              <span class="text-xs text-muted-foreground w-24">{{ fmtFollowupTime(t.scheduled_at) }}</span>
+              <span class="text-sm flex-1 truncate">{{ FOLLOWUP_TASK_TYPE_LABELS[t.task_type] ?? t.task_type }} · {{ t.pet_name ?? '无宠物' }}</span>
               <span class="text-xs">{{ FOLLOWUP_STATUS_LABELS[t.status] }}</span>
             </div>
           </div>
@@ -597,11 +605,11 @@ onMounted(loadDetail)
             <div
               v-for="t in historyFollowups"
               :key="t.id"
-              class="flex items-center gap-3 py-2 rounded cursor-pointer hover:bg-muted/40"
+              class="py-2 rounded flex gap-3 cursor-pointer items-center hover:bg-muted/40"
               @click="openFollowupDetail(t)"
             >
-              <span class="w-24 text-xs text-muted-foreground">{{ fmtFollowupTime(t.completed_at ?? t.scheduled_at) }}</span>
-              <span class="flex-1 truncate text-sm">{{ FOLLOWUP_TASK_TYPE_LABELS[t.task_type] ?? t.task_type }} · {{ t.pet_name ?? '无宠物' }}</span>
+              <span class="text-xs text-muted-foreground w-24">{{ fmtFollowupTime(t.completed_at ?? t.scheduled_at) }}</span>
+              <span class="text-sm flex-1 truncate">{{ FOLLOWUP_TASK_TYPE_LABELS[t.task_type] ?? t.task_type }} · {{ t.pet_name ?? '无宠物' }}</span>
               <span class="text-xs">{{ FOLLOWUP_STATUS_LABELS[t.status] }}</span>
             </div>
           </div>

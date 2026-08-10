@@ -49,15 +49,18 @@ medicationSafetyRoutes.use('*', authMiddleware(), loadCaller(), loadContext())
 function mapRpcError(error: { message: string }) {
   const msg = error.message
   if ([
-    'PRESCRIPTION_NOT_FOUND', 'CHECK_NOT_FOUND', 'RULE_NOT_FOUND',
-    'CATALOG_ITEM_NOT_FOUND', 'OPERATOR_NOT_FOUND',
+    'PRESCRIPTION_NOT_FOUND',
+    'CHECK_NOT_FOUND',
+    'RULE_NOT_FOUND',
+    'CATALOG_ITEM_NOT_FOUND',
+    'OPERATOR_NOT_FOUND',
   ].some(k => msg.includes(k))) {
     return err.notFound('资源不存在')
   }
   if ([
-    'MEDICATION_SAFETY_BLOCKED',       // 阻断检查未豁免
-    'OVERRIDE_REASON_REQUIRED',        // 豁免必须填写理由
-    'CHECK_NOT_TRIGGERED',             // 仅 triggered 可豁免
+    'MEDICATION_SAFETY_BLOCKED', // 阻断检查未豁免
+    'OVERRIDE_REASON_REQUIRED', // 豁免必须填写理由
+    'CHECK_NOT_TRIGGERED', // 仅 triggered 可豁免
     'INVALID_CHECK_STAGE',
     'INVALID_RULE_TYPE',
     'INVALID_SEVERITY',
@@ -75,9 +78,16 @@ function mapRpcError(error: { message: string }) {
 
 /** 规则/档案/交互的合法 rule_type(与 DB 枚举一致) */
 const RULE_TYPES = [
-  'duplicate_ingredient', 'duplicate_drug', 'dose_range', 'duration_limit',
-  'frequency_limit', 'species_contraindication', 'age_constraint',
-  'weight_constraint', 'antimicrobial_notice', 'drug_interaction',
+  'duplicate_ingredient',
+  'duplicate_drug',
+  'dose_range',
+  'duration_limit',
+  'frequency_limit',
+  'species_contraindication',
+  'age_constraint',
+  'weight_constraint',
+  'antimicrobial_notice',
+  'drug_interaction',
 ] as const
 
 const upsertRuleSchema = z.object({

@@ -1,10 +1,5 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
-import apiDocuments from '@/api/modules/documents'
-import apiStore from '@/api/modules/store'
-import DocumentEntityPicker from '@/components/documents/DocumentEntityPicker/index.vue'
-import DocumentPreviewPanel from '@/components/documents/DocumentPreviewPanel/index.vue'
-import { useAppTenantStore } from '@/store/modules/app/tenant'
 import type {
   DocumentHistoryItem,
   DocumentRenderResult,
@@ -12,6 +7,11 @@ import type {
   DocumentType,
   PaperSize,
 } from '@/types/documents'
+import apiDocuments from '@/api/modules/documents'
+import apiStore from '@/api/modules/store'
+import DocumentEntityPicker from '@/components/documents/DocumentEntityPicker/index.vue'
+import DocumentPreviewPanel from '@/components/documents/DocumentPreviewPanel/index.vue'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { DOCUMENT_TYPE_OPTIONS, getDocumentTypeLabel, PAPER_SIZE_OPTIONS } from '@/types/documents'
 
 defineOptions({
@@ -397,11 +397,13 @@ onMounted(async () => {
       </FaSearchBar>
 
       <!-- 左:文档配置 / 右:实时预览 -->
-      <div class="gap-6 grid grid-cols-1 mt-4 lg:grid-cols-[380px_1fr]">
+      <div class="mt-4 gap-6 grid grid-cols-1 lg:grid-cols-[380px_1fr]">
         <!-- 左列配置 -->
         <div class="space-y-4">
-          <div class="border border-gray-200 rounded-lg p-4 space-y-4 dark:border-gray-700">
-            <p class="font-medium text-sm">文档配置</p>
+          <div class="p-4 border border-gray-200 rounded-lg space-y-4 dark:border-gray-700">
+            <p class="text-sm font-medium">
+              文档配置
+            </p>
 
             <FaLabel label="文档类型">
               <FaSelect
@@ -462,18 +464,22 @@ onMounted(async () => {
           </div>
 
           <!-- 模板列表 -->
-          <div class="border border-gray-200 rounded-lg p-4 dark:border-gray-700">
-            <p class="font-medium text-sm mb-3">可用模板({{ filteredTemplates.length }})</p>
-            <div class="space-y-2 max-h-72 overflow-auto">
+          <div class="p-4 border border-gray-200 rounded-lg dark:border-gray-700">
+            <p class="text-sm font-medium mb-3">
+              可用模板({{ filteredTemplates.length }})
+            </p>
+            <div class="max-h-72 overflow-auto space-y-2">
               <div
                 v-for="tpl in filteredTemplates"
                 :key="tpl.id"
-                class="flex items-center justify-between gap-2 rounded-md border border-gray-200 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                class="text-sm px-3 py-2 border border-gray-200 rounded-md flex gap-2 cursor-pointer items-center justify-between dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
                 :class="templateId === tpl.id ? 'border-primary' : ''"
                 @click="templateId = tpl.id"
               >
                 <div class="min-w-0">
-                  <div class="truncate">{{ tpl.name }}</div>
+                  <div class="truncate">
+                    {{ tpl.name }}
+                  </div>
                   <div class="text-xs text-muted-foreground">
                     {{ templateLevelLabel(tpl) }} · v{{ tpl.version }} · {{ tpl.paper_size }}{{ tpl.is_default ? ' · 默认' : '' }}
                   </div>
@@ -496,7 +502,7 @@ onMounted(async () => {
             :paper-size="paperSize"
             :loading="previewLoading"
           />
-          <div v-if="lastRender" class="mt-3 text-xs text-muted-foreground">
+          <div v-if="lastRender" class="text-xs text-muted-foreground mt-3">
             生效模板: {{ lastRender.templateName }} ({{ TEMPLATE_LEVEL_LABELS[lastRender.templateLevel] ?? lastRender.templateLevel }} v{{ lastRender.templateVersion }}) · 纸型 {{ lastRender.paperSize }}
           </div>
         </div>
@@ -504,8 +510,10 @@ onMounted(async () => {
 
       <!-- 历史 -->
       <div class="mx--4 my-4 border-t border-t-dashed" />
-      <div class="flex items-center justify-between mb-2">
-        <p class="font-medium text-sm">文档历史(近 {{ historyTotal }} 条)</p>
+      <div class="mb-2 flex items-center justify-between">
+        <p class="text-sm font-medium">
+          文档历史(近 {{ historyTotal }} 条)
+        </p>
       </div>
       <FaTable
         v-loading="historyLoading"
@@ -544,16 +552,20 @@ onMounted(async () => {
                 class="w-full"
               />
             </FaLabel>
-            <div class="flex items-end gap-4 pb-1">
-              <FaCheckbox v-model="manageForm.isDefault">设为默认</FaCheckbox>
-              <FaCheckbox v-model="manageForm.isActive">启用</FaCheckbox>
+            <div class="pb-1 flex gap-4 items-end">
+              <FaCheckbox v-model="manageForm.isDefault">
+                设为默认
+              </FaCheckbox>
+              <FaCheckbox v-model="manageForm.isActive">
+                启用
+              </FaCheckbox>
             </div>
           </div>
           <FaLabel label="模板内容(HTML)">
             <textarea
               v-model="manageForm.templateHtml"
               rows="12"
-              class="w-full rounded-md border border-gray-300 p-2 font-mono text-xs dark:border-gray-700 dark:bg-gray-900"
+              class="text-xs font-mono p-2 border border-gray-300 rounded-md w-full dark:border-gray-700 dark:bg-gray-900"
               placeholder="仅支持安全变量 {{path}} 与 {{#each path}}...{{/each}},禁止脚本"
             />
           </FaLabel>

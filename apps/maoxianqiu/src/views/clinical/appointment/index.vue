@@ -241,8 +241,8 @@ const tableColumns = computed<TableColumn<AppointmentRow>[]>(() => [
       <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
         <!-- 工具栏:左筛选,右功能按钮 -->
         <div class="px-4 pt-3 border-b">
-          <div class="pb-3 flex items-center justify-between flex-wrap gap-2">
-            <div class="flex gap-2 items-center flex-wrap">
+          <div class="pb-3 flex flex-wrap gap-2 items-center justify-between">
+            <div class="flex flex-wrap gap-2 items-center">
               <FaSelect v-model="search.storeId" :options="storeOptions" class="w-36" @change="currentChange()" />
               <FaSelect
                 v-model="search.status"

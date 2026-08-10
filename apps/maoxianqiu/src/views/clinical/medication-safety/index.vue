@@ -109,7 +109,7 @@ const profileColumns = computed<TableColumn<DrugProfileRecord>[]>(() => [
   {
     accessorKey: 'min_dose_mg_kg',
     header: '剂量范围(mg/kg)',
-    cell: info => {
+    cell: (info) => {
       const min = info.getValue() as number | null
       const row = info.row.original
       const max = row.max_dose_mg_kg
@@ -425,7 +425,7 @@ loadRules()
             class="mb-2"
             @update:model-value="onTabChange"
           />
-          <div class="pb-3 flex items-center justify-between flex-wrap gap-2">
+          <div class="pb-3 flex flex-wrap gap-2 items-center justify-between">
             <span class="text-sm text-muted-foreground">
               共 {{ tabActive === 'rules' ? ruleTotal : tabActive === 'profiles' ? profileTotal : interactionTotal }} 条
             </span>
@@ -451,8 +451,8 @@ loadRules()
           <!-- ==================== 规则 ==================== -->
           <template v-if="tabActive === 'rules'">
             <FaTable
-              class="h-full min-h-0"
               v-loading="ruleLoading"
+              class="h-full min-h-0"
               table-root-class="overflow-hidden"
               row-key="id"
               stripe
@@ -476,8 +476,8 @@ loadRules()
           <!-- ==================== 药品档案 ==================== -->
           <template v-else-if="tabActive === 'profiles'">
             <FaTable
-              class="h-full min-h-0"
               v-loading="profileLoading"
+              class="h-full min-h-0"
               table-root-class="overflow-hidden"
               row-key="id"
               stripe
@@ -498,8 +498,8 @@ loadRules()
           <!-- ==================== 相互作用 ==================== -->
           <template v-else>
             <FaTable
-              class="h-full min-h-0"
               v-loading="interactionLoading"
+              class="h-full min-h-0"
               table-root-class="overflow-hidden"
               row-key="id"
               stripe

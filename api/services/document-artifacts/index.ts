@@ -1,9 +1,9 @@
-import { PutObjectCommand } from '@aws-sdk/client-s3'
+import type { Service } from '../insurance/types.js'
 import process from 'node:process'
+import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { err } from '../../lib/errors.js'
 import { createR2Client, generatePrivateObjectKey } from '../../lib/r2.js'
 import { getPdfProvider } from '../../providers/pdf/index.js'
-import type { Service } from '../insurance/types.js'
 
 /**
  * Stage-04 Agent-06 — 通用文档归档服务(api/services/document-artifacts)
@@ -450,8 +450,8 @@ export async function createSignatureRequest(
 export const DOCUMENT_TYPES = Object.keys(DOCUMENT_SOURCES)
 
 /** 文档类型 → 源表映射(供路由层做实体归属解析与二次权限门) */
-export const DOCUMENT_SOURCE_TABLES: Record<string, { table: string, permission: string, title: string }> =
-  Object.fromEntries(
+export const DOCUMENT_SOURCE_TABLES: Record<string, { table: string, permission: string, title: string }>
+  = Object.fromEntries(
     Object.entries(DOCUMENT_SOURCES).map(([type, s]) => [type, {
       table: s.table,
       permission: s.permission,

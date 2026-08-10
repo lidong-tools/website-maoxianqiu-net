@@ -24,6 +24,23 @@ interface GroupOption {
   options: Option[]
 }
 
+defineOptions({
+  name: 'BuiltInSelect',
+})
+
+const props = defineProps<{
+  multiple?: boolean
+  disabled?: boolean
+  position?: SelectContentProps['position']
+  options: (Option | GroupOption)[]
+  placeholder?: string
+  class?: HTMLAttributes['class']
+}>()
+
+const emits = defineEmits<{
+  change: [value: AcceptableValue | undefined]
+}>()
+
 // reka-ui SelectItem 不允许空字符串 value(会抛 "must have a value prop that is not an empty string")。
 // 各业务页面用 value:'' 表示"全部/不限",渲染时映射为哨兵值,回写 v-model 时再还原为 ''。
 const EMPTY_VALUE_SENTINEL = '\u0000__empty__\u0000'
@@ -51,23 +68,6 @@ function toModelValue(v: AcceptableValue | AcceptableValue[] | undefined): Accep
   }
   return v === EMPTY_VALUE_SENTINEL ? '' : v
 }
-
-defineOptions({
-  name: 'BuiltInSelect',
-})
-
-const props = defineProps<{
-  multiple?: boolean
-  disabled?: boolean
-  position?: SelectContentProps['position']
-  options: (Option | GroupOption)[]
-  placeholder?: string
-  class?: HTMLAttributes['class']
-}>()
-
-const emits = defineEmits<{
-  change: [value: AcceptableValue | undefined]
-}>()
 
 const value = defineModel<AcceptableValue>()
 

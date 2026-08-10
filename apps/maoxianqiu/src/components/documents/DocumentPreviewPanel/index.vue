@@ -16,7 +16,7 @@ defineProps<{
 }>()
 
 const PAPER_WIDTH: Record<PaperSize, string> = {
-  A4: '210mm',
+  'A4': '210mm',
   '80mm': '80mm',
   '58mm': '58mm',
 }
@@ -27,7 +27,7 @@ const PAPER_WIDTH: Record<PaperSize, string> = {
     class="mx-auto border border-gray-300 bg-white shadow overflow-auto"
     :style="{ width: PAPER_WIDTH[paperSize], maxHeight: '60vh' }"
   >
-    <div v-if="loading" class="flex-center py-20 text-sm text-muted-foreground">
+    <div v-if="loading" class="text-sm text-muted-foreground py-20 flex-center">
       正在渲染文档…
     </div>
     <iframe
@@ -37,7 +37,7 @@ const PAPER_WIDTH: Record<PaperSize, string> = {
       sandbox=""
       style="height: 60vh; border: 0; background: #fff;"
     />
-    <div v-else class="flex-center py-20 text-sm text-muted-foreground">
+    <div v-else class="text-sm text-muted-foreground py-20 flex-center">
       请选择业务单据后预览文档
     </div>
   </div>

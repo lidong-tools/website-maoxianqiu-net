@@ -57,6 +57,7 @@ pnpm test:e2e:report    # 打开 Playwright HTML 报告
 pnpm db:push            # 推送 Supabase migration
 pnpm db:new-migration   # 新建 migration 文件
 pnpm db:reset           # 重置本地 Supabase 数据库
+pnpm dev:all            # 启动所有应用的开发服务器
 ```
 
 ## 开发规范（硬性要求）
@@ -66,12 +67,11 @@ pnpm db:reset           # 重置本地 Supabase 数据库
 - 组件命名使用 PascalCase，文件名与组件名一致
 - 代码添加函数级注释（业务意图清晰，禁止"后续补"字样）
 - 业务 Command（创建/更新/过账/状态流转）必须走 Hono + PostgreSQL RPC
-  - 禁止前端直连 Supabase 修改余额/状态等关键数据（查询读取除外，由 RLS 兜底）
+- 禁止前端直连 Supabase 修改余额/状态等关键数据（查询读取除外，由 RLS 兜底）
 - 关键写操作必须带幂等键（`idempotency-key` Header 或 body.idempotencyKey），RPC 内 SELECT FOR UPDATE 防并发
 - service role 路由必须 `requireScopedPermission` 做 scoped authorization，禁止裸 service client 直查
 - 浏览器不得负责大规模跨表聚合（报表统一走 Hono `/operations/report-data`）
 - **不可把 example / 演示页面视为产品功能**；页面与接口须对应真实业务数据
-- E2E 采用真实闭环（UI + Hono API + Supabase REST 断言），而非仅页面出现冒烟
 
 ## 注意事项
 
@@ -81,6 +81,14 @@ pnpm db:reset           # 重置本地 Supabase 数据库
 - 代码提交前会自动运行 lint-staged，确保代码符合规范
 - Node.js 版本要求以根目录下 `package.json` 中定义的为准
 
-## 反复修改检测
+## 排查问题检测
 
-在使用任何 fa-* 系列技能时，如果用户针对同一功能点已经要求修改 3 次及以上仍未达到预期（例如连续说"不对"、"再改改"、"还是不行"），必须触发 fa-feedback 技能，询问用户是否将问题反馈给框架作者。
+如果用户明确排查问题，则需要快速定位问题，然后反馈，禁止长时间无效思考。
+
+## 验证方式
+
+少使用编译和语法检查，耗时太久，E2E测试环境未启用，不允许使用。
+
+## 其他
+
+禁止自行操作浏览器，禁止自行使用可视化工具，禁止自行使用调试工具。

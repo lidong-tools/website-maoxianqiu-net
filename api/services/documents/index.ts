@@ -1,14 +1,10 @@
+import type { DocumentData, DocumentTemplateRow, DocumentType, PaperSize, Service, TemplateLevel } from './types.js'
 import { err } from '../../lib/errors.js'
 import { getAdapter } from './adapters/index.js'
 import { renderTemplate } from './renderer.js'
 import {
   DOCUMENT_SECTION_KEY,
-  type DocumentData,
-  type DocumentTemplateRow,
-  type DocumentType,
-  type PaperSize,
-  type Service,
-  type TemplateLevel,
+
 } from './types.js'
 
 /**

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* eslint-disable no-console */
+
 /**
  * 批量演示数据种子(供前端人工验证,替代慢速 E2E)
  *
@@ -29,12 +29,12 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 // 解析 api/.env.local
 function loadEnv(file) {
   const out = {}
-  if (!fs.existsSync(file)) return out
+  if (!fs.existsSync(file)) { return out }
   for (const line of fs.readFileSync(file, 'utf-8').split(/\r?\n/)) {
     const t = line.trim()
-    if (!t || t.startsWith('#')) continue
+    if (!t || t.startsWith('#')) { continue }
     const i = t.indexOf('=')
-    if (i > 0) out[t.slice(0, i).trim()] = t.slice(i + 1).trim()
+    if (i > 0) { out[t.slice(0, i).trim()] = t.slice(i + 1).trim() }
   }
   return out
 }
@@ -51,8 +51,8 @@ if (!URL || !SR) {
 }
 
 const SR_HEADERS = {
-  apikey: SR,
-  Authorization: `Bearer ${SR}`,
+  'apikey': SR,
+  'Authorization': `Bearer ${SR}`,
   'Content-Type': 'application/json',
 }
 
@@ -75,7 +75,7 @@ async function api(table, { method = 'GET', filter = '', body, prefer } = {}) {
 /** 批量插入,返回带 id 的行(支持单条/数组;PostgREST 要求对象键一致,自动补齐缺失键为 null) */
 async function ins(table, rows) {
   const arr = Array.isArray(rows) ? rows : [rows]
-  if (arr.length === 0) return []
+  if (arr.length === 0) { return [] }
   const keys = [...new Set(arr.flatMap(r => Object.keys(r)))]
   const normalized = arr.map(r => Object.fromEntries(keys.map(k => [k, r[k] ?? null])))
   return api(table, { method: 'POST', body: normalized, prefer: 'return=representation' })
@@ -98,12 +98,12 @@ const ctx = {}
 
 async function resolveContext() {
   const tenants = await api('tenants', { filter: 'select=id,name,status&order=created_at.asc&limit=1' })
-  if (!tenants.length) throw new Error('无可用租户')
+  if (!tenants.length) { throw new Error('无可用租户') }
   ctx.tenantId = tenants[0].id
   ctx.tenantName = tenants[0].name
 
   const stores = await api('stores', { filter: `select=id,name,code&tenant_id=eq.${ctx.tenantId}&order=created_at.asc&limit=1` })
-  if (!stores.length) throw new Error('租户下无门店')
+  if (!stores.length) { throw new Error('租户下无门店') }
   ctx.storeId = stores[0].id
   ctx.storeName = stores[0].name
   ctx.storeCode = stores[0].code || 'SYS'
@@ -112,7 +112,7 @@ async function resolveContext() {
   const emps = await api('employees', {
     filter: `select=id,user_id,tenant_id&tenant_id=eq.${ctx.tenantId}&status=eq.active&limit=1`,
   })
-  if (!emps.length) throw new Error('租户下无 active 员工')
+  if (!emps.length) { throw new Error('租户下无 active 员工') }
   ctx.employeeId = emps[0].id
   ctx.userId = emps[0].user_id
 
@@ -131,63 +131,115 @@ function day(offset, hour = 10, min = 0) {
   return d
 }
 const iso = (offset, hour, min) => day(offset, hour, min).toISOString()
-const bizDate = (offset) => {
+function bizDate(offset) {
   const d = day(offset)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 const pad = (n, w = 4) => String(n).padStart(w, '0')
 let seq = 0
-const nextNo = (prefix) => `${prefix}-${pad(++seq)}`
+const nextNo = prefix => `${prefix}-${pad(++seq)}`
 // 病程记录已签署后不可删除(审计保护),重跑种子需保证单号跨运行唯一
 const RUN_ID = Date.now().toString(36)
-const nextRunNo = (prefix) => `${prefix}-${RUN_ID}-${pad(++seq)}`
+const nextRunNo = prefix => `${prefix}-${RUN_ID}-${pad(++seq)}`
 
 /* ============ 4. 清空该租户业务数据(FK 逆序) ============ */
 
 const CLEANUP_TABLES = [
   // 寄养
-  'boarding_daily_records', 'boarding_service_charges', 'boarding_stays',
+  'boarding_daily_records',
+  'boarding_service_charges',
+  'boarding_stays',
   // 会员/积分
-  'point_transactions', 'customer_memberships', 'membership_discount_rules', 'membership_tiers',
+  'point_transactions',
+  'customer_memberships',
+  'membership_discount_rules',
+  'membership_tiers',
   // 回访
   'followup_tasks',
   // 影像
-  'imaging_reports', 'imaging_orders',
+  'imaging_reports',
+  'imaging_orders',
   // 疫苗/驱虫/提醒
-  'vaccine_certificates', 'vaccinations', 'deworming_records', 'diag_reminders',
+  'vaccine_certificates',
+  'vaccinations',
+  'deworming_records',
+  'diag_reminders',
   // 检验
-  'lab_result_reviews', 'critical_value_alerts', 'lab_samples', 'lab_specimens', 'lab_order_analytes', 'lab_orders',
+  'lab_result_reviews',
+  'critical_value_alerts',
+  'lab_samples',
+  'lab_specimens',
+  'lab_order_analytes',
+  'lab_orders',
   // 疫苗方案
-  'vaccine_protocol_items', 'vaccine_protocols',
+  'vaccine_protocol_items',
+  'vaccine_protocols',
   // 住院
-  'inpatient_progress_notes', 'inpatient_charges', 'cage_transfers', 'shift_handovers',
-  'nursing_tasks', 'nursing_plans', 'admissions', 'cages', 'rooms',
+  'inpatient_progress_notes',
+  'inpatient_charges',
+  'cage_transfers',
+  'shift_handovers',
+  'nursing_tasks',
+  'nursing_plans',
+  'admissions',
+  'cages',
+  'rooms',
   // 临床(医嘱/护士任务/处方)
-  'medical_orders', 'nurse_tasks', 'prescription_items', 'prescriptions',
+  'medical_orders',
+  'nurse_tasks',
+  'prescription_items',
+  'prescriptions',
   // 收费
-  'invoice_items', 'invoices', 'payments', 'refunds', 'approvals',
+  'invoice_items',
+  'invoices',
+  'payments',
+  'refunds',
+  'approvals',
   // 病历/预约
-  'encounter_revisions', 'encounters', 'appointments',
+  'encounter_revisions',
+  'encounters',
+  'appointments',
   // CRM
-  'pet_weights', 'pets', 'customers',
+  'pet_weights',
+  'pets',
+  'customers',
   // 目录
-  'store_catalog_items', 'catalog_drug_extensions', 'catalog_vaccine_extensions',
-  'catalog_items', 'catalog_categories', 'diagnosis_dict', 'intake_questions',
-  'lab_panels', 'lab_analytes',
+  'store_catalog_items',
+  'catalog_drug_extensions',
+  'catalog_vaccine_extensions',
+  'catalog_items',
+  'catalog_categories',
+  'diagnosis_dict',
+  'intake_questions',
+  'lab_panels',
+  'lab_analytes',
   // 采购(先于库存:purchase_orders/purchase_requests/purchase_returns 引用 warehouses/suppliers,
   // purchase_return_items 引用 inventory_batches)
-  'purchase_return_items', 'purchase_returns',
-  'purchase_request_items', 'purchase_requests',
-  'purchase_order_items', 'purchase_orders', 'suppliers',
+  'purchase_return_items',
+  'purchase_returns',
+  'purchase_request_items',
+  'purchase_requests',
+  'purchase_order_items',
+  'purchase_orders',
+  'suppliers',
   // 库存(注意:opening_stock_import_requests 引用 warehouses,需先删)
   'opening_stock_import_requests',
-  'inventory_movements', 'inventory_balances', 'inventory_batches', 'warehouses',
+  'inventory_movements',
+  'inventory_balances',
+  'inventory_batches',
+  'warehouses',
   // 消息/提醒
-  'message_delivery_attempts', 'message_deliveries', 'message_templates', 'reminders',
+  'message_delivery_attempts',
+  'message_deliveries',
+  'message_templates',
+  'reminders',
   // 日结/对账
-  'closing_adjustments', 'daily_closings', 'reconciliation_records',
+  'closing_adjustments',
+  'daily_closings',
+  'reconciliation_records',
   // 导入(import_job_errors 无 tenant_id,由 import_jobs 级联删除)
-  'employee_invite_imports', 'import_jobs',
+  'employee_invite_imports',
+  'import_jobs',
 ]
 
 async function cleanup() {
@@ -274,17 +326,23 @@ async function seedCatalog() {
 
   // 药品扩展 / 疫苗扩展
   const drugExt = items.filter(x => x.form).map(x => ({
-    catalog_item_id: itemId[x.code], drug_form: x.form, manufacturer: '演示药业',
+    catalog_item_id: itemId[x.code],
+    drug_form: x.form,
+    manufacturer: '演示药业',
     is_controlled: x.code === 'DEMO-DRUG-MTZ',
-    storage_condition: '阴凉干燥处', shelf_life_days: 730,
+    storage_condition: '阴凉干燥处',
+    shelf_life_days: 730,
   }))
-  if (drugExt.length) track('catalog_drug_extensions', await ins('catalog_drug_extensions', drugExt))
+  if (drugExt.length) { track('catalog_drug_extensions', await ins('catalog_drug_extensions', drugExt)) }
 
   const vacExt = items.filter(x => x.category === 'vaccine').map(x => ({
-    catalog_item_id: itemId[x.code], vaccine_type: 'other', manufacturer: '演示生物',
-    protocol_course: 1, is_required: true,
+    catalog_item_id: itemId[x.code],
+    vaccine_type: 'other',
+    manufacturer: '演示生物',
+    protocol_course: 1,
+    is_required: true,
   }))
-  if (vacExt.length) track('catalog_vaccine_extensions', await ins('catalog_vaccine_extensions', vacExt))
+  if (vacExt.length) { track('catalog_vaccine_extensions', await ins('catalog_vaccine_extensions', vacExt)) }
 
   // 门店目录:批量启用全部目录项到当前门店(收银台/开单均读取 store_catalog_items)
   const storeItems = items.map((it, idx) => ({
@@ -297,7 +355,7 @@ async function seedCatalog() {
   // 保留门店价格覆盖示例(门诊挂号 30 / 血常规 90)
   for (const [code, price] of [['DEMO-SVC-REG', 30], ['DEMO-EXM-CBC', 90]]) {
     const row = storeItems.find(s => s.catalog_item_id === itemId[code])
-    if (row) row.custom_price = price
+    if (row) { row.custom_price = price }
   }
   const storeOverrides = await ins('store_catalog_items', storeItems)
   track('store_catalog_items', storeOverrides)
@@ -334,8 +392,11 @@ async function seedCatalog() {
   ])
   track('lab_analytes', analytes)
   ctx.labAnalytes = {
-    WBC: analytes[0].id, RBC: analytes[1].id, PLT: analytes[2].id,
-    ALT: analytes[3].id, CREA: analytes[4].id,
+    WBC: analytes[0].id,
+    RBC: analytes[1].id,
+    PLT: analytes[2].id,
+    ALT: analytes[3].id,
+    CREA: analytes[4].id,
   }
 
   return itemId
@@ -346,38 +407,61 @@ async function seedCatalog() {
 async function seedInventory(itemId) {
   console.log('\n=== 库存 Inventory ===')
   const whDef = await insertRow('warehouses', {
-    tenant_id: ctx.tenantId, store_id: ctx.storeId, name: '默认仓库', code: 'WH-DEF', is_default: true,
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    name: '默认仓库',
+    code: 'WH-DEF',
+    is_default: true,
   })
   const whSub = await insertRow('warehouses', {
-    tenant_id: ctx.tenantId, store_id: ctx.storeId, name: '二级仓库', code: 'WH-SUB', is_default: false,
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    name: '二级仓库',
+    code: 'WH-SUB',
+    is_default: false,
   })
   ctx.warehouses = { def: whDef.id, sub: whSub.id }
 
   // 批次定义: [itemCode, warehouse, qty, expiryOffsetDays, unitCost]
   const batchPlan = [
-    ['DEMO-DRUG-AMX', 'def', 120, 400, 5], ['DEMO-DRUG-AMX', 'def', 60, 120, 5],
-    ['DEMO-DRUG-CFX', 'def', 100, 350, 4], ['DEMO-DRUG-DOX', 'def', 150, 300, 3],
-    ['DEMO-DRUG-MTZ', 'def', 80, 200, 2], ['DEMO-DRUG-IVM', 'def', 60, 500, 8],
-    ['DEMO-DRUG-IVM', 'sub', 30, 450, 8], ['DEMO-DRUG-PTL', 'def', 90, 250, 2],
-    ['DEMO-VAC-RAB', 'def', 40, 600, 25], ['DEMO-VAC-CDV', 'def', 30, 500, 20],
-    ['DEMO-VAC-CPV', 'def', 30, 500, 22], ['DEMO-VAC-FPV', 'def', 25, 480, 28],
+    ['DEMO-DRUG-AMX', 'def', 120, 400, 5],
+    ['DEMO-DRUG-AMX', 'def', 60, 120, 5],
+    ['DEMO-DRUG-CFX', 'def', 100, 350, 4],
+    ['DEMO-DRUG-DOX', 'def', 150, 300, 3],
+    ['DEMO-DRUG-MTZ', 'def', 80, 200, 2],
+    ['DEMO-DRUG-IVM', 'def', 60, 500, 8],
+    ['DEMO-DRUG-IVM', 'sub', 30, 450, 8],
+    ['DEMO-DRUG-PTL', 'def', 90, 250, 2],
+    ['DEMO-VAC-RAB', 'def', 40, 600, 25],
+    ['DEMO-VAC-CDV', 'def', 30, 500, 20],
+    ['DEMO-VAC-CPV', 'def', 30, 500, 22],
+    ['DEMO-VAC-FPV', 'def', 25, 480, 28],
   ]
 
   // 已发放(发药)扣减计划:按处方发放量回填批次
   const dispensedPlan = {
-    'DEMO-DRUG-AMX': 10, 'DEMO-DRUG-CFX': 6, 'DEMO-DRUG-DOX': 8, 'DEMO-DRUG-MTZ': 4,
-    'DEMO-DRUG-IVM': 3, 'DEMO-DRUG-PTL': 6,
+    'DEMO-DRUG-AMX': 10,
+    'DEMO-DRUG-CFX': 6,
+    'DEMO-DRUG-DOX': 8,
+    'DEMO-DRUG-MTZ': 4,
+    'DEMO-DRUG-IVM': 3,
+    'DEMO-DRUG-PTL': 6,
   }
 
   const batches = []
   const batchRows = batchPlan.map(([code, whKey, qty, expiryDays, cost]) => ({
-    tenant_id: ctx.tenantId, warehouse_id: ctx.warehouses[whKey], catalog_item_id: itemId[code],
+    tenant_id: ctx.tenantId,
+    warehouse_id: ctx.warehouses[whKey],
+    catalog_item_id: itemId[code],
     batch_no: `DEMO-BATCH-${code.slice(9)}-${expiryDays}`,
-    received_date: bizDate(-30), expiry_date: bizDate(expiryDays),
+    received_date: bizDate(-30),
+    expiry_date: bizDate(expiryDays),
     quantity_received: qty,
     // FEFO 从最早批次扣减
     quantity_remaining: Math.max(qty - (dispensedPlan[code] ?? 0), 0),
-    unit_cost: cost, supplier: '演示药业', status: qty - (dispensedPlan[code] ?? 0) > 0 ? 'active' : 'exhausted',
+    unit_cost: cost,
+    supplier: '演示药业',
+    status: qty - (dispensedPlan[code] ?? 0) > 0 ? 'active' : 'exhausted',
   }))
   const insertedBatches = await ins('inventory_batches', batchRows)
   track('inventory_batches', insertedBatches)
@@ -406,10 +490,18 @@ async function seedInventory(itemId) {
     for (const b of batches.filter(x => x.warehouse_id === w && x.code === code)) {
       running += b.quantity_received
       movements.push({
-        tenant_id: ctx.tenantId, warehouse_id: w, catalog_item_id: itemId[code], batch_id: b.id,
-        movement_type: 'receive', quantity: b.quantity_received, balance_after: running,
-        reference_type: 'purchase_order', reference_id: null, idempotency_key: `demo-recv-${++mSeq}`,
-        operator_id: ctx.userId, created_at: iso(-20 + mSeq % 5, 9),
+        tenant_id: ctx.tenantId,
+        warehouse_id: w,
+        catalog_item_id: itemId[code],
+        batch_id: b.id,
+        movement_type: 'receive',
+        quantity: b.quantity_received,
+        balance_after: running,
+        reference_type: 'purchase_order',
+        reference_id: null,
+        idempotency_key: `demo-recv-${++mSeq}`,
+        operator_id: ctx.userId,
+        created_at: iso(-20 + mSeq % 5, 9),
       })
     }
     // 2) 发药扣减
@@ -417,23 +509,33 @@ async function seedInventory(itemId) {
     if (disp > 0) {
       running -= disp
       movements.push({
-        tenant_id: ctx.tenantId, warehouse_id: w, catalog_item_id: itemId[code],
+        tenant_id: ctx.tenantId,
+        warehouse_id: w,
+        catalog_item_id: itemId[code],
         batch_id: batches.find(x => x.warehouse_id === w && x.code === code)?.id ?? null,
-        movement_type: 'dispense', quantity: -disp, balance_after: running,
-        reference_type: 'prescription', reference_id: null, idempotency_key: `demo-disp-${++mSeq}`,
-        operator_id: ctx.userId, created_at: iso(-3, 15),
+        movement_type: 'dispense',
+        quantity: -disp,
+        balance_after: running,
+        reference_type: 'prescription',
+        reference_id: null,
+        idempotency_key: `demo-disp-${++mSeq}`,
+        operator_id: ctx.userId,
+        created_at: iso(-3, 15),
       })
     }
     balances.set(k, running)
   }
-  if (movements.length) track('inventory_movements', await ins('inventory_movements', movements))
+  if (movements.length) { track('inventory_movements', await ins('inventory_movements', movements)) }
 
   const balRows = []
   for (const [k, qty] of balances) {
     const [w, item] = k.split(':')
     balRows.push({
-      tenant_id: ctx.tenantId, warehouse_id: w, catalog_item_id: item,
-      quantity_on_hand: qty, quantity_reserved: 0,
+      tenant_id: ctx.tenantId,
+      warehouse_id: w,
+      catalog_item_id: item,
+      quantity_on_hand: qty,
+      quantity_reserved: 0,
     })
   }
   track('inventory_balances', await ins('inventory_balances', balRows))
@@ -458,11 +560,19 @@ async function seedCrm() {
     ['吴迪', 'male', '13800000010', 'normal', 100, 0, 'walk_in'],
   ]
   const customers = await ins('customers', custDefs.map((c, i) => ({
-    tenant_id: ctx.tenantId, store_id: ctx.storeId, customer_no: `DEMO-CUST-${bizDate(0)}-${pad(i + 1)}`,
-    name: c[0], gender: c[1], phone: c[2], member_level: c[3],
-    member_points: c[4], balance: c[5], source: c[6],
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    customer_no: `DEMO-CUST-${bizDate(0)}-${pad(i + 1)}`,
+    name: c[0],
+    gender: c[1],
+    phone: c[2],
+    member_level: c[3],
+    member_points: c[4],
+    balance: c[5],
+    source: c[6],
     birthday: `${2000 - i * 3}-0${(i % 9) + 1}-1${i % 9}`,
-    remark: '演示数据-批量客户', created_by: ctx.userId,
+    remark: '演示数据-批量客户',
+    created_by: ctx.userId,
   })))
   track('customers', customers)
   const custId = Object.fromEntries(customers.map((c, i) => [custDefs[i][0], c.id]))
@@ -470,15 +580,30 @@ async function seedCrm() {
 
   // 归档客户 + 合并客户(演示状态)
   const [archivedC] = await ins('customers', [{
-    tenant_id: ctx.tenantId, store_id: ctx.storeId, customer_no: `DEMO-CUST-${bizDate(0)}-ARCH`,
-    name: '演示客户-已归档', gender: 'unknown', phone: '13800000091', member_level: 'normal',
-    status: 'archived', archived_at: iso(-30), created_by: ctx.userId,
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    customer_no: `DEMO-CUST-${bizDate(0)}-ARCH`,
+    name: '演示客户-已归档',
+    gender: 'unknown',
+    phone: '13800000091',
+    member_level: 'normal',
+    status: 'archived',
+    archived_at: iso(-30),
+    created_by: ctx.userId,
   }])
   track('customers', 1)
   const [mergedC] = await ins('customers', [{
-    tenant_id: ctx.tenantId, store_id: ctx.storeId, customer_no: `DEMO-CUST-${bizDate(0)}-MRG`,
-    name: '演示客户-已合并', gender: 'unknown', phone: '13800000092', member_level: 'normal',
-    status: 'merged', merged_into: custId['张伟'], archived_at: iso(-10), created_by: ctx.userId,
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    customer_no: `DEMO-CUST-${bizDate(0)}-MRG`,
+    name: '演示客户-已合并',
+    gender: 'unknown',
+    phone: '13800000092',
+    member_level: 'normal',
+    status: 'merged',
+    merged_into: custId['张伟'],
+    archived_at: iso(-10),
+    created_by: ctx.userId,
   }])
   track('customers', 1)
 
@@ -500,23 +625,36 @@ async function seedCrm() {
     ['吴迪', '灰灰', '兔', '侏儒兔', 'female', 1.2, false, [], null],
   ]
   const pets = await ins('pets', petDefs.map((p, i) => ({
-    tenant_id: ctx.tenantId, customer_id: custId[p[0]], name: p[1], species: p[2], breed: p[3],
-    gender: p[4], birth_date: `${2022 - i % 4}-0${(i % 9) + 1}-1${i % 9}`, weight: p[5],
-    is_neutered: p[6], risk_tags: p[7], status: p[8] ?? 'active',
-    medical_notes: '演示宠物', remark: '批量演示数据',
+    tenant_id: ctx.tenantId,
+    customer_id: custId[p[0]],
+    name: p[1],
+    species: p[2],
+    breed: p[3],
+    gender: p[4],
+    birth_date: `${2022 - i % 4}-0${(i % 9) + 1}-1${i % 9}`,
+    weight: p[5],
+    is_neutered: p[6],
+    risk_tags: p[7],
+    status: p[8] ?? 'active',
+    medical_notes: '演示宠物',
+    remark: '批量演示数据',
   })))
   track('pets', pets)
   ctx.petId = Object.fromEntries(pets.map((p, i) => [p.name, p.id]))
 
   // 体重记录
   const weights = await ins('pet_weights', petDefs.map((p, i) => ({
-    tenant_id: ctx.tenantId, pet_id: pets[i].id, weight: p[5], recorded_at: iso(-1), recorded_by: ctx.userId,
+    tenant_id: ctx.tenantId,
+    pet_id: pets[i].id,
+    weight: p[5],
+    recorded_at: iso(-1),
+    recorded_by: ctx.userId,
   })))
   track('pet_weights', weights)
 
   // ===== 批量扩展:20 个生成客户 + 20 只生成宠物(列表分页/筛选验证) =====
   const genCustDefs = Array.from({ length: 20 }, (_, i) => ({
-    key: 'G' + pad(i + 1),
+    key: `G${pad(i + 1)}`,
     name: `演示客户${pad(i + 1)}`,
     gender: i % 2 ? 'female' : 'male',
     phone: `139${String(10000000 + i * 137).slice(-8)}`,
@@ -526,11 +664,19 @@ async function seedCrm() {
     source: ['walk_in', 'online', 'referral'][i % 3],
   }))
   const genCusts = await ins('customers', genCustDefs.map((c, i) => ({
-    tenant_id: ctx.tenantId, store_id: ctx.storeId, customer_no: `DEMO-CUST-${bizDate(0)}-G${pad(i + 1)}`,
-    name: c.name, gender: c.gender, phone: c.phone, member_level: c.level,
-    member_points: c.points, balance: c.balance, source: c.source,
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    customer_no: `DEMO-CUST-${bizDate(0)}-G${pad(i + 1)}`,
+    name: c.name,
+    gender: c.gender,
+    phone: c.phone,
+    member_level: c.level,
+    member_points: c.points,
+    balance: c.balance,
+    source: c.source,
     birthday: `${1995 + (i % 15)}-${(i % 12) + 1}-15`,
-    remark: '演示数据-生成客户', created_by: ctx.userId,
+    remark: '演示数据-生成客户',
+    created_by: ctx.userId,
   })))
   track('customers', genCusts)
   genCustDefs.forEach((c, i) => { ctx.custId[c.key] = genCusts[i].id })
@@ -545,16 +691,28 @@ async function seedCrm() {
     neutered: i % 3 === 0,
   }))
   const genPets = await ins('pets', genPetDefs.map((p, i) => ({
-    tenant_id: ctx.tenantId, customer_id: ctx.custId[p.key], name: p.name, species: p.species, breed: p.breed,
-    gender: p.gender, birth_date: `${2020 + (i % 4)}-${(i % 9) + 1}-10`,
-    weight: p.weight, is_neutered: p.neutered, status: 'active',
-    medical_notes: '批量生成宠物', remark: '演示数据-生成宠物',
+    tenant_id: ctx.tenantId,
+    customer_id: ctx.custId[p.key],
+    name: p.name,
+    species: p.species,
+    breed: p.breed,
+    gender: p.gender,
+    birth_date: `${2020 + (i % 4)}-${(i % 9) + 1}-10`,
+    weight: p.weight,
+    is_neutered: p.neutered,
+    status: 'active',
+    medical_notes: '批量生成宠物',
+    remark: '演示数据-生成宠物',
   })))
   track('pets', genPets)
   genPetDefs.forEach((p, i) => { ctx.petId[p.key] = genPets[i].id })
 
   const genWeights = await ins('pet_weights', genPets.map((p, i) => ({
-    tenant_id: ctx.tenantId, pet_id: p.id, weight: genPetDefs[i].weight, recorded_at: iso(-1), recorded_by: ctx.userId,
+    tenant_id: ctx.tenantId,
+    pet_id: p.id,
+    weight: genPetDefs[i].weight,
+    recorded_at: iso(-1),
+    recorded_by: ctx.userId,
   })))
   track('pet_weights', genWeights)
 }
@@ -586,11 +744,18 @@ async function seedClinical(itemId) {
     { customer: '杨帆', pet: '乐乐', reason: '过敏复诊', offset: -3, hour: 10, status: 'no_show', source: 'walk_in' },
   ]
   const apptRows = await ins('appointments', appts.map(a => ({
-    tenant_id: ctx.tenantId, store_id: ctx.storeId,
-    customer_id: ctx.custId[a.customer], pet_id: ctx.petId[a.pet], doctor_id: ctx.userId,
-    scheduled_start: iso(a.offset, a.hour), scheduled_end: iso(a.offset, a.hour, 30),
-    reason: `演示-${a.reason}`, status: a.status, source: a.source,
-    created_by: ctx.userId, remark: '批量演示预约',
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    customer_id: ctx.custId[a.customer],
+    pet_id: ctx.petId[a.pet],
+    doctor_id: ctx.userId,
+    scheduled_start: iso(a.offset, a.hour),
+    scheduled_end: iso(a.offset, a.hour, 30),
+    reason: `演示-${a.reason}`,
+    status: a.status,
+    source: a.source,
+    created_by: ctx.userId,
+    remark: '批量演示预约',
   })))
   track('appointments', apptRows)
   // 预约 → 病历映射
@@ -606,26 +771,40 @@ async function seedClinical(itemId) {
     { appt: 10, pet: '富贵', status: 'signed', offset: 0, complaint: '排尿困难,血尿', text: 'B超提示膀胱结石,建议手术' },
   ]
   const encounters = await ins('encounters', encPlan.map(e => ({
-    tenant_id: ctx.tenantId, store_id: ctx.storeId,
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
     appointment_id: apptRows[e.appt].id,
-    customer_id: apptRows[e.appt].customer_id, pet_id: apptRows[e.appt].pet_id,
+    customer_id: apptRows[e.appt].customer_id,
+    pet_id: apptRows[e.appt].pet_id,
     doctor_id: ctx.userId,
-    started_at: iso(e.offset, e.offset === 0 ? 10 : 9), ended_at: e.status === 'in_progress' ? null : iso(e.offset, 11),
-    status: e.status, chief_complaint: `演示-${e.complaint}`, history_present: e.text,
-    diagnosis_codes: ['GE'], diagnosis_text: '演示诊断:急性胃肠炎',
+    started_at: iso(e.offset, e.offset === 0 ? 10 : 9),
+    ended_at: e.status === 'in_progress' ? null : iso(e.offset, 11),
+    status: e.status,
+    chief_complaint: `演示-${e.complaint}`,
+    history_present: e.text,
+    diagnosis_codes: ['GE'],
+    diagnosis_text: '演示诊断:急性胃肠炎',
     treatment_plan: '对症支持治疗,3日后复查',
     signed_by: e.status === 'signed' ? ctx.userId : null,
     signed_at: e.status === 'signed' ? iso(e.offset, 12) : null,
   })))
   track('encounters', encounters)
-  ctx.encId = Object.fromEntries(encounters.map((en, i) => [encPlan[i].pet + '-' + encPlan[i].status, en.id]))
+  ctx.encId = Object.fromEntries(encounters.map((en, i) => [`${encPlan[i].pet}-${encPlan[i].status}`, en.id]))
   // 额外独立就诊(无预约)
   const [enc10] = await ins('encounters', [{
-    tenant_id: ctx.tenantId, store_id: ctx.storeId, appointment_id: null,
-    customer_id: ctx.custId['吴迪'], pet_id: ctx.petId['灰灰'], doctor_id: ctx.userId,
-    started_at: iso(0, 10), status: 'in_progress',
-    chief_complaint: '演示-拉稀腹泻', history_present: '食用生冷蔬菜后腹泻2天',
-    diagnosis_codes: ['GE'], diagnosis_text: '演示诊断:急性肠炎', treatment_plan: '补液+益生菌',
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    appointment_id: null,
+    customer_id: ctx.custId['吴迪'],
+    pet_id: ctx.petId['灰灰'],
+    doctor_id: ctx.userId,
+    started_at: iso(0, 10),
+    status: 'in_progress',
+    chief_complaint: '演示-拉稀腹泻',
+    history_present: '食用生冷蔬菜后腹泻2天',
+    diagnosis_codes: ['GE'],
+    diagnosis_text: '演示诊断:急性肠炎',
+    treatment_plan: '补液+益生菌',
   }])
   track('encounters', 1)
   ctx.encId['灰灰'] = enc10.id
@@ -651,17 +830,28 @@ async function seedClinical(itemId) {
   ]
   const rxRows = []
   for (const r of rxPlan) {
-    const enc = encounters[encPlan.findIndex(e => e.pet + '-' + e.status === r.enc) ?? -1]
+    const enc = encounters[encPlan.findIndex(e => `${e.pet}-${e.status}` === r.enc) ?? -1]
     const [rx] = await ins('prescriptions', [{
-      tenant_id: ctx.tenantId, store_id: ctx.storeId, encounter_id: ctx.encId[r.enc],
-      customer_id: enc.customer_id, pet_id: enc.pet_id, doctor_id: ctx.userId, status: r.status,
+      tenant_id: ctx.tenantId,
+      store_id: ctx.storeId,
+      encounter_id: ctx.encId[r.enc],
+      customer_id: enc.customer_id,
+      pet_id: enc.pet_id,
+      doctor_id: ctx.userId,
+      status: r.status,
     }])
     rxRows.push(rx)
     const items = await ins('prescription_items', r.items.map((it, i) => ({
-      prescription_id: rx.id, catalog_item_id: itemId[it.code],
+      prescription_id: rx.id,
+      catalog_item_id: itemId[it.code],
       drug_name: getItemName(it.code, itemId) || it.code,
-      dosage: '按体重', frequency: '每日2次', duration_days: 7, quantity: it.qty, unit: '片/次',
-      instructions: '饭后服用', sort_order: i,
+      dosage: '按体重',
+      frequency: '每日2次',
+      duration_days: 7,
+      quantity: it.qty,
+      unit: '片/次',
+      instructions: '饭后服用',
+      sort_order: i,
     })))
     track('prescription_items', items)
   }
@@ -675,9 +865,20 @@ async function seedClinical(itemId) {
   ])
   track('medical_orders', 2)
   const [mo3] = await ins('medical_orders', [{
-    tenant_id: ctx.tenantId, store_id: ctx.storeId, encounter_id: ctx.encId['咪咪-in_progress'], pet_id: ctx.petId['咪咪'], customer_id: ctx.custId['李娜'],
-    order_no: nextNo('DEMO-MO'), order_type: 'treatment', item_name: '皮下补液', dosage: '50ml', frequency: 'qd',
-    status: 'completed', created_by: ctx.userId, completed_at: iso(0, 12), completed_by: ctx.userId,
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    encounter_id: ctx.encId['咪咪-in_progress'],
+    pet_id: ctx.petId['咪咪'],
+    customer_id: ctx.custId['李娜'],
+    order_no: nextNo('DEMO-MO'),
+    order_type: 'treatment',
+    item_name: '皮下补液',
+    dosage: '50ml',
+    frequency: 'qd',
+    status: 'completed',
+    created_by: ctx.userId,
+    completed_at: iso(0, 12),
+    completed_by: ctx.userId,
   }])
   track('medical_orders', 1)
 
@@ -691,7 +892,7 @@ async function seedClinical(itemId) {
   // ===== 批量扩展:24 个生成预约(状态轮换,列表/筛选验证) =====
   const genStatuses = ['pending', 'confirmed', 'completed', 'completed', 'cancelled', 'no_show', 'checked_in', 'in_progress']
   const genAppts = Array.from({ length: 24 }, (_, i) => {
-    const gkey = 'G' + pad((i % 20) + 1)
+    const gkey = `G${pad((i % 20) + 1)}`
     const status = genStatuses[i % genStatuses.length]
     const offset = status === 'pending' || status === 'confirmed'
       ? 1 + (i % 6)
@@ -699,16 +900,28 @@ async function seedClinical(itemId) {
         ? -(1 + (i % 12))
         : 0
     return {
-      customer: gkey, pet: gkey, reason: `批量${i + 1}号预约`,
-      offset, hour: 9 + (i % 8), status, source: ['online', 'walk_in', 'phone'][i % 3],
+      customer: gkey,
+      pet: gkey,
+      reason: `批量${i + 1}号预约`,
+      offset,
+      hour: 9 + (i % 8),
+      status,
+      source: ['online', 'walk_in', 'phone'][i % 3],
     }
   })
   const genApptRows = await ins('appointments', genAppts.map(a => ({
-    tenant_id: ctx.tenantId, store_id: ctx.storeId,
-    customer_id: ctx.custId[a.customer], pet_id: ctx.petId[a.pet], doctor_id: ctx.userId,
-    scheduled_start: iso(a.offset, a.hour), scheduled_end: iso(a.offset, a.hour, 30),
-    reason: `演示-${a.reason}`, status: a.status, source: a.source,
-    created_by: ctx.userId, remark: '批量演示预约',
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    customer_id: ctx.custId[a.customer],
+    pet_id: ctx.petId[a.pet],
+    doctor_id: ctx.userId,
+    scheduled_start: iso(a.offset, a.hour),
+    scheduled_end: iso(a.offset, a.hour, 30),
+    reason: `演示-${a.reason}`,
+    status: a.status,
+    source: a.source,
+    created_by: ctx.userId,
+    remark: '批量演示预约',
   })))
   track('appointments', genApptRows)
   ctx.genAppts = genApptRows
@@ -722,31 +935,46 @@ async function seedClinical(itemId) {
     }
   }
   const genEncs = await ins('encounters', genEncPlan.map(e => ({
-    tenant_id: ctx.tenantId, store_id: ctx.storeId,
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
     appointment_id: genApptRows[e.appt].id,
-    customer_id: genApptRows[e.appt].customer_id, pet_id: genApptRows[e.appt].pet_id,
+    customer_id: genApptRows[e.appt].customer_id,
+    pet_id: genApptRows[e.appt].pet_id,
     doctor_id: ctx.userId,
-    started_at: iso(e.offset, 9), ended_at: e.status === 'in_progress' ? null : iso(e.offset, 11),
-    status: e.status, chief_complaint: `演示-批量就诊${e.appt + 1}`,
-    history_present: '批量演示病史', diagnosis_codes: ['GE'], diagnosis_text: '演示诊断:消化道症状',
+    started_at: iso(e.offset, 9),
+    ended_at: e.status === 'in_progress' ? null : iso(e.offset, 11),
+    status: e.status,
+    chief_complaint: `演示-批量就诊${e.appt + 1}`,
+    history_present: '批量演示病史',
+    diagnosis_codes: ['GE'],
+    diagnosis_text: '演示诊断:消化道症状',
     treatment_plan: '对症支持治疗',
     signed_by: e.status === 'signed' ? ctx.userId : null,
     signed_at: e.status === 'signed' ? iso(e.offset, 12) : null,
   })))
   track('encounters', genEncs)
-  genEncPlan.forEach((e, i) => { ctx.encId['GENC' + pad(i + 1)] = genEncs[i].id })
+  genEncPlan.forEach((e, i) => { ctx.encId[`GENC${pad(i + 1)}`] = genEncs[i].id })
   // 供发票/处方扩展引用
   ctx.genEncs = genEncPlan.map((e, i) => ({
-    key: 'GENC' + pad(i + 1), id: genEncs[i].id, status: e.status,
-    customer_id: genEncs[i].customer_id, pet_id: genEncs[i].pet_id,
+    key: `GENC${pad(i + 1)}`,
+    id: genEncs[i].id,
+    status: e.status,
+    customer_id: genEncs[i].customer_id,
+    pet_id: genEncs[i].pet_id,
   }))
 }
 
 async function getItemName(code, itemId) {
   const names = {
-    'DEMO-DRUG-AMX': '阿莫西林胶囊', 'DEMO-DRUG-CFX': '头孢氨苄片', 'DEMO-DRUG-DOX': '多西环素片',
-    'DEMO-DRUG-MTZ': '甲硝唑片', 'DEMO-DRUG-IVM': '伊维菌素注射液', 'DEMO-DRUG-PTL': '宠物镇痛片',
-    'DEMO-SVC-INFU': '输液护理', 'DEMO-SVC-REG': '门诊挂号', 'DEMO-EXM-CBC': '血常规',
+    'DEMO-DRUG-AMX': '阿莫西林胶囊',
+    'DEMO-DRUG-CFX': '头孢氨苄片',
+    'DEMO-DRUG-DOX': '多西环素片',
+    'DEMO-DRUG-MTZ': '甲硝唑片',
+    'DEMO-DRUG-IVM': '伊维菌素注射液',
+    'DEMO-DRUG-PTL': '宠物镇痛片',
+    'DEMO-SVC-INFU': '输液护理',
+    'DEMO-SVC-REG': '门诊挂号',
+    'DEMO-EXM-CBC': '血常规',
   }
   return names[code]
 }
@@ -772,16 +1000,16 @@ async function seedBilling(itemId) {
   const encByKey = {}
   const allEnc = await api('encounters', { filter: `select=id,customer_id,pet_id&tenant_id=eq.${ctx.tenantId}&limit=100` })
   for (const e of allEnc) {
-    if (e.id === ctx.encId['大黄-in_progress']) encByKey['大黄-in_progress'] = e
-    if (e.id === ctx.encId['大黄-signed']) encByKey['大黄-signed'] = e
-    if (e.id === ctx.encId['咪咪-completed']) encByKey['咪咪-completed'] = e
-    if (e.id === ctx.encId['咪咪-in_progress']) encByKey['咪咪-in_progress'] = e
-    if (e.id === ctx.encId['雪球-signed']) encByKey['雪球-signed'] = e
-    if (e.id === ctx.encId['虎子-signed']) encByKey['虎子-signed'] = e
-    if (e.id === ctx.encId['花花-completed']) encByKey['花花-completed'] = e
-    if (e.id === ctx.encId['大圣-signed']) encByKey['大圣-signed'] = e
-    if (e.id === ctx.encId['富贵-signed']) encByKey['富贵-signed'] = e
-    if (e.id === ctx.encId['灰灰']) encByKey['灰灰'] = e
+    if (e.id === ctx.encId['大黄-in_progress']) { encByKey['大黄-in_progress'] = e }
+    if (e.id === ctx.encId['大黄-signed']) { encByKey['大黄-signed'] = e }
+    if (e.id === ctx.encId['咪咪-completed']) { encByKey['咪咪-completed'] = e }
+    if (e.id === ctx.encId['咪咪-in_progress']) { encByKey['咪咪-in_progress'] = e }
+    if (e.id === ctx.encId['雪球-signed']) { encByKey['雪球-signed'] = e }
+    if (e.id === ctx.encId['虎子-signed']) { encByKey['虎子-signed'] = e }
+    if (e.id === ctx.encId['花花-completed']) { encByKey['花花-completed'] = e }
+    if (e.id === ctx.encId['大圣-signed']) { encByKey['大圣-signed'] = e }
+    if (e.id === ctx.encId['富贵-signed']) { encByKey['富贵-signed'] = e }
+    if (e.id === ctx.encId['灰灰']) { encByKey['灰灰'] = e }
   }
 
   let invSeq = 0
@@ -789,22 +1017,40 @@ async function seedBilling(itemId) {
     const enc = encByKey[plan.enc]
     const subtotal = plan.items.reduce((s, it) => s + it[1] * it[2], 0)
     const total = Math.max(subtotal - plan.discount, 0)
-    const paid = plan.status === 'paid' ? total
-      : plan.status === 'partially_paid' ? (plan.payAmt ?? total / 2)
+    const paid = plan.status === 'paid'
+      ? total
+      : plan.status === 'partially_paid'
+        ? (plan.payAmt ?? total / 2)
         : plan.status === 'refunded' ? total : 0
     const invNo = `DEMO-INV-${bizDate(0)}-${pad(++invSeq)}`
     const [inv] = await ins('invoices', [{
-      tenant_id: ctx.tenantId, store_id: ctx.storeId, invoice_no: invNo,
-      customer_id: enc.customer_id, pet_id: enc.pet_id, encounter_id: enc.id,
-      subtotal, discount_amount: plan.discount, tax_amount: 0, total, paid_amount: paid,
-      status: plan.status, payment_method: plan.pay,
+      tenant_id: ctx.tenantId,
+      store_id: ctx.storeId,
+      invoice_no: invNo,
+      customer_id: enc.customer_id,
+      pet_id: enc.pet_id,
+      encounter_id: enc.id,
+      subtotal,
+      discount_amount: plan.discount,
+      tax_amount: 0,
+      total,
+      paid_amount: paid,
+      status: plan.status,
+      payment_method: plan.pay,
       confirmed_at: ['paid', 'partially_paid', 'refunded', 'confirmed'].includes(plan.status) ? iso(-2, 11) : null,
-      confirmed_by: ctx.userId, created_by: ctx.userId,
+      confirmed_by: ctx.userId,
+      created_by: ctx.userId,
     }])
     track('invoices', 1)
     const items = await ins('invoice_items', plan.items.map((it, i) => ({
-      tenant_id: ctx.tenantId, invoice_id: inv.id, catalog_item_id: itemId[it[0]],
-      name: it[0], unit_price: it[2], quantity: it[1], amount: it[1] * it[2], sort_order: i,
+      tenant_id: ctx.tenantId,
+      invoice_id: inv.id,
+      catalog_item_id: itemId[it[0]],
+      name: it[0],
+      unit_price: it[2],
+      quantity: it[1],
+      amount: it[1] * it[2],
+      sort_order: i,
       category: it[0].startsWith('DEMO-DRUG') ? 'drug' : it[0].startsWith('DEMO-EXM') ? 'exam' : it[0].startsWith('DEMO-VAC') ? 'vaccine' : 'service',
     })))
     track('invoice_items', items)
@@ -813,16 +1059,25 @@ async function seedBilling(itemId) {
     // 支付
     if (paid > 0) {
       const pmt = await insertRow('payments', {
-        tenant_id: ctx.tenantId, invoice_id: inv.id, amount: paid,
-        method: plan.pay, transaction_no: `DEMO-PAY-${pad(invSeq)}-${Date.now()}`,
-        idempotency_key: `demo-pay-${invSeq}`, operator_id: ctx.userId,
+        tenant_id: ctx.tenantId,
+        invoice_id: inv.id,
+        amount: paid,
+        method: plan.pay,
+        transaction_no: `DEMO-PAY-${pad(invSeq)}-${Date.now()}`,
+        idempotency_key: `demo-pay-${invSeq}`,
+        operator_id: ctx.userId,
       })
       ctx.paymentOf = { ...(ctx.paymentOf ?? {}), [plan.enc]: pmt.id }
       // 退款场景
       if (plan.status === 'refunded') {
         await insertRow('refunds', {
-          tenant_id: ctx.tenantId, invoice_id: inv.id, payment_id: pmt.id, amount: total,
-          reason: '演示-客户申请退款', idempotency_key: `demo-refund-${invSeq}`, operator_id: ctx.userId,
+          tenant_id: ctx.tenantId,
+          invoice_id: inv.id,
+          payment_id: pmt.id,
+          amount: total,
+          reason: '演示-客户申请退款',
+          idempotency_key: `demo-refund-${invSeq}`,
+          operator_id: ctx.userId,
         })
       }
     }
@@ -847,36 +1102,61 @@ async function seedBilling(itemId) {
     const items = [['DEMO-DRUG-AMX', 2 + (i % 5), 15], ['DEMO-SVC-REG', 1, 20]]
     const subtotal = items.reduce((s, it) => s + it[1] * it[2], 0)
     const total = subtotal
-    const paid = effStatus === 'paid' ? total
-      : effStatus === 'partially_paid' ? Math.round(total / 2)
+    const paid = effStatus === 'paid'
+      ? total
+      : effStatus === 'partially_paid'
+        ? Math.round(total / 2)
         : effStatus === 'refunded' ? total : 0
     const invNo = `DEMO-INV-${bizDate(0)}-G${pad(i + 1)}`
     const [inv] = await ins('invoices', [{
-      tenant_id: ctx.tenantId, store_id: ctx.storeId, invoice_no: invNo,
-      customer_id: enc.customer_id, pet_id: enc.pet_id, encounter_id: enc.id,
-      subtotal, discount_amount: 0, tax_amount: 0, total, paid_amount: paid,
+      tenant_id: ctx.tenantId,
+      store_id: ctx.storeId,
+      invoice_no: invNo,
+      customer_id: enc.customer_id,
+      pet_id: enc.pet_id,
+      encounter_id: enc.id,
+      subtotal,
+      discount_amount: 0,
+      tax_amount: 0,
+      total,
+      paid_amount: paid,
       status: effStatus,
       payment_method: paid > 0 ? genPayMethods[i % 4] : null,
       confirmed_at: ['paid', 'partially_paid', 'refunded', 'confirmed'].includes(effStatus) ? iso(-1, 11) : null,
-      confirmed_by: ctx.userId, created_by: ctx.userId,
+      confirmed_by: ctx.userId,
+      created_by: ctx.userId,
     }])
     track('invoices', 1)
     const invItems = await ins('invoice_items', items.map((it, j) => ({
-      tenant_id: ctx.tenantId, invoice_id: inv.id, catalog_item_id: itemId[it[0]],
-      name: it[0], unit_price: it[2], quantity: it[1], amount: it[1] * it[2], sort_order: j,
+      tenant_id: ctx.tenantId,
+      invoice_id: inv.id,
+      catalog_item_id: itemId[it[0]],
+      name: it[0],
+      unit_price: it[2],
+      quantity: it[1],
+      amount: it[1] * it[2],
+      sort_order: j,
       category: it[0].startsWith('DEMO-DRUG') ? 'drug' : 'service',
     })))
     track('invoice_items', invItems)
     if (paid > 0) {
       await insertRow('payments', {
-        tenant_id: ctx.tenantId, invoice_id: inv.id, amount: paid,
-        method: genPayMethods[i % 4], transaction_no: `DEMO-PAY-G${pad(i + 1)}`,
-        idempotency_key: `demo-pay-gen-${i}`, operator_id: ctx.userId,
+        tenant_id: ctx.tenantId,
+        invoice_id: inv.id,
+        amount: paid,
+        method: genPayMethods[i % 4],
+        transaction_no: `DEMO-PAY-G${pad(i + 1)}`,
+        idempotency_key: `demo-pay-gen-${i}`,
+        operator_id: ctx.userId,
       })
       if (effStatus === 'refunded') {
         await insertRow('refunds', {
-          tenant_id: ctx.tenantId, invoice_id: inv.id, amount: total,
-          reason: '演示-生成发票退款', idempotency_key: `demo-refund-gen-${i}`, operator_id: ctx.userId,
+          tenant_id: ctx.tenantId,
+          invoice_id: inv.id,
+          amount: total,
+          reason: '演示-生成发票退款',
+          idempotency_key: `demo-refund-gen-${i}`,
+          operator_id: ctx.userId,
         })
       }
     }
@@ -895,15 +1175,26 @@ async function seedInpatient(itemId) {
   const roomId = { ward: rooms[0].id, icu: rooms[1].id }
 
   const cageDefs = [
-    ['CAGE-W1', '住院笼位1', 'ward', 100], ['CAGE-W2', '住院笼位2', 'ward', 100],
-    ['CAGE-W3', '住院笼位3', 'ward', 100], ['CAGE-W4', '住院笼位4', 'ward', 120],
-    ['CAGE-W5', '住院笼位5', 'ward', 120], ['CAGE-W6', '住院笼位6', 'ward', 150],
-    ['CAGE-ICU1', 'ICU监护1', 'icu', 300], ['CAGE-ICU2', 'ICU监护2', 'icu', 300],
-    ['CAGE-BD1', '寄养笼位1', 'ward', 80], ['CAGE-BD2', '寄养笼位2', 'ward', 80],
+    ['CAGE-W1', '住院笼位1', 'ward', 100],
+    ['CAGE-W2', '住院笼位2', 'ward', 100],
+    ['CAGE-W3', '住院笼位3', 'ward', 100],
+    ['CAGE-W4', '住院笼位4', 'ward', 120],
+    ['CAGE-W5', '住院笼位5', 'ward', 120],
+    ['CAGE-W6', '住院笼位6', 'ward', 150],
+    ['CAGE-ICU1', 'ICU监护1', 'icu', 300],
+    ['CAGE-ICU2', 'ICU监护2', 'icu', 300],
+    ['CAGE-BD1', '寄养笼位1', 'ward', 80],
+    ['CAGE-BD2', '寄养笼位2', 'ward', 80],
   ]
   const cages = await ins('cages', cageDefs.map(c => ({
-    tenant_id: ctx.tenantId, store_id: ctx.storeId, room_id: roomId[c[2]],
-    name: c[1], code: c[0], cage_type: 'cage', daily_rate: c[3], status: 'available',
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    room_id: roomId[c[2]],
+    name: c[1],
+    code: c[0],
+    cage_type: 'cage',
+    daily_rate: c[3],
+    status: 'available',
   })))
   track('cages', cages)
   ctx.cageId = Object.fromEntries(cages.map(c => [c.code, c.id]))
@@ -915,17 +1206,23 @@ async function seedInpatient(itemId) {
     { customer: '吴迪', pet: '灰灰', cage: 'CAGE-BD1', status: 'discharged', offset: -4, reason: '轻度中暑观察', settlement: { status: 'settled', total: 680, paid: 680 } },
   ]
   const admissions = await ins('admissions', admDefs.map(a => ({
-    tenant_id: ctx.tenantId, store_id: ctx.storeId,
-    customer_id: ctx.custId[a.customer], pet_id: ctx.petId[a.pet], cage_id: ctx.cageId[a.cage],
-    doctor_id: ctx.userId, admission_reason: `演示-${a.reason}`,
-    admitted_at: iso(a.offset, 10), status: a.status,
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    customer_id: ctx.custId[a.customer],
+    pet_id: ctx.petId[a.pet],
+    cage_id: ctx.cageId[a.cage],
+    doctor_id: ctx.userId,
+    admission_reason: `演示-${a.reason}`,
+    admitted_at: iso(a.offset, 10),
+    status: a.status,
     discharged_at: a.status === 'discharged' ? iso(a.offset + 1, 11) : null,
     discharge_reason: a.status === 'discharged' ? '病情好转' : null,
     discharge_notes: a.status === 'discharged' ? '体温正常,食欲恢复' : null,
     total_charge: a.settlement?.total ?? (a.status === 'admitted' ? 320 : 0),
     settlement_status: a.settlement?.status ?? 'unsettled',
     settlement_no: a.settlement ? nextNo('DEMO-STL') : null,
-    receivable_amount: a.settlement?.total ?? 0, paid_amount: a.settlement?.paid ?? 0,
+    receivable_amount: a.settlement?.total ?? 0,
+    paid_amount: a.settlement?.paid ?? 0,
     finalized_at: a.settlement ? iso(a.offset + 1, 11) : null,
   })))
   track('admissions', admissions)
@@ -938,12 +1235,16 @@ async function seedInpatient(itemId) {
   ]
   for (const u of cageUpdates) {
     await api('cages', {
-      method: 'PATCH', filter: `id=eq.${u.id}`, body: { status: 'occupied', current_admission_id: u.admission },
+      method: 'PATCH',
+      filter: `id=eq.${u.id}`,
+      body: { status: 'occupied', current_admission_id: u.admission },
     })
   }
   // 已出院笼位恢复
   await api('cages', {
-    method: 'PATCH', filter: `id=eq.${ctx.cageId['CAGE-BD1']}`, body: { status: 'available', current_admission_id: null },
+    method: 'PATCH',
+    filter: `id=eq.${ctx.cageId['CAGE-BD1']}`,
+    body: { status: 'available', current_admission_id: null },
   })
 
   // 病程记录
@@ -956,8 +1257,15 @@ async function seedInpatient(itemId) {
 
   // 护理计划 + 护理任务
   const [plan] = await ins('nursing_plans', [{
-    tenant_id: ctx.tenantId, store_id: ctx.storeId, admission_id: admissions[0].id, pet_id: ctx.petId['团子'],
-    plan_name: '演示-抗感染护理', frequency: 'q8h', start_date: bizDate(-1), is_active: true, created_by: ctx.userId,
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    admission_id: admissions[0].id,
+    pet_id: ctx.petId['团子'],
+    plan_name: '演示-抗感染护理',
+    frequency: 'q8h',
+    start_date: bizDate(-1),
+    is_active: true,
+    created_by: ctx.userId,
   }])
   track('nursing_plans', 1)
   const ntasks = await ins('nursing_tasks', [
@@ -978,8 +1286,12 @@ async function seedInpatient(itemId) {
 
   // 交接班
   const hds = await ins('shift_handovers', [{
-    tenant_id: ctx.tenantId, store_id: ctx.storeId, shift_date: bizDate(0), shift_type: 'morning',
-    outgoing_user: ctx.userId, incoming_user: ctx.userId,
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    shift_date: bizDate(0),
+    shift_type: 'morning',
+    outgoing_user: ctx.userId,
+    incoming_user: ctx.userId,
   }])
   track('shift_handovers', hds)
 
@@ -989,17 +1301,26 @@ async function seedInpatient(itemId) {
     { customer: '周芳', pet: '富贵', cage: 'CAGE-ICU1', offset: 0, reason: '膀胱结石术后ICU监护' },
   ]
   const genAdms = await ins('admissions', genAdmDefs.map(a => ({
-    tenant_id: ctx.tenantId, store_id: ctx.storeId,
-    customer_id: ctx.custId[a.customer], pet_id: ctx.petId[a.pet], cage_id: ctx.cageId[a.cage],
-    doctor_id: ctx.userId, admission_reason: `演示-${a.reason}`,
-    admitted_at: iso(a.offset, 10), status: 'admitted',
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    customer_id: ctx.custId[a.customer],
+    pet_id: ctx.petId[a.pet],
+    cage_id: ctx.cageId[a.cage],
+    doctor_id: ctx.userId,
+    admission_reason: `演示-${a.reason}`,
+    admitted_at: iso(a.offset, 10),
+    status: 'admitted',
     total_charge: a.pet === '富贵' ? 680 : 260,
-    settlement_status: 'unsettled', receivable_amount: 0, paid_amount: 0,
+    settlement_status: 'unsettled',
+    receivable_amount: 0,
+    paid_amount: 0,
   })))
   track('admissions', genAdms)
   for (const [i, a] of genAdmDefs.entries()) {
     await api('cages', {
-      method: 'PATCH', filter: `id=eq.${ctx.cageId[a.cage]}`, body: { status: 'occupied', current_admission_id: genAdms[i].id },
+      method: 'PATCH',
+      filter: `id=eq.${ctx.cageId[a.cage]}`,
+      body: { status: 'occupied', current_admission_id: genAdms[i].id },
     })
   }
   // 生成病程 + 住院收费(演示病房/ICU 明细)
@@ -1030,11 +1351,17 @@ async function seedDiagnostics(itemId) {
     { pet: '灰灰', customer: '吴迪', status: 'cancelled', offset: -2, panel: 'DEMO-PANEL-CBC' },
   ]
   const labs = await ins('lab_orders', labPlan.map((l, i) => ({
-    tenant_id: ctx.tenantId, store_id: ctx.storeId,
-    customer_id: ctx.custId[l.customer], pet_id: ctx.petId[l.pet],
-    order_no: nextNo('DEMO-LAB'), status: l.status, requested_by: ctx.userId,
-    requested_at: iso(l.offset, 10), collected_at: l.status === 'requested' ? null : iso(l.offset, 10, 30),
-    completed_at: l.status === 'completed' ? iso(l.offset, 14) : null, remark: '演示检验',
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    customer_id: ctx.custId[l.customer],
+    pet_id: ctx.petId[l.pet],
+    order_no: nextNo('DEMO-LAB'),
+    status: l.status,
+    requested_by: ctx.userId,
+    requested_at: iso(l.offset, 10),
+    collected_at: l.status === 'requested' ? null : iso(l.offset, 10, 30),
+    completed_at: l.status === 'completed' ? iso(l.offset, 14) : null,
+    remark: '演示检验',
   })))
   track('lab_orders', labs)
   ctx.labId = Object.fromEntries(labs.map((l, i) => [labPlan[i].pet, l.id]))
@@ -1048,10 +1375,15 @@ async function seedDiagnostics(itemId) {
   const specimens = await ins('lab_specimens', specimenPlan.map(s => ({
     tenant_id: ctx.tenantId,
     lab_order_id: ctx.labId[s.pet],
-    specimen_type: 'blood', collection_method: '静脉采血',
-    collected_at: iso(-1, 10, 30), collected_by: ctx.userId,
-    container_id: `CT-${s.pet}`, storage_condition: '2-8℃',
-    status: s.spec, received_at: s.spec === 'discarded' ? iso(-1, 15) : iso(-1, 14), received_by: ctx.userId,
+    specimen_type: 'blood',
+    collection_method: '静脉采血',
+    collected_at: iso(-1, 10, 30),
+    collected_by: ctx.userId,
+    container_id: `CT-${s.pet}`,
+    storage_condition: '2-8℃',
+    status: s.spec,
+    received_at: s.spec === 'discarded' ? iso(-1, 15) : iso(-1, 14),
+    received_by: ctx.userId,
   })))
   track('lab_specimens', specimens)
 
@@ -1078,17 +1410,20 @@ async function seedDiagnostics(itemId) {
     analyte_id: ctx.labAnalytes[r.key],
     result_value: String(r.val),
     result_numeric: r.val,
-    is_abnormal: r.ab, is_critical: r.cr, flag: r.flag,
+    is_abnormal: r.ab,
+    is_critical: r.cr,
+    flag: r.flag,
     resulted_at: r.cr ? iso(0, 13) : iso(-1, 13),
-    resulted_by: ctx.userId, note: r.cr ? '复查确认偏高' : null,
+    resulted_by: ctx.userId,
+    note: r.cr ? '复查确认偏高' : null,
   })))
   track('lab_order_analytes', analytes)
-  ctx.resultOf = Object.fromEntries(resultPlan.map((r, i) => [r.pet + '-' + r.key, analytes[i].id]))
+  ctx.resultOf = Object.fromEntries(resultPlan.map((r, i) => [`${r.pet}-${r.key}`, analytes[i].id]))
 
   // 危急值告警(1 pending + 1 acknowledged 演示)
   const alerts = await ins('critical_value_alerts', [
-    { tenant_id: ctx.tenantId, store_id: ctx.storeId, lab_order_id: ctx.labId['富贵'], analyte_id: ctx.labAnalytes['ALT'], pet_id: ctx.petId['富贵'], alert_level: 'critical', message: '检验危急值:ALT 320 U/L,请立即复查', status: 'pending' },
-    { tenant_id: ctx.tenantId, store_id: ctx.storeId, lab_order_id: ctx.labId['大圣'], analyte_id: ctx.labAnalytes['PLT'], pet_id: ctx.petId['大圣'], alert_level: 'significant', message: '血小板计数接近下限', status: 'acknowledged', acknowledged_by: ctx.userId, acknowledged_at: iso(-1, 14) },
+    { tenant_id: ctx.tenantId, store_id: ctx.storeId, lab_order_id: ctx.labId['富贵'], analyte_id: ctx.labAnalytes.ALT, pet_id: ctx.petId['富贵'], alert_level: 'critical', message: '检验危急值:ALT 320 U/L,请立即复查', status: 'pending' },
+    { tenant_id: ctx.tenantId, store_id: ctx.storeId, lab_order_id: ctx.labId['大圣'], analyte_id: ctx.labAnalytes.PLT, pet_id: ctx.petId['大圣'], alert_level: 'significant', message: '血小板计数接近下限', status: 'acknowledged', acknowledged_by: ctx.userId, acknowledged_at: iso(-1, 14) },
   ])
   track('critical_value_alerts', alerts)
 
@@ -1139,9 +1474,14 @@ async function seedDiagnostics(itemId) {
 
   // 疫苗证明(旺财狂犬签发)
   const certs = await ins('vaccine_certificates', [{
-    tenant_id: ctx.tenantId, store_id: ctx.storeId, pet_id: ctx.petId['旺财'], customer_id: ctx.custId['陈静'],
-    vaccination_id: ctx.vaccId['旺财狂犬'], certificate_no: `DEMO-VC-${bizDate(0)}-000001`,
-    issued_date: iso(-60, 11), issued_by: ctx.userId,
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
+    pet_id: ctx.petId['旺财'],
+    customer_id: ctx.custId['陈静'],
+    vaccination_id: ctx.vaccId['旺财狂犬'],
+    certificate_no: `DEMO-VC-${bizDate(0)}-000001`,
+    issued_date: iso(-60, 11),
+    issued_by: ctx.userId,
     certificate_data: { vaccine: '狂犬疫苗', batch_no: 'VAC-RAB-01', manufacturer: '演示生物', dose_no: 1 },
     status: 'issued',
   }])
@@ -1171,9 +1511,12 @@ async function seedBoarding(itemId) {
     { customer: '吴迪', pet: '灰灰', cage: 'CAGE-ICU2', status: 'cancelled', in: -1, out: 3, realOut: null },
   ]
   const stays = await ins('boarding_stays', stayPlan.map((s, i) => ({
-    tenant_id: ctx.tenantId, store_id: ctx.storeId,
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
     boarding_no: `DEMO-BOARD-${pad(i + 1)}`,
-    customer_id: ctx.custId[s.customer], pet_id: ctx.petId[s.pet], cage_id: ctx.cageId[s.cage],
+    customer_id: ctx.custId[s.customer],
+    pet_id: ctx.petId[s.pet],
+    cage_id: ctx.cageId[s.cage],
     check_in_at: s.status === 'planned' ? null : iso(s.in, 11),
     expected_check_out_at: iso(s.out, 12),
     checked_out_at: s.realOut ? iso(s.realOut, 12) : null,
@@ -1181,7 +1524,8 @@ async function seedBoarding(itemId) {
     diet_notes: s.pet === '豆豆' ? '每日两餐,处方粮' : '常规犬粮',
     walking_notes: s.pet === '乐乐' ? '外出需牵绳,怕生' : null,
     medication_notes: s.pet === '豆豆' ? '早晚各一粒护肝药' : null,
-    vaccine_verified: true, risk_acknowledged: true,
+    vaccine_verified: true,
+    risk_acknowledged: true,
     emergency_contact: { name: s.customer, phone: '13900000000', relation: '主人' },
     total_charge: s.status === 'checked_out' ? 340 : s.status === 'cancelled' ? 0 : 180,
     created_by: ctx.userId,
@@ -1242,9 +1586,15 @@ async function seedPurchasing(itemId) {
   for (const [i, p] of poPlan.entries()) {
     const total = p.items.reduce((s, it) => s + it[1] * it[2], 0)
     const row = {
-      tenant_id: ctx.tenantId, store_id: ctx.storeId, warehouse_id: ctx.warehouses.def,
-      po_no: `DEMO-PO-${pad(i + 1)}`, supplier_id: p.supplier.id, status: p.status,
-      expected_at: bizDate(p.days + 7), total_cost: total, note: `演示采购单-${p.status}`,
+      tenant_id: ctx.tenantId,
+      store_id: ctx.storeId,
+      warehouse_id: ctx.warehouses.def,
+      po_no: `DEMO-PO-${pad(i + 1)}`,
+      supplier_id: p.supplier.id,
+      status: p.status,
+      expected_at: bizDate(p.days + 7),
+      total_cost: total,
+      note: `演示采购单-${p.status}`,
       created_by: ctx.userId,
     }
     // 状态时间线字段(按状态机推进填列)
@@ -1271,8 +1621,12 @@ async function seedPurchasing(itemId) {
     const [po] = await ins('purchase_orders', [row])
     pos.push(po)
     const items = await ins('purchase_order_items', p.items.map(it => ({
-      tenant_id: ctx.tenantId, purchase_order_id: po.id, catalog_item_id: itemId[it[0]],
-      ordered_qty: it[1], received_qty: it[3] ?? 0, unit_cost: it[2],
+      tenant_id: ctx.tenantId,
+      purchase_order_id: po.id,
+      catalog_item_id: itemId[it[0]],
+      ordered_qty: it[1],
+      received_qty: it[3] ?? 0,
+      unit_cost: it[2],
       batch_no: it[3] > 0 ? `DEMO-PO-B-${pad(i + 1)}` : null,
       expires_at: it[3] > 0 ? bizDate(400) : null,
     })))
@@ -1289,9 +1643,15 @@ async function seedPurchasing(itemId) {
   for (const [i, p] of genPoPlan.entries()) {
     const total = p.items.reduce((s, it) => s + it[1] * it[2], 0)
     const row = {
-      tenant_id: ctx.tenantId, store_id: ctx.storeId, warehouse_id: ctx.warehouses.def,
-      po_no: `DEMO-PO-G${pad(i + 1)}`, supplier_id: p.supplier.id, status: p.status,
-      expected_at: bizDate(p.days + 7), total_cost: total, note: `演示-生成采购单`,
+      tenant_id: ctx.tenantId,
+      store_id: ctx.storeId,
+      warehouse_id: ctx.warehouses.def,
+      po_no: `DEMO-PO-G${pad(i + 1)}`,
+      supplier_id: p.supplier.id,
+      status: p.status,
+      expected_at: bizDate(p.days + 7),
+      total_cost: total,
+      note: `演示-生成采购单`,
       created_by: ctx.userId,
     }
     if (p.status === 'submitted' || p.status === 'posted') {
@@ -1308,8 +1668,12 @@ async function seedPurchasing(itemId) {
     }
     const [gpo] = await ins('purchase_orders', [row])
     const gitems = await ins('purchase_order_items', p.items.map(it => ({
-      tenant_id: ctx.tenantId, purchase_order_id: gpo.id, catalog_item_id: itemId[it[0]],
-      ordered_qty: it[1], received_qty: it[3] ?? 0, unit_cost: it[2],
+      tenant_id: ctx.tenantId,
+      purchase_order_id: gpo.id,
+      catalog_item_id: itemId[it[0]],
+      ordered_qty: it[1],
+      received_qty: it[3] ?? 0,
+      unit_cost: it[2],
       batch_no: it[3] > 0 ? `DEMO-PO-B-G${pad(i + 1)}` : null,
       expires_at: it[3] > 0 ? bizDate(400) : null,
     })))
@@ -1332,12 +1696,15 @@ async function seedImaging(itemId) {
     { pet: '乐乐', customer: '杨帆', type: 'xray', status: 'cancelled', offset: -3, enc: null },
   ]
   const orders = await ins('imaging_orders', imgPlan.map((g, i) => ({
-    tenant_id: ctx.tenantId, store_id: ctx.storeId,
+    tenant_id: ctx.tenantId,
+    store_id: ctx.storeId,
     order_no: `DEMO-IMG-${pad(i + 1)}`,
     encounter_id: g.enc ? ctx.encId[g.enc] : null,
-    customer_id: ctx.custId[g.customer], pet_id: ctx.petId[g.pet],
+    customer_id: ctx.custId[g.customer],
+    pet_id: ctx.petId[g.pet],
     requested_by: ctx.userId,
-    imaging_type: g.type, catalog_item_id: itemId[g.type === 'xray' ? 'DEMO-EXM-XRAY' : 'DEMO-EXM-US'],
+    imaging_type: g.type,
+    catalog_item_id: itemId[g.type === 'xray' ? 'DEMO-EXM-XRAY' : 'DEMO-EXM-US'],
     scheduled_at: iso(g.offset, 10),
     performed_at: ['performed', 'reported', 'reviewed', 'published'].includes(g.status) ? iso(g.offset, 10, 30) : null,
     performed_by: ['performed', 'reported', 'reviewed', 'published'].includes(g.status) ? ctx.userId : null,
@@ -1382,7 +1749,9 @@ async function seedClosing() {
   const closings = []
   for (const c of closePlan) {
     const [dc] = await ins('daily_closings', [{
-      tenant_id: ctx.tenantId, store_id: ctx.storeId, business_date: bizDate(c.offset),
+      tenant_id: ctx.tenantId,
+      store_id: ctx.storeId,
+      business_date: bizDate(c.offset),
       status: c.status,
       gross_amount: c.status === 'open' ? 0 : c.paid + 200,
       paid_amount: c.status === 'open' ? 0 : c.paid,
@@ -1392,7 +1761,8 @@ async function seedClosing() {
       card_amount: c.status === 'open' ? 0 : Math.round(c.paid * 0.2),
       wechat_amount: c.status === 'open' ? 0 : Math.round(c.paid * 0.25),
       alipay_amount: c.status === 'open' ? 0 : Math.round(c.paid * 0.15),
-      stored_value_amount: 0, other_amount: 0,
+      stored_value_amount: 0,
+      other_amount: 0,
       invoice_count: c.status === 'open' ? 0 : 3,
       snapshot: c.status === 'open' ? {} : { invoices: 3, payments: 4 },
       adjustment_summary: c.status === 'adjusted' ? { count: 1, total: -20, items: ['cash_short'] } : { count: 0, total: 0, items: [] },
@@ -1405,9 +1775,14 @@ async function seedClosing() {
     track('daily_closings', 1)
     if (c.adj) {
       const adjRows = await ins('closing_adjustments', [{
-        tenant_id: ctx.tenantId, store_id: ctx.storeId, business_date: bizDate(c.offset),
-        closing_id: dc.id, adjustment_type: c.adj.type, amount: c.adj.amount,
-        reason: c.adj.reason, operator_employee_id: ctx.employeeId,
+        tenant_id: ctx.tenantId,
+        store_id: ctx.storeId,
+        business_date: bizDate(c.offset),
+        closing_id: dc.id,
+        adjustment_type: c.adj.type,
+        amount: c.adj.amount,
+        reason: c.adj.reason,
+        operator_employee_id: ctx.employeeId,
       }])
       track('closing_adjustments', adjRows)
     }
@@ -1424,9 +1799,13 @@ async function seedClosing() {
     ]
     for (const ch of channels) {
       reconRows.push({
-        tenant_id: ctx.tenantId, store_id: ctx.storeId, business_date: bizDate(c.offset),
-        closing_id: dc.id, channel: ch.channel,
-        system_expected: ch.expected, actual_amount: ch.actual,
+        tenant_id: ctx.tenantId,
+        store_id: ctx.storeId,
+        business_date: bizDate(c.offset),
+        closing_id: dc.id,
+        channel: ch.channel,
+        system_expected: ch.expected,
+        actual_amount: ch.actual,
         difference: ch.diff ?? ch.actual - ch.expected,
         difference_reason: ch.diff ? '演示-渠道金额差异' : null,
         status: ch.status,
@@ -1452,13 +1831,18 @@ async function seedFollowup() {
   ]
   const tasks = await ins('followup_tasks', fPlan.map((f, i) => {
     const row = {
-      tenant_id: ctx.tenantId, store_id: ctx.storeId,
-      customer_id: ctx.custId[f.customer], pet_id: ctx.petId[f.pet],
+      tenant_id: ctx.tenantId,
+      store_id: ctx.storeId,
+      customer_id: ctx.custId[f.customer],
+      pet_id: ctx.petId[f.pet],
       source_type: f.type === 'post_visit' ? 'encounter' : 'manual',
       source_id: f.type === 'post_visit' ? ctx.encId['大黄-signed'] : null,
-      task_type: f.type, scheduled_at: iso(f.offset, 14),
-      assignee_employee_id: ctx.employeeId, channel: f.channel,
-      status: f.status, created_by: ctx.userId,
+      task_type: f.type,
+      scheduled_at: iso(f.offset, 14),
+      assignee_employee_id: ctx.employeeId,
+      channel: f.channel,
+      status: f.status,
+      created_by: ctx.userId,
     }
     if (f.status === 'completed') {
       row.result_code = f.result
@@ -1467,8 +1851,8 @@ async function seedFollowup() {
       row.completed_at = iso(f.offset, 15)
       row.completed_by = ctx.userId
     }
-    if (f.status === 'in_progress') row.started_at = iso(f.offset, 14)
-    if (f.status === 'cancelled') row.cancel_reason = '演示-客户拒绝回访'
+    if (f.status === 'in_progress') { row.started_at = iso(f.offset, 14) }
+    if (f.status === 'cancelled') { row.cancel_reason = '演示-客户拒绝回访' }
     return row
   }))
   track('followup_tasks', tasks)
@@ -1476,14 +1860,16 @@ async function seedFollowup() {
   // ===== 批量扩展:24 条回访任务(状态/任务类型/来源/渠道/结果全覆盖) =====
   const namedPairs = [['张伟', '大黄'], ['陈静', '旺财'], ['周芳', '富贵'], ['李娜', '咪咪'], ['孙磊', '大圣']]
   const genFollowPlan = Array.from({ length: 24 }, (_, i) => {
-    const gkey = 'G' + pad((i % 20) + 1)
+    const gkey = `G${pad((i % 20) + 1)}`
     // 状态轮换:completed/in_progress/pending/cancelled
     const status = ['completed', 'in_progress', 'pending', 'cancelled'][i % 4]
     const taskType = ['post_visit', 'post_discharge', 'medication', 'recheck', 'customer_care', 'other'][i % 6]
     const channel = ['phone', 'wechat', 'sms', 'in_person', 'other'][i % 5]
     // 偏移:待办→未来1-6天;进行中→今日;已完成/取消→过去1-12天
-    const offset = status === 'pending' ? 1 + (i % 6)
-      : status === 'in_progress' ? 0
+    const offset = status === 'pending'
+      ? 1 + (i % 6)
+      : status === 'in_progress'
+        ? 0
         : -(1 + (i % 12))
     // 需要业务单据来源的任务(术后/出院)用生成客户+真实单据;其余轮换命名/生成客户
     let sourceType = 'manual'
@@ -1504,12 +1890,18 @@ async function seedFollowup() {
       pair = namedPairs[(i / 3) % namedPairs.length]
     }
     const row = {
-      tenant_id: ctx.tenantId, store_id: ctx.storeId,
-      customer_id: ctx.custId[pair[0]], pet_id: ctx.petId[pair[1]],
-      source_type: sourceType, source_id: sourceId,
-      task_type: taskType, scheduled_at: iso(offset, 9 + (i % 8)),
-      assignee_employee_id: ctx.employeeId, channel,
-      status, created_by: ctx.userId,
+      tenant_id: ctx.tenantId,
+      store_id: ctx.storeId,
+      customer_id: ctx.custId[pair[0]],
+      pet_id: ctx.petId[pair[1]],
+      source_type: sourceType,
+      source_id: sourceId,
+      task_type: taskType,
+      scheduled_at: iso(offset, 9 + (i % 8)),
+      assignee_employee_id: ctx.employeeId,
+      channel,
+      status,
+      created_by: ctx.userId,
     }
     if (status === 'completed') {
       row.result_code = ['contacted', 'contacted', 'unreachable', 'rescheduled', 'other'][i % 5]
@@ -1518,8 +1910,8 @@ async function seedFollowup() {
       row.completed_at = iso(offset, 10)
       row.completed_by = ctx.userId
     }
-    if (status === 'in_progress') row.started_at = iso(0, 9)
-    if (status === 'cancelled') row.cancel_reason = '演示-客户要求取消回访'
+    if (status === 'in_progress') { row.started_at = iso(0, 9) }
+    if (status === 'cancelled') { row.cancel_reason = '演示-客户要求取消回访' }
     return row
   })
   track('followup_tasks', await ins('followup_tasks', genFollowPlan))
@@ -1540,12 +1932,19 @@ async function seedMembership() {
 
   // 会员关系(与 customers.member_level 对齐)
   const memberDefs = [
-    ['张伟', 'gold', 3200], ['李娜', 'silver', 1500], ['王强', 'diamond', 5800],
-    ['陈静', 'gold', 2600], ['赵敏', 'silver', 1900], ['周芳', 'diamond', 6100],
+    ['张伟', 'gold', 3200],
+    ['李娜', 'silver', 1500],
+    ['王强', 'diamond', 5800],
+    ['陈静', 'gold', 2600],
+    ['赵敏', 'silver', 1900],
+    ['周芳', 'diamond', 6100],
   ]
   const memberships = await ins('customer_memberships', memberDefs.map((m, i) => ({
-    tenant_id: ctx.tenantId, customer_id: ctx.custId[m[0]], tier_id: tierId[m[1]],
-    points_balance: m[2], joined_at: iso(-90 + i * 5),
+    tenant_id: ctx.tenantId,
+    customer_id: ctx.custId[m[0]],
+    tier_id: tierId[m[1]],
+    points_balance: m[2],
+    joined_at: iso(-90 + i * 5),
     expires_at: iso(275),
   })))
   track('customer_memberships', memberships)

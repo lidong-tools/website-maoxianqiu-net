@@ -11,8 +11,8 @@ import type {
 import apiDiagnostics from '@/api/modules/diagnostics'
 import apiFile from '@/api/modules/file'
 import BusinessCustomerPicker from '@/components/business/CustomerPicker/index.vue'
-import BusinessPetPicker from '@/components/business/PetPicker/index.vue'
 import EntityStatusTag from '@/components/business/EntityStatusTag/index.vue'
+import BusinessPetPicker from '@/components/business/PetPicker/index.vue'
 import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { IMAGING_REPORT_STATUS_LABELS, IMAGING_STAGE_LABELS, IMAGING_TYPE_LABELS } from '@/types/diagnostics'
@@ -601,7 +601,7 @@ onMounted(async () => {
             </div>
 
             <!-- 临床信息 -->
-            <div class="grid gap-3 sm:grid-cols-2">
+            <div class="gap-3 grid sm:grid-cols-2">
               <div class="text-sm">
                 <span class="text-muted-foreground">临床问题:</span>
                 <span class="ml-2">{{ selectedOrder.clinical_question ?? '未填写' }}</span>
@@ -625,14 +625,14 @@ onMounted(async () => {
               <div class="mb-2 flex gap-2 items-center justify-between">
                 <span class="text-sm font-medium">影像附件({{ attachments.length }})</span>
                 <label class="cursor-pointer">
-                  <span class="text-xs text-primary inline-flex items-center gap-1">
+                  <span class="text-xs text-primary inline-flex gap-1 items-center">
                     <FaIcon name="i-lucide:upload" />
                     上传影像
                   </span>
-                  <input type="file" accept="image/*" class="hidden" :disabled="uploading" @change="onUploadAttachment" />
+                  <input type="file" accept="image/*" class="hidden" :disabled="uploading" @change="onUploadAttachment">
                 </label>
               </div>
-              <div v-if="attachments.length" class="grid gap-2 sm:grid-cols-2">
+              <div v-if="attachments.length" class="gap-2 grid sm:grid-cols-2">
                 <div v-for="att in attachments" :key="att.id" class="text-xs p-2 border rounded-md flex items-center justify-between">
                   <span class="truncate">{{ att.file.original_name }}</span>
                   <div class="flex gap-2 items-center">

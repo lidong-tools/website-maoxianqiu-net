@@ -1,7 +1,7 @@
+import type { DocumentAdapter, Service } from '../types.js'
 import { err } from '../../../lib/errors.js'
 import { fetchDocumentBase } from '../base.js'
 import { fmtDateTime } from '../format.js'
-import type { DocumentAdapter, Service } from '../types.js'
 
 /**
  * 影像报告 Adapter(S32-C)

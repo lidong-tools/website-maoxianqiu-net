@@ -50,7 +50,7 @@ const routes: RouteRecordRaw[] = [
     name: 'inventorySuppliers',
     component: () => import('@/views/inventory/suppliers/index.vue'),
     meta: {
-      title: '供应商管理',
+      title: '供应渠道',
       icon: 'i-ri:building-2-line',
       auth: 'supplier.view',
     },

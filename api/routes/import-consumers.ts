@@ -260,10 +260,10 @@ importConsumerRoutes.post('/jobs/:jobId/apply-domain', async (c) => {
   const terminal = pendingCount > 0
     ? 'awaiting_domain_apply'
     : (failedCount > 0 && appliedCount > 0)
-      ? 'partially_completed'
-      : failedCount > 0
-        ? 'failed'
-        : 'completed'
+        ? 'partially_completed'
+        : failedCount > 0
+          ? 'failed'
+          : 'completed'
   const updatePayload: Record<string, unknown> = {
     status: terminal,
     error_summary: { applied: appliedCount, failed: failedCount, pending: pendingCount },

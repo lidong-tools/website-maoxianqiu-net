@@ -2,13 +2,13 @@
 import type { TableColumn } from '@fantastic-admin/components'
 import type { CustomerRecord, PetRecord } from '@/types/customer'
 import type { BoardingBookInput, BoardingCageStatusView, BoardingStay, BoardingStayStatus } from '@/types/inpatient-boarding'
+import { useRouter } from 'vue-router'
 import apiBoarding, { generateBoardingIdempotencyKey } from '@/api/modules/inpatient-boarding'
 import CustomerPicker from '@/components/business/CustomerPicker/index.vue'
 import PetPicker from '@/components/business/PetPicker/index.vue'
 import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { BOARDING_STATUS_LABELS } from '@/types/inpatient-boarding'
-import { useRouter } from 'vue-router'
 
 defineOptions({
   name: 'InpatientBoarding',
@@ -675,7 +675,7 @@ onMounted(load)
       <FaTabs v-model="activeTab" :list="TABS" class="mb-1" @change="onTabChange" />
 
       <!-- 房态 -->
-      <div v-if="activeTab === 'cages'" v-loading="loading" class="flex-1 min-h-0 space-y-3 overflow-auto">
+      <div v-if="activeTab === 'cages'" v-loading="loading" class="flex-1 min-h-0 overflow-auto space-y-3">
         <div class="gap-3 grid grid-cols-2 md:grid-cols-5">
           <div class="p-3 text-center border rounded-lg">
             <div class="text-2xl font-bold">
@@ -759,7 +759,7 @@ onMounted(load)
                 <div class="text-xs text-muted-foreground">
                   {{ cage.cage_code }} · ¥{{ cage.daily_rate }}/日
                 </div>
-                <div class="mt-1 text-xs">
+                <div class="text-xs mt-1">
                   <FaTag :variant="cage.cage_status === 'available' ? 'default' : cage.cage_status === 'occupied' ? 'destructive' : 'outline'" size="sm">
                     {{ cage.cage_status === 'available' ? '空闲' : cage.cage_status === 'occupied' ? '占用' : cage.cage_status === 'maintenance' ? '维护' : '清洁' }}
                   </FaTag>
@@ -927,12 +927,12 @@ onMounted(load)
           <FaInput v-model="form.emergencyRelation" placeholder="与宠物关系" />
         </div>
 
-        <div class="space-y-2 text-sm">
-          <label class="flex gap-2 items-center cursor-pointer">
+        <div class="text-sm space-y-2">
+          <label class="flex gap-2 cursor-pointer items-center">
             <input v-model="form.vaccineVerified" type="checkbox" class="accent-primary">
             <span>已核验疫苗齐全</span>
           </label>
-          <label class="flex gap-2 items-center cursor-pointer">
+          <label class="flex gap-2 cursor-pointer items-center">
             <input v-model="form.riskAcknowledged" type="checkbox" class="accent-primary">
             <span>已确认寄养风险并授权</span>
           </label>
@@ -953,7 +953,7 @@ onMounted(load)
     <!-- 详情抽屉 -->
     <FaDrawer v-model="detailVisible" :title="currentStay ? `${petName(currentStay.pet_id)} · ${currentStay.boarding_no}` : '寄养详情'" :width="680" :show-confirm-button="false">
       <div v-if="currentStay" class="flex flex-col h-full">
-        <div class="border-b p-4">
+        <div class="p-4 border-b">
           <div class="flex gap-2 items-center">
             <EntityStatusTag :label="BOARDING_STATUS_LABELS[currentStay.status] ?? currentStay.status" :variant="statusVariant(currentStay.status)" dot />
             <span v-if="currentStay.total_charge > 0" class="text-sm font-medium">
@@ -972,10 +972,10 @@ onMounted(load)
 
         <FaTabs v-model="detailTab" :list="DETAIL_TABS" class="px-4 pt-3" />
 
-        <div class="flex-1 min-h-0 overflow-auto p-4 space-y-4">
+        <div class="p-4 flex-1 min-h-0 overflow-auto space-y-4">
           <!-- 每日记录 -->
           <div v-if="detailTab === 'records'" class="space-y-3">
-            <div class="border rounded-lg p-3 space-y-2">
+            <div class="p-3 border rounded-lg space-y-2">
               <div class="gap-2 grid grid-cols-2 md:grid-cols-3">
                 <FaInput v-model="recordForm.recordDate" type="date" />
                 <FaInput v-model="recordForm.feeding" placeholder="饮食" />
@@ -991,11 +991,11 @@ onMounted(load)
                 </FaButton>
               </div>
             </div>
-            <div v-for="r in dailyRecords" :key="r.id" class="border rounded-lg p-3">
-              <div class="text-xs font-medium text-muted-foreground mb-1">
+            <div v-for="r in dailyRecords" :key="r.id" class="p-3 border rounded-lg">
+              <div class="text-xs text-muted-foreground font-medium mb-1">
                 {{ r.record_date }}
               </div>
-              <div class="gap-2 grid grid-cols-1 md:grid-cols-2 text-sm">
+              <div class="text-sm gap-2 grid grid-cols-1 md:grid-cols-2">
                 <div v-if="r.feeding">
                   饮食: {{ r.feeding }}
                 </div>
@@ -1020,14 +1020,14 @@ onMounted(load)
 
           <!-- 服务消费 -->
           <div v-else-if="detailTab === 'charges'" class="space-y-3">
-            <div class="border rounded-lg p-3 space-y-2">
+            <div class="p-3 border rounded-lg space-y-2">
               <div class="gap-2 grid grid-cols-2 md:grid-cols-4">
                 <FaInput v-model="chargeForm.description" placeholder="服务描述(如:洗澡美容)" />
                 <FaInput v-model.number="chargeForm.quantity" type="number" min="1" />
                 <FaInput v-model.number="chargeForm.unitPrice" type="number" min="0" />
                 <FaInput v-model="chargeForm.chargeDate" type="date" />
               </div>
-              <div class="flex gap-2 justify-end items-center">
+              <div class="flex gap-2 items-center justify-end">
                 <span class="text-sm">
                   金额 ¥{{ (chargeForm.quantity * chargeForm.unitPrice).toFixed(2) }}
                 </span>
@@ -1038,7 +1038,7 @@ onMounted(load)
               </div>
             </div>
             <div class="border rounded-lg divide-y">
-              <div v-for="s in serviceCharges" :key="s.id" class="flex items-center justify-between p-3 text-sm">
+              <div v-for="s in serviceCharges" :key="s.id" class="text-sm p-3 flex items-center justify-between">
                 <div>
                   <div class="font-medium">
                     {{ s.description ?? s.catalog_item_id?.slice(0, 8) }}
@@ -1058,26 +1058,26 @@ onMounted(load)
           </div>
 
           <!-- 入住要求 -->
-          <div v-else class="space-y-2 text-sm">
-            <div class="border rounded-lg p-3">
-              <div class="text-xs font-medium text-muted-foreground mb-1">
+          <div v-else class="text-sm space-y-2">
+            <div class="p-3 border rounded-lg">
+              <div class="text-xs text-muted-foreground font-medium mb-1">
                 饮食要求
               </div>
               {{ currentStay.diet_notes || '无' }}
             </div>
-            <div class="border rounded-lg p-3">
-              <div class="text-xs font-medium text-muted-foreground mb-1">
+            <div class="p-3 border rounded-lg">
+              <div class="text-xs text-muted-foreground font-medium mb-1">
                 遛宠要求
               </div>
               {{ currentStay.walking_notes || '无' }}
             </div>
-            <div class="border rounded-lg p-3">
-              <div class="text-xs font-medium text-muted-foreground mb-1">
+            <div class="p-3 border rounded-lg">
+              <div class="text-xs text-muted-foreground font-medium mb-1">
                 用药要求
               </div>
               {{ currentStay.medication_notes || '无' }}
             </div>
-            <div class="border rounded-lg p-3 flex gap-2">
+            <div class="p-3 border rounded-lg flex gap-2">
               <FaTag :variant="currentStay.vaccine_verified ? 'default' : 'outline'" size="sm">
                 疫苗{{ currentStay.vaccine_verified ? '已核验' : '未核验' }}
               </FaTag>

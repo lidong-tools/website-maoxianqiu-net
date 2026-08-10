@@ -139,7 +139,8 @@ export function renderInsuranceClaimHtml(snapshot: InsuranceSnapshot): string {
     </div>
   </div>
 
-  ${enc ? `
+  ${enc
+    ? `
   <div class="block">
     <h2>就诊信息</h2>
     <div class="grid">
@@ -148,7 +149,8 @@ export function renderInsuranceClaimHtml(snapshot: InsuranceSnapshot): string {
       <div class="kv full"><em>主诉</em>${esc(enc.chiefComplaint ?? '-')}</div>
       <div class="kv full"><em>诊断</em>${esc(enc.diagnosisText ?? '-')}</div>
     </div>
-  </div>` : ''}
+  </div>`
+    : ''}
 
   <div class="block">
     <h2>材料清单(${snapshot.documents.length} 项)</h2>

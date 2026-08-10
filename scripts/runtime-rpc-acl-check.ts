@@ -46,7 +46,7 @@ interface AclRow {
 
 /** 将 manifest 函数清单安全嵌入 SQL 的 VALUES 列表 */
 function buildManifestValues(fns: readonly string[]): string {
-  return fns.map((fn) => `('${fn.replace(/'/g, "''")}')`).join(', ')
+  return fns.map(fn => `('${fn.replace(/'/g, '\'\'')}')`).join(', ')
 }
 
 /** 构造一次查询即可返回全部函数 ACL 矩阵的 SQL */
@@ -95,7 +95,7 @@ function runPsql(sql: string): string[] {
   }
   return res.stdout
     .split(/\r?\n/)
-    .map((line) => line.trim())
+    .map(line => line.trim())
     .filter(Boolean)
 }
 
@@ -127,7 +127,7 @@ function renderReport(rows: AclRow[]): void {
   for (const r of rows) {
     console.log(`${pad(r.fn, w.fn)}${pad(String(r.overloads), 10)}${pad(r.pub ? 'GRANTED(BAD)' : 'revoked', w.other)}${pad(r.anon ? 'GRANTED(BAD)' : 'revoked', w.other)}${pad(r.auth ? 'GRANTED(BAD)' : 'revoked', w.other)}${pad(r.svc ? 'granted' : 'REVOKED(BAD)', w.other)}${r.verdict}`)
   }
-  const fail = rows.filter((r) => r.verdict !== 'PASS')
+  const fail = rows.filter(r => r.verdict !== 'PASS')
   const pass = rows.length - fail.length
   console.log('')
   console.log(`summary: ${pass} PASS / ${fail.length} FAIL(含 MISSING)`)
@@ -148,7 +148,7 @@ function main(): void {
   const rows = lines.map(parseRow)
   renderReport(rows)
 
-  const failed = rows.filter((r) => r.verdict !== 'PASS')
+  const failed = rows.filter(r => r.verdict !== 'PASS')
   if (failed.length > 0) {
     console.log(`Runtime RPC ACL Gate: FAIL(${failed.length} 个函数 ACL 不符合 service-role-only 预期)`)
     process.exit(1)

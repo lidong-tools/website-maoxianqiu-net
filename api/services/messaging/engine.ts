@@ -1,8 +1,9 @@
+import type { ProviderSendResult } from '../../providers/types.js'
 import process from 'node:process'
 import { err } from '../../lib/errors.js'
 import { createServiceClient } from '../../lib/supabase.js'
 import { getProvider } from '../../providers/registry.js'
-import { ProviderError, type ProviderSendResult } from '../../providers/types.js'
+import { ProviderError } from '../../providers/types.js'
 import { isRealProviderConfigured } from './config.js'
 import {
   normalizeVariables,
@@ -139,7 +140,7 @@ function validateRecipient(channel: MessageChannel, recipient: string): void {
   if (!recipient || !recipient.trim()) {
     throw err.badRequest('接收人不能为空')
   }
-  if (channel === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient.trim())) {
+  if (channel === 'email' && !/^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/.test(recipient.trim())) {
     throw err.badRequest('邮件渠道的接收人必须是有效邮箱')
   }
   if ((channel === 'sms') && !/^[0-9+\-\s]{5,20}$/.test(recipient.trim())) {
@@ -282,10 +283,12 @@ async function recordAttempt(
   const raw = result.raw && typeof result.raw === 'object'
     ? result.raw as Record<string, unknown>
     : {}
-  const errorInfo = result.status === 'failed' ? {
-    error_code: typeof raw.code === 'string' ? raw.code : 'PROVIDER_ERROR',
-    error_message: typeof raw.message === 'string' ? raw.message : 'Provider 发送失败',
-  } : { error_code: null, error_message: null }
+  const errorInfo = result.status === 'failed'
+    ? {
+        error_code: typeof raw.code === 'string' ? raw.code : 'PROVIDER_ERROR',
+        error_message: typeof raw.message === 'string' ? raw.message : 'Provider 发送失败',
+      }
+    : { error_code: null, error_message: null }
 
   const { error: attemptError } = await service.from('message_delivery_attempts').insert({
     delivery_id: delivery.id,
@@ -546,4 +549,4 @@ export async function loadLatestAttempt(
 }
 
 export { MAX_ATTEMPTS }
-export type { MessageChannel, DeliveryStatus }
+export type { DeliveryStatus, MessageChannel }

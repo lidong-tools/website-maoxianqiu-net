@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import * as echarts from 'echarts'
 import type { EChartsOption } from 'echarts'
+import * as echarts from 'echarts'
 
 defineOptions({
   name: 'AnalyticsChartCard',
@@ -122,8 +122,8 @@ watch(() => props.option, () => render(), { deep: true })
 </script>
 
 <template>
-  <div class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-    <div v-if="title" class="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+  <div class="p-4 border border-gray-100 rounded-xl bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+    <div v-if="title" class="text-sm text-gray-700 font-medium mb-2 dark:text-gray-300">
       {{ title }}
     </div>
     <div

@@ -58,37 +58,37 @@ export function buildZip(entries: ZipEntry[]): Buffer {
     const crc = crc32(entry.data)
 
     const local = Buffer.alloc(30)
-    local.writeUInt32LE(0x04034b50, 0)   // PK\x03\x04
-    local.writeUInt16LE(20, 4)           // version needed
-    local.writeUInt16LE(0x0800, 6)       // flags: UTF-8 filename
-    local.writeUInt16LE(8, 8)            // method: deflate
-    local.writeUInt16LE(0, 10)           // mod time
-    local.writeUInt16LE(0, 12)           // mod date
+    local.writeUInt32LE(0x04034B50, 0) // PK\x03\x04
+    local.writeUInt16LE(20, 4) // version needed
+    local.writeUInt16LE(0x0800, 6) // flags: UTF-8 filename
+    local.writeUInt16LE(8, 8) // method: deflate
+    local.writeUInt16LE(0, 10) // mod time
+    local.writeUInt16LE(0, 12) // mod date
     local.writeUInt32LE(crc, 14)
     local.writeUInt32LE(comp.length, 18)
     local.writeUInt32LE(entry.data.length, 22)
     local.writeUInt16LE(nameBuf.length, 26)
-    local.writeUInt16LE(0, 28)           // extra len
+    local.writeUInt16LE(0, 28) // extra len
     chunks.push(local, nameBuf, comp)
 
     const cen = Buffer.alloc(46)
-    cen.writeUInt32LE(0x02014b50, 0)     // PK\x01\x02
-    cen.writeUInt16LE(20, 4)             // version made by
-    cen.writeUInt16LE(20, 6)             // version needed
-    cen.writeUInt16LE(0x0800, 8)         // flags
-    cen.writeUInt16LE(8, 10)             // method
-    cen.writeUInt16LE(0, 12)             // time
-    cen.writeUInt16LE(0, 14)             // date
+    cen.writeUInt32LE(0x02014B50, 0) // PK\x01\x02
+    cen.writeUInt16LE(20, 4) // version made by
+    cen.writeUInt16LE(20, 6) // version needed
+    cen.writeUInt16LE(0x0800, 8) // flags
+    cen.writeUInt16LE(8, 10) // method
+    cen.writeUInt16LE(0, 12) // time
+    cen.writeUInt16LE(0, 14) // date
     cen.writeUInt32LE(crc, 16)
     cen.writeUInt32LE(comp.length, 20)
     cen.writeUInt32LE(entry.data.length, 24)
     cen.writeUInt16LE(nameBuf.length, 28)
-    cen.writeUInt16LE(0, 30)             // extra len
-    cen.writeUInt16LE(0, 32)             // comment len
-    cen.writeUInt16LE(0, 34)             // disk start
-    cen.writeUInt16LE(0, 36)             // internal attrs
-    cen.writeUInt32LE(0, 38)             // external attrs
-    cen.writeUInt32LE(offset, 42)        // local header offset
+    cen.writeUInt16LE(0, 30) // extra len
+    cen.writeUInt16LE(0, 32) // comment len
+    cen.writeUInt16LE(0, 34) // disk start
+    cen.writeUInt16LE(0, 36) // internal attrs
+    cen.writeUInt32LE(0, 38) // external attrs
+    cen.writeUInt32LE(offset, 42) // local header offset
     central.push(cen, nameBuf)
 
     offset += 30 + nameBuf.length + comp.length
@@ -98,14 +98,14 @@ export function buildZip(entries: ZipEntry[]): Buffer {
   const cdSize = central.reduce((s, b) => s + b.length, 0)
 
   const eocd = Buffer.alloc(22)
-  eocd.writeUInt32LE(0x06054b50, 0)      // PK\x05\x06
-  eocd.writeUInt16LE(0, 4)               // disk num
-  eocd.writeUInt16LE(0, 6)               // disk with cd
+  eocd.writeUInt32LE(0x06054B50, 0) // PK\x05\x06
+  eocd.writeUInt16LE(0, 4) // disk num
+  eocd.writeUInt16LE(0, 6) // disk with cd
   eocd.writeUInt16LE(entries.length, 8)
   eocd.writeUInt16LE(entries.length, 10)
   eocd.writeUInt32LE(cdSize, 12)
   eocd.writeUInt32LE(cdStart, 16)
-  eocd.writeUInt16LE(0, 20)              // comment len
+  eocd.writeUInt16LE(0, 20) // comment len
 
   return Buffer.concat([...chunks, ...central, eocd])
 }
@@ -119,7 +119,7 @@ export function parseZipEntries(buf: Buffer): Map<string, Buffer> {
   const result = new Map<string, Buffer>()
   let pos = 0
   while (pos + 30 <= buf.length) {
-    if (buf.readUInt32LE(pos) !== 0x04034b50) {
+    if (buf.readUInt32LE(pos) !== 0x04034B50) {
       pos++
       continue
     }
@@ -178,7 +178,7 @@ function escapeXml(s: string): string {
 
 function parseAttrs(attrs: string): Record<string, string> {
   const out: Record<string, string> = {}
-  const re = /([a-zA-Z_][\w:.-]*)\s*=\s*"([^"]*)"/g
+  const re = /([a-z_][\w:.-]*)\s*=\s*"([^"]*)"/gi
   let m: RegExpExecArray | null
   while ((m = re.exec(attrs))) {
     out[m[1]] = m[2]
@@ -319,52 +319,52 @@ export function buildXlsx(rows: string[][], sheetName = '模板'): Buffer {
     sheetRows.push(`<row r="${r + 1}">${rowCells.join('')}</row>`)
   }
 
-  const sharedXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
-    `<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${shared.length}" uniqueCount="${shared.length}">` +
-    shared.map(s => `<si><t xml:space="preserve">${escapeXml(s)}</t></si>`).join('') +
-    `</sst>`
+  const sharedXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n`
+    + `<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${shared.length}" uniqueCount="${shared.length}">${
+      shared.map(s => `<si><t xml:space="preserve">${escapeXml(s)}</t></si>`).join('')
+    }</sst>`
 
-  const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
-    `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
-    `<sheetData>${sheetRows.join('')}</sheetData>` +
-    `</worksheet>`
+  const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n`
+    + `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`
+    + `<sheetData>${sheetRows.join('')}</sheetData>`
+    + `</worksheet>`
 
-  const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
-    `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ` +
-    `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
-    `<sheets><sheet name="${escapeXml(sheetName)}" sheetId="1" r:id="rId1"/></sheets></workbook>`
+  const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n`
+    + `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" `
+    + `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">`
+    + `<sheets><sheet name="${escapeXml(sheetName)}" sheetId="1" r:id="rId1"/></sheets></workbook>`
 
-  const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
-    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
-    `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>` +
-    `</Relationships>`
+  const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n`
+    + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`
+    + `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>`
+    + `</Relationships>`
 
-  const workbookRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
-    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
-    `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>` +
-    `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>` +
-    `<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>` +
-    `</Relationships>`
+  const workbookRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n`
+    + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`
+    + `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>`
+    + `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>`
+    + `<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`
+    + `</Relationships>`
 
-  const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
-    `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
-    `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
-    `<Default Extension="xml" ContentType="application/xml"/>` +
-    `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
-    `<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
-    `<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>` +
-    `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` +
-    `</Types>`
+  const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n`
+    + `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`
+    + `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`
+    + `<Default Extension="xml" ContentType="application/xml"/>`
+    + `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>`
+    + `<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`
+    + `<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>`
+    + `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>`
+    + `</Types>`
 
-  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
-    `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
-    `<fonts count="1"><font><sz val="11"/><color rgb="FF000000"/><name val="Calibri"/><family val="2"/></font></fonts>` +
-    `<fills count="1"><fill><patternFill patternType="none"/></fill></fills>` +
-    `<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>` +
-    `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>` +
-    `<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>` +
-    `<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>` +
-    `</styleSheet>`
+  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n`
+    + `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`
+    + `<fonts count="1"><font><sz val="11"/><color rgb="FF000000"/><name val="Calibri"/><family val="2"/></font></fonts>`
+    + `<fills count="1"><fill><patternFill patternType="none"/></fill></fills>`
+    + `<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>`
+    + `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>`
+    + `<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>`
+    + `<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>`
+    + `</styleSheet>`
 
   const entries: ZipEntry[] = [
     { name: '[Content_Types].xml', data: Buffer.from(contentTypesXml, 'utf8') },

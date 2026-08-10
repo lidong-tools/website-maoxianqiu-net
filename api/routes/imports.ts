@@ -1,4 +1,6 @@
 import type { AppEnv } from '../lib/types.js'
+import type { DuplicateStrategy, ImportJobStatus, ImportJobType } from '../services/imports/fields.js'
+import type { RowError, Scope } from '../services/imports/validate.js'
 import { randomUUID } from 'node:crypto'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -6,31 +8,29 @@ import { writeAudit } from '../lib/audit.js'
 import { err } from '../lib/errors.js'
 import { getRequestIdempotencyKey } from '../lib/idempotency.js'
 import { requireScopedPermission } from '../lib/permission.js'
+import { createPresignedDownloadUrl } from '../lib/r2.js'
 import { loadContext, resolveRequestedTenant } from '../lib/request-context.js'
 import { ok } from '../lib/result.js'
-import { createPresignedDownloadUrl } from '../lib/r2.js'
 import { createServiceClient } from '../lib/supabase.js'
 import { parseJsonBody } from '../lib/validation.js'
 import { authMiddleware, loadCaller } from '../middlewares/auth.js'
 import { parseSpreadsheet } from '../services/imports/codec.js'
-import { buildTemplateCsv, buildTemplateXlsx } from '../services/imports/template.js'
-import { buildDefaultMapping, parseImportRows } from '../services/imports/parse.js'
-import {
-  DEFAULT_DUPLICATE_STRATEGY,
-  getTypeMeta,
-  IMPORT_JOB_TYPES,
-} from '../services/imports/fields.js'
-import type { DuplicateStrategy, ImportJobStatus, ImportJobType } from '../services/imports/fields.js'
-import { applyMapped, validateRow } from '../services/imports/validate.js'
-import type { RowError, Scope } from '../services/imports/validate.js'
-import { loadLookupContext } from '../services/imports/lookup.js'
-import { executeRow } from '../services/imports/execute.js'
 import {
   MAX_ERRORS_STORED,
   MAX_IMPORT_ROWS,
   MAX_LIST_LIMIT,
   MAX_PREVIEW_ROWS,
 } from '../services/imports/constants.js'
+import { executeRow } from '../services/imports/execute.js'
+import {
+  DEFAULT_DUPLICATE_STRATEGY,
+  getTypeMeta,
+  IMPORT_JOB_TYPES,
+} from '../services/imports/fields.js'
+import { loadLookupContext } from '../services/imports/lookup.js'
+import { buildDefaultMapping, parseImportRows } from '../services/imports/parse.js'
+import { buildTemplateCsv, buildTemplateXlsx } from '../services/imports/template.js'
+import { applyMapped, validateRow } from '../services/imports/validate.js'
 
 /**
  * 导入中心 V2(S32-A)

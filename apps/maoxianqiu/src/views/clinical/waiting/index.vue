@@ -199,7 +199,7 @@ function displayRow(row: WaitingRow) {
       <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
         <!-- 工具栏:左筛选,右功能按钮 -->
         <div class="px-4 pt-3 border-b">
-          <div class="pb-3 flex items-center justify-between flex-wrap gap-2">
+          <div class="pb-3 flex flex-wrap gap-2 items-center justify-between">
             <div class="flex gap-2 items-center">
               <FaSelect v-model="currentStoreId" :options="storeOptions" class="w-40" @change="loadData" />
               <span class="text-sm text-muted-foreground">候诊 {{ waitingCount }} · 超时 {{ overdueCount }}</span>

@@ -7,7 +7,7 @@ const routes: RouteRecordRaw[] = [
     name: 'roleWorkbench',
     component: () => import('@/views/workbenches/index.vue'),
     meta: {
-      title: '岗位工作台',
+      title: '岗位工作',
       icon: 'i-ri:dashboard-3-line',
       keepAlive: true,
     },

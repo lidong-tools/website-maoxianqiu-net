@@ -5,11 +5,11 @@
  * S30-R06:禁止手填 UUID,一律通过选择器选取。
  */
 import type { AcceptableValue } from 'reka-ui'
-import { supabase } from '@/lib/supabase'
 import type { DocumentType } from '@/types/documents'
 import BusinessDiagnosticOrderPicker from '@/components/business/DiagnosticOrderPicker/index.vue'
 import BusinessEncounterPicker from '@/components/business/EncounterPicker/index.vue'
 import BusinessInvoicePicker from '@/components/business/InvoicePicker/index.vue'
+import { supabase } from '@/lib/supabase'
 
 defineOptions({
   name: 'DocumentEntityPicker',

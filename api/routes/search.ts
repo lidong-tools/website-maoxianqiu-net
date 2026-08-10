@@ -97,28 +97,43 @@ searchRoutes.get('/', async (c) => {
 
   const [customers, pets, encounters, invoices, catalogItems] = await Promise.all([
     ilikeSearch(
-      service, 'customers', ['name', 'phone', 'customer_no'], q,
+      service,
+      'customers',
+      ['name', 'phone', 'customer_no'],
+      q,
       (query) => { let x = scopeTenant(query); x = scopeStore(x); return x.neq('status', 'archived') },
       'id, name, phone, customer_no',
     ),
     ilikeSearch(
-      service, 'pets', ['name', 'microchip'], q,
-      (query) => scopeTenant(query).neq('status', 'archived'),
+      service,
+      'pets',
+      ['name', 'microchip'],
+      q,
+      query => scopeTenant(query).neq('status', 'archived'),
       'id, name, species, microchip, customer_id',
     ),
     ilikeSearch(
-      service, 'encounters', ['chief_complaint', 'diagnosis_text'], q,
-      (query) => scopeStore(scopeTenant(query)),
+      service,
+      'encounters',
+      ['chief_complaint', 'diagnosis_text'],
+      q,
+      query => scopeStore(scopeTenant(query)),
       'id, status, started_at, pet_id, customer_id',
     ),
     ilikeSearch(
-      service, 'invoices', ['invoice_no'], q,
-      (query) => scopeStore(scopeTenant(query)),
+      service,
+      'invoices',
+      ['invoice_no'],
+      q,
+      query => scopeStore(scopeTenant(query)),
       'id, invoice_no, total, status',
     ),
     ilikeSearch(
-      service, 'catalog_items', ['name', 'code'], q,
-      (query) => scopeTenant(query).eq('is_active', true),
+      service,
+      'catalog_items',
+      ['name', 'code'],
+      q,
+      query => scopeTenant(query).eq('is_active', true),
       'id, name, code, billing_type',
     ),
   ])
@@ -151,22 +166,36 @@ searchRoutes.get('/', async (c) => {
 
   return ok(c, {
     customers: customers.map(r => ({
-      id: r.id, name: r.name, phone: r.phone ?? null, customerNo: r.customer_no ?? null,
+      id: r.id,
+      name: r.name,
+      phone: r.phone ?? null,
+      customerNo: r.customer_no ?? null,
     })),
     pets: pets.map(r => ({
-      id: r.id, name: r.name, species: r.species ?? null, microchip: r.microchip ?? null,
+      id: r.id,
+      name: r.name,
+      species: r.species ?? null,
+      microchip: r.microchip ?? null,
       ownerName: r.customer_id ? ownerMap[r.customer_id] ?? null : null,
     })),
     encounters: encounters.map(r => ({
-      id: r.id, status: r.status, startedAt: r.started_at ?? null,
+      id: r.id,
+      status: r.status,
+      startedAt: r.started_at ?? null,
       petName: r.pet_id ? petMap[r.pet_id] ?? null : null,
       customerName: r.customer_id ? customerMap[r.customer_id] ?? null : null,
     })),
     invoices: invoices.map(r => ({
-      id: r.id, invoiceNo: r.invoice_no, total: Number(r.total ?? 0), status: r.status,
+      id: r.id,
+      invoiceNo: r.invoice_no,
+      total: Number(r.total ?? 0),
+      status: r.status,
     })),
     catalogItems: catalogItems.map(r => ({
-      id: r.id, name: r.name, code: r.code ?? null, billingType: r.billing_type ?? null,
+      id: r.id,
+      name: r.name,
+      code: r.code ?? null,
+      billingType: r.billing_type ?? null,
     })),
   })
 })

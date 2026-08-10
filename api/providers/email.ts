@@ -1,10 +1,8 @@
+import type { MessagingProvider, MessagingWebhookProvider, ProviderSendInput, ProviderSendResult, ProviderWebhookEvent } from './types.js'
 import {
+
   ProviderError,
-  type MessagingProvider,
-  type MessagingWebhookProvider,
-  type ProviderSendInput,
-  type ProviderSendResult,
-  type ProviderWebhookEvent,
+
 } from './types.js'
 
 /**
@@ -44,7 +42,7 @@ export class EmailMessagingProvider implements MessagingProvider, MessagingWebho
       throw new ProviderError('CHANNEL_MISMATCH', `email Provider 不能发送 ${input.channel} 渠道消息`)
     }
     const recipient = (input.recipient || '').trim().toLowerCase()
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+    if (!/^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/.test(recipient)) {
       throw new ProviderError('INVALID_RECIPIENT', `无效的收件邮箱: ${input.recipient}`)
     }
 
@@ -152,15 +150,15 @@ export class EmailMessagingProvider implements MessagingProvider, MessagingWebho
     const list = Array.isArray(body) ? body : [body]
     const events: ProviderWebhookEvent[] = []
     for (const item of list) {
-      if (!item || typeof item !== 'object') continue
+      if (!item || typeof item !== 'object') { continue }
       const record = item as Record<string, unknown>
       const event = typeof record.event === 'string' ? record.event : 'unknown'
       const sgMessageId = typeof record.sg_message_id === 'string' ? record.sg_message_id : null
       const sgEventId = typeof record.sg_event_id === 'string' ? record.sg_event_id : null
       const providerEventId = sgEventId ?? `${sgMessageId ?? 'msg'}-${event}-${String(record.timestamp ?? '')}`
       let eventType: ProviderWebhookEvent['eventType'] = 'unknown'
-      if (event === 'delivered') eventType = 'delivered'
-      if (event === 'bounced' || event === 'dropped' || event === 'spamreport') eventType = 'bounced'
+      if (event === 'delivered') { eventType = 'delivered' }
+      if (event === 'bounced' || event === 'dropped' || event === 'spamreport') { eventType = 'bounced' }
       events.push({
         provider: 'email',
         providerEventId,

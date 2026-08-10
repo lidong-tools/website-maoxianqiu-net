@@ -1,20 +1,19 @@
-import { PutObjectCommand } from '@aws-sdk/client-s3'
+import type {
+  CreateInsurancePackInput,
+  InsurancePack,
+  InsurancePackItem,
+  InsurancePackWithItems,
+  Service,
+} from './types.js'
 import { createHash } from 'node:crypto'
 import process from 'node:process'
+import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { err } from '../../lib/errors.js'
 import { createR2Client, generatePrivateObjectKey } from '../../lib/r2.js'
 import { getPdfProvider } from '../../providers/pdf/index.js'
 import { aggregatePackItems } from './aggregate.js'
 import { renderInsuranceClaimHtml } from './render.js'
 import { buildInsuranceSnapshot } from './snapshot.js'
-import type {
-  CreateInsurancePackInput,
-  InsurancePack,
-  InsurancePackItem,
-  InsurancePackWithItems,
-  InsuranceSourceType,
-  Service,
-} from './types.js'
 
 /**
  * Stage-04 Agent-06 — 保险理赔包服务编排(api/services/insurance)

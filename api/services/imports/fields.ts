@@ -7,12 +7,12 @@
  */
 
 export type ImportJobType = 'customer' | 'pet' | 'catalog-item' | 'employee' | 'opening-stock'
-export type ImportJobStatus =
-  | 'uploaded' | 'mapped' | 'validated' | 'queued' | 'pending'
-  | 'processing' | 'completed' | 'failed' | 'cancelled'
+export type ImportJobStatus
+  = | 'uploaded' | 'mapped' | 'validated' | 'queued' | 'pending'
+    | 'processing' | 'completed' | 'failed' | 'cancelled'
   // 审计 v4 §14:employee/opening-stock 导入的终态是"待领域应用"
   // (写待邀请队列/期初命令队列后,由 IAM/库存领域后续应用,非 completed)
-  | 'awaiting_domain_apply'
+    | 'awaiting_domain_apply'
 export type DuplicateStrategy = 'skip' | 'update' | 'create_duplicate'
 export type FieldType = 'string' | 'int' | 'number' | 'date' | 'boolean' | 'string[]'
 
@@ -46,7 +46,7 @@ export function normalizeKey(s: string): string {
 const GENDER_ENUM: Record<string, string> = { male: '公', female: '母', unknown: '未知' }
 
 export const IMPORT_TYPE_META: Record<ImportJobType, ImportTypeMeta> = {
-  customer: {
+  'customer': {
     type: 'customer',
     label: '客户',
     description: '批量导入客户档案（姓名/手机号/会员等级等）',
@@ -61,13 +61,17 @@ export const IMPORT_TYPE_META: Record<ImportJobType, ImportTypeMeta> = {
       { key: 'address', label: '地址', aliases: ['地址', '住址'], type: 'string' },
       { key: 'birthday', label: '生日', aliases: ['生日', '出生日期'], type: 'date', description: '格式 YYYY-MM-DD' },
       {
-        key: 'memberLevel', label: '会员等级', aliases: ['会员等级', '等级'], type: 'string',
-        enum: { normal: '普通', silver: '银卡', gold: '金卡', diamond: '钻石' }, description: '枚举：普通/银卡/金卡/钻石',
+        key: 'memberLevel',
+        label: '会员等级',
+        aliases: ['会员等级', '等级'],
+        type: 'string',
+        enum: { normal: '普通', silver: '银卡', gold: '金卡', diamond: '钻石' },
+        description: '枚举：普通/银卡/金卡/钻石',
       },
       { key: 'remark', label: '备注', aliases: ['备注', '说明'], type: 'string' },
     ],
   },
-  pet: {
+  'pet': {
     type: 'pet',
     label: '宠物',
     description: '批量导入宠物档案（需关联已有主人）',
@@ -99,8 +103,12 @@ export const IMPORT_TYPE_META: Record<ImportJobType, ImportTypeMeta> = {
       { key: 'code', label: '编码', aliases: ['编码', '商品编码', 'SKU', '条码'], required: true, description: '商品编码（必填，租户内唯一）', type: 'string' },
       { key: 'name', label: '名称', aliases: ['名称', '商品名称', '品名'], required: true, description: '商品名称（必填）', type: 'string' },
       {
-        key: 'billingType', label: '类型', aliases: ['类型', '收费类型', '项目类型'], type: 'string',
-        enum: { service: '服务', product: '商品', drug: '药品', vaccine: '疫苗', exam: '检验' }, description: '枚举：服务/商品/药品/疫苗/检验',
+        key: 'billingType',
+        label: '类型',
+        aliases: ['类型', '收费类型', '项目类型'],
+        type: 'string',
+        enum: { service: '服务', product: '商品', drug: '药品', vaccine: '疫苗', exam: '检验' },
+        description: '枚举：服务/商品/药品/疫苗/检验',
       },
       { key: 'categoryCode', label: '类目编码', aliases: ['类目编码', '分类编码', '类目'], type: 'string' },
       { key: 'unit', label: '单位', aliases: ['单位', '计量单位'], type: 'string', description: '如 次/盒/支/瓶' },
@@ -110,7 +118,7 @@ export const IMPORT_TYPE_META: Record<ImportJobType, ImportTypeMeta> = {
       { key: 'tags', label: '标签', aliases: ['标签'], type: 'string[]', description: '逗号分隔' },
     ],
   },
-  employee: {
+  'employee': {
     type: 'employee',
     label: '员工',
     description: '批量导入待邀请员工（不直接创建账号，交由 IAM 邀请）',
@@ -162,10 +170,10 @@ export const IMPORT_JOB_STATUS_LABELS: Record<ImportJobStatus, string> = {
 
 /** 默认去重策略：全部保守 skip */
 export const DEFAULT_DUPLICATE_STRATEGY: Record<ImportJobType, DuplicateStrategy> = {
-  customer: 'skip',
-  pet: 'skip',
+  'customer': 'skip',
+  'pet': 'skip',
   'catalog-item': 'skip',
-  employee: 'skip',
+  'employee': 'skip',
   'opening-stock': 'skip',
 }
 

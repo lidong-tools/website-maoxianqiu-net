@@ -62,7 +62,7 @@ const columns = computed<TableColumn<ChurnRiskRecord>[]>(() => [
     accessorKey: 'score',
     header: '风险评分',
     width: 110,
-    cell: info => {
+    cell: (info) => {
       const v = Number(info.getValue())
       const lv = String(info.row.original.level)
       const cls = lv === 'high' ? 'text-red-600 font-bold' : lv === 'medium' ? 'text-orange-600 font-bold' : 'text-green-600'
@@ -73,7 +73,7 @@ const columns = computed<TableColumn<ChurnRiskRecord>[]>(() => [
     accessorKey: 'level',
     header: '风险等级',
     width: 100,
-    cell: info => {
+    cell: (info) => {
       const lv = String(info.getValue())
       const meta = LEVEL_META[lv] ?? { label: lv, color: '#999' }
       return h('span', {
@@ -154,7 +154,7 @@ onMounted(() => {
     -->
     <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
       <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
-        <div class="px-4 py-3 border-b flex shrink-0 justify-between items-center">
+        <div class="px-4 py-3 border-b flex shrink-0 items-center justify-between">
           <div class="flex gap-2 items-center">
             <FaSelect
               v-model="level"

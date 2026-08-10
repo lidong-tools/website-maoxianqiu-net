@@ -158,26 +158,87 @@ export function renderTemplate(templateHtml: string, data: Record<string, unknow
 /** 允许的标签白名单 */
 const ALLOWED_TAGS = new Set([
   // 文档外壳(仅允许静态包装,无脚本)
-  'html', 'head', 'body', 'title',
+  'html',
+  'head',
+  'body',
+  'title',
   // 版式块级
-  'div', 'span', 'p', 'br', 'hr', 'section', 'article', 'main', 'aside',
-  'header', 'footer', 'figure', 'figcaption', 'blockquote', 'pre',
+  'div',
+  'span',
+  'p',
+  'br',
+  'hr',
+  'section',
+  'article',
+  'main',
+  'aside',
+  'header',
+  'footer',
+  'figure',
+  'figcaption',
+  'blockquote',
+  'pre',
   // 表格
-  'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption',
-  'col', 'colgroup',
+  'table',
+  'thead',
+  'tbody',
+  'tfoot',
+  'tr',
+  'th',
+  'td',
+  'caption',
+  'col',
+  'colgroup',
   // 文本样式
-  'strong', 'b', 'em', 'i', 'u', 's', 'small', 'sub', 'sup', 'code',
-  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li',
+  'strong',
+  'b',
+  'em',
+  'i',
+  'u',
+  's',
+  'small',
+  'sub',
+  'sup',
+  'code',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'ul',
+  'ol',
+  'li',
   // 图片(仅受控 data:image / 相对路径)
   'img',
 ])
 
 /** 禁用的高风险标签(仅名称出现即拒绝;含 style/meta 需要在内容层单独放行) */
 const FORBIDDEN_TAGS = new Set([
-  'script', 'style', 'iframe', 'object', 'embed', 'form', 'link',
-  'base', 'svg', 'math', 'template', 'textarea', 'input',
-  'button', 'select', 'option', 'noscript', 'frame', 'frameset',
-  'audio', 'video', 'source', 'track', 'canvas',
+  'script',
+  'style',
+  'iframe',
+  'object',
+  'embed',
+  'form',
+  'link',
+  'base',
+  'svg',
+  'math',
+  'template',
+  'textarea',
+  'input',
+  'button',
+  'select',
+  'option',
+  'noscript',
+  'frame',
+  'frameset',
+  'audio',
+  'video',
+  'source',
+  'track',
+  'canvas',
 ])
 
 /** 标签 → 允许的属性集合(全局通用属性另计) */
@@ -192,20 +253,61 @@ const TAG_ATTRS: Record<string, Set<string>> = {
 
 /** 全局通用属性(所有标签都允许) */
 const GLOBAL_ATTRS = new Set([
-  'class', 'style', 'id', 'title',
+  'class',
+  'style',
+  'id',
+  'title',
 ])
 
 /** 允许的 CSS 属性白名单(版式) */
 const ALLOWED_CSS_PROPS = new Set([
-  'color', 'background-color', 'font-size', 'font-weight', 'font-family',
-  'font-style', 'text-align', 'text-decoration', 'line-height', 'letter-spacing',
-  'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
-  'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
-  'border', 'border-top', 'border-right', 'border-bottom', 'border-left',
-  'border-color', 'border-width', 'border-style', 'border-collapse',
-  'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height',
-  'display', 'vertical-align', 'white-space', 'word-break', 'word-wrap',
-  'border-radius', 'box-sizing', 'position', 'top', 'right', 'bottom', 'left',
+  'color',
+  'background-color',
+  'font-size',
+  'font-weight',
+  'font-family',
+  'font-style',
+  'text-align',
+  'text-decoration',
+  'line-height',
+  'letter-spacing',
+  'margin',
+  'margin-top',
+  'margin-right',
+  'margin-bottom',
+  'margin-left',
+  'padding',
+  'padding-top',
+  'padding-right',
+  'padding-bottom',
+  'padding-left',
+  'border',
+  'border-top',
+  'border-right',
+  'border-bottom',
+  'border-left',
+  'border-color',
+  'border-width',
+  'border-style',
+  'border-collapse',
+  'width',
+  'height',
+  'min-width',
+  'max-width',
+  'min-height',
+  'max-height',
+  'display',
+  'vertical-align',
+  'white-space',
+  'word-break',
+  'word-wrap',
+  'border-radius',
+  'box-sizing',
+  'position',
+  'top',
+  'right',
+  'bottom',
+  'left',
 ])
 
 /** 禁止的 CSS 值片段(URL/表达式/导入/行为) */
@@ -218,8 +320,15 @@ function isEventAttr(name: string): boolean {
 
 /** 属性名是否属于 URL 承载属性 */
 const URL_ATTRS = new Set([
-  'src', 'href', 'action', 'background', 'cite', 'poster',
-  'formaction', 'longdesc', 'xlink:href',
+  'src',
+  'href',
+  'action',
+  'background',
+  'cite',
+  'poster',
+  'formaction',
+  'longdesc',
+  'xlink:href',
 ])
 
 /** URL 值安全校验(协议白名单 + 外链禁止) */
@@ -304,7 +413,7 @@ export function validateTemplateHtml(templateHtml: string): string | null {
   }
 
   // 2) 标签级校验:先粗筛必须禁止的标签,再逐标签校验属性
-  const TAG_RE = /<\/?\s*([a-zA-Z][a-zA-Z0-9-]*)((?:"[^"]*"|'[^']*'|[^'">])*?)\s*\/?>/g
+  const TAG_RE = /<\/?\s*([a-z][a-z0-9-]*)((?:"[^"]*"|'[^']*'|[^'">])*?)\s*\/?>/gi
   let m: RegExpExecArray | null
   while ((m = TAG_RE.exec(templateHtml)) !== null) {
     const tagName = m[1].toLowerCase()
@@ -320,7 +429,7 @@ export function validateTemplateHtml(templateHtml: string): string | null {
 
     // 属性解析(容忍标签内任意引号)
     const attrStr = m[2]
-    const ATTR_RE = /([a-zA-Z-_:]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g
+    const ATTR_RE = /([a-z-_:]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi
     let am: RegExpExecArray | null
     while ((am = ATTR_RE.exec(attrStr)) !== null) {
       const attrName = am[1].toLowerCase()

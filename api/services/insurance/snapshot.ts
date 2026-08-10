@@ -1,5 +1,5 @@
-import { err } from '../../lib/errors.js'
 import type { InsurancePackItem, InsuranceSnapshot, InsuranceSourceType, Service } from './types.js'
+import { err } from '../../lib/errors.js'
 
 /**
  * Stage-04 Agent-06 — 理赔包导出数据快照构建
@@ -75,7 +75,7 @@ async function buildDocumentContent(
         sourceId: rx.id,
         status: rx.status,
         createdAt: rx.created_at,
-        items: (rx.prescription_items as Array<Record<string, unknown>> | null ?? []).map((it) => ({
+        items: (rx.prescription_items as Array<Record<string, unknown>> | null ?? []).map(it => ({
           drugName: it.drug_name,
           dosage: it.dosage ?? null,
           frequency: it.frequency ?? null,

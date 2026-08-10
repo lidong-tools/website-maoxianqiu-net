@@ -153,7 +153,8 @@ const employeeColumns = computed<TableColumn<TenantEmployee>[]>(() => [
     accessorKey: 'stores',
     header: '归属门店',
     cell: (info: any) => (info.getValue() as Array<{ name: string }> ?? [])
-      .map(s => s.name).join('、') || '-',
+      .map(s => s.name)
+      .join('、') || '-',
   },
   {
     accessorKey: 'status',
@@ -221,10 +222,10 @@ async function submitStatus() {
 
     <div v-loading="loading">
       <template v-if="overview">
-        <div class="p-5 rounded-lg border bg-card">
-          <div class="flex flex-wrap items-start justify-between gap-4">
+        <div class="p-5 border rounded-lg bg-card">
+          <div class="flex flex-wrap gap-4 items-start justify-between">
             <div class="min-w-0">
-              <div class="flex items-center gap-2">
+              <div class="flex gap-2 items-center">
                 <h2 class="text-xl font-bold truncate">
                   {{ overview.name }}
                 </h2>
@@ -248,8 +249,8 @@ async function submitStatus() {
             </div>
           </div>
 
-          <div class="gap-4 grid grid-cols-2 mt-5 sm:grid-cols-4">
-            <div class="rounded-md bg-muted p-3">
+          <div class="mt-5 gap-4 grid grid-cols-2 sm:grid-cols-4">
+            <div class="p-3 rounded-md bg-muted">
               <div class="text-xs text-muted-foreground">
                 门店数
               </div>
@@ -257,7 +258,7 @@ async function submitStatus() {
                 {{ overview.storeCount }}
               </div>
             </div>
-            <div class="rounded-md bg-muted p-3">
+            <div class="p-3 rounded-md bg-muted">
               <div class="text-xs text-muted-foreground">
                 员工数
               </div>
@@ -265,7 +266,7 @@ async function submitStatus() {
                 {{ overview.activeEmployeeCount }} / {{ overview.totalEmployeeCount }}
               </div>
             </div>
-            <div class="rounded-md bg-muted p-3">
+            <div class="p-3 rounded-md bg-muted">
               <div class="text-xs text-muted-foreground">
                 试用截止
               </div>
@@ -273,7 +274,7 @@ async function submitStatus() {
                 {{ formatTime(overview.trialEndsAt) }}
               </div>
             </div>
-            <div class="rounded-md bg-muted p-3">
+            <div class="p-3 rounded-md bg-muted">
               <div class="text-xs text-muted-foreground">
                 创建时间
               </div>

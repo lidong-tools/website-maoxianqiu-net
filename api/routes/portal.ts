@@ -1,23 +1,25 @@
 import type { Context, MiddlewareHandler } from 'hono'
+import type { ApiError } from '../lib/errors.js'
+import type { PortalSessionPayload } from '../lib/portal-session.js'
+import type { AppEnv } from '../lib/types.js'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit.js'
-import { err, type ApiError } from '../lib/errors.js'
+import { err } from '../lib/errors.js'
 import { getRequestIdempotencyKey } from '../lib/idempotency.js'
+import { requireScopedPermission } from '../lib/permission.js'
 import {
   generateOtpCode,
   hashOtpCode,
   maskEmail,
   maskPhone,
+
   randomSalt,
   signPortalSession,
   verifyPortalSession,
-  type PortalSessionPayload,
 } from '../lib/portal-session.js'
-import { requireScopedPermission } from '../lib/permission.js'
 import { ok } from '../lib/result.js'
 import { createServiceClient } from '../lib/supabase.js'
-import type { AppEnv } from '../lib/types.js'
 import { parseJsonBody } from '../lib/validation.js'
 import { authMiddleware, loadCaller } from '../middlewares/auth.js'
 import { getProviderChannelStatus, getProviderForChannel } from '../providers/registry.js'
@@ -188,7 +190,7 @@ portalRoutes.post('/auth/request-otp', async (c) => {
 
   // 2) 接收人格式校验
   const recipient = input.recipient.trim().toLowerCase()
-  if (input.provider === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+  if (input.provider === 'email' && !/^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/.test(recipient)) {
     throw err.badRequest('邮箱格式不正确')
   }
   if (input.provider === 'phone' && !/^[0-9+\-\s]{5,20}$/.test(recipient)) {
@@ -855,8 +857,8 @@ portalRoutes.get('/admin/pet-access', async (c) => {
     .from('customer_pet_access')
     .select('*, pets(name, species), customers(name, customer_no)', { count: 'exact' })
     .eq('tenant_id', input.data.tenantId)
-  if (input.data.customerId) query = query.eq('customer_id', input.data.customerId)
-  if (input.data.petId) query = query.eq('pet_id', input.data.petId)
+  if (input.data.customerId) { query = query.eq('customer_id', input.data.customerId) }
+  if (input.data.petId) { query = query.eq('pet_id', input.data.petId) }
 
   const { data, error, count } = await query.order('created_at', { ascending: false }).limit(100)
   if (error) {
@@ -993,8 +995,8 @@ portalRoutes.get('/admin/consents', async (c) => {
     .from('customer_consents')
     .select('*, customers(name, customer_no)', { count: 'exact' })
     .eq('tenant_id', input.data.tenantId)
-  if (input.data.customerId) query = query.eq('customer_id', input.data.customerId)
-  if (input.data.consentType) query = query.eq('consent_type', input.data.consentType)
+  if (input.data.customerId) { query = query.eq('customer_id', input.data.customerId) }
+  if (input.data.consentType) { query = query.eq('consent_type', input.data.consentType) }
 
   const { data, error, count } = await query.order('accepted_at', { ascending: false }).limit(100)
   if (error) {
@@ -1019,7 +1021,7 @@ portalRoutes.get('/admin/subscriptions', async (c) => {
     .from('notification_subscriptions')
     .select('*, customers(name, customer_no)', { count: 'exact' })
     .eq('tenant_id', input.data.tenantId)
-  if (input.data.customerId) query = query.eq('customer_id', input.data.customerId)
+  if (input.data.customerId) { query = query.eq('customer_id', input.data.customerId) }
 
   const { data, error, count } = await query.order('updated_at', { ascending: false }).limit(100)
   if (error) {
@@ -1055,8 +1057,8 @@ portalRoutes.get('/admin/webhook-events', async (c) => {
     .from('message_provider_events')
     .select('*', { count: 'exact' })
     .eq('tenant_id', input.data.tenantId)
-  if (input.data.status) query = query.eq('status', input.data.status)
-  if (input.data.provider) query = query.eq('provider', input.data.provider)
+  if (input.data.status) { query = query.eq('status', input.data.status) }
+  if (input.data.provider) { query = query.eq('provider', input.data.provider) }
 
   const { data, error, count } = await query.order('received_at', { ascending: false }).limit(100)
   if (error) {

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
 import type { Campaign } from '@/api/modules/marketing'
-import apiMarketing from '@/api/modules/marketing'
 import apiCrmGrowth from '@/api/modules/crmGrowth'
 import apiCustomer from '@/api/modules/customer'
+import apiMarketing from '@/api/modules/marketing'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 
 defineOptions({
@@ -93,7 +93,7 @@ const columns = computed<TableColumn<Campaign>[]>(() => [
   {
     accessorKey: 'status',
     header: '状态',
-    cell: info => {
+    cell: (info) => {
       const s = String(info.getValue())
       const color = s === 'published' ? '#1677ff' : s === 'completed' ? '#52c41a' : s === 'cancelled' ? '#999' : '#fa8c16'
       return h('span', {
@@ -105,7 +105,7 @@ const columns = computed<TableColumn<Campaign>[]>(() => [
   {
     accessorKey: 'latest_run',
     header: '触达人数',
-    cell: info => {
+    cell: (info) => {
       const run = info.getValue() as Campaign['latest_run']
       return run ? run.audience_count : '-'
     },
@@ -113,7 +113,7 @@ const columns = computed<TableColumn<Campaign>[]>(() => [
   {
     accessorKey: 'starts_at',
     header: '时间窗口',
-    cell: info => {
+    cell: (info) => {
       const row = info.row.original as Campaign
       const from = row.starts_at ? String(row.starts_at).slice(0, 10) : '不限'
       const until = row.ends_at ? String(row.ends_at).slice(0, 10) : '不限'
@@ -188,16 +188,36 @@ const form = reactive<{
   startsAt: string
   endsAt: string
 }>({
-  id: '', code: '', name: '', description: '', type: 'manual', segmentId: '',
-  storeId: '', offerType: 'none', offerId: '', channel: 'sms', messageTemplateId: '',
-  startsAt: '', endsAt: '',
+  id: '',
+  code: '',
+  name: '',
+  description: '',
+  type: 'manual',
+  segmentId: '',
+  storeId: '',
+  offerType: 'none',
+  offerId: '',
+  channel: 'sms',
+  messageTemplateId: '',
+  startsAt: '',
+  endsAt: '',
 })
 
 function openCreate() {
   Object.assign(form, {
-    id: '', code: '', name: '', description: '', type: 'manual', segmentId: '',
-    storeId: '', offerType: 'none', offerId: '', channel: 'sms', messageTemplateId: '',
-    startsAt: '', endsAt: '',
+    id: '',
+    code: '',
+    name: '',
+    description: '',
+    type: 'manual',
+    segmentId: '',
+    storeId: '',
+    offerType: 'none',
+    offerId: '',
+    channel: 'sms',
+    messageTemplateId: '',
+    startsAt: '',
+    endsAt: '',
   })
   dialogVisible.value = true
 }
@@ -408,7 +428,7 @@ onMounted(() => {
     -->
     <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
       <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
-        <div class="px-4 py-3 border-b flex shrink-0 justify-between items-center">
+        <div class="px-4 py-3 border-b flex shrink-0 items-center justify-between">
           <div class="flex gap-2 items-center">
             <FaSelect
               v-model="statusFilter"
@@ -498,7 +518,7 @@ onMounted(() => {
       width="720px"
       @confirm="saveCampaign"
     >
-      <div class="grid grid-cols-2 gap-3 p-2">
+      <div class="p-2 gap-3 grid grid-cols-2">
         <FaLabel label="编码">
           <FaInput v-model="form.code" placeholder="如 CAMP_0628" />
         </FaLabel>
@@ -569,7 +589,7 @@ onMounted(() => {
       :show-confirm-button="!publishResult"
       @confirm="doPublish"
     >
-      <div v-if="!publishResult" class="grid grid-cols-1 gap-3 p-2">
+      <div v-if="!publishResult" class="p-2 gap-3 grid grid-cols-1">
         <FaLabel v-if="publishTarget?.type === 'manual'" label="手动名单(可搜索)">
           <FaSelect
             v-model="publishCustomerIds"
@@ -585,11 +605,11 @@ onMounted(() => {
         </p>
       </div>
       <div v-else class="p-2">
-        <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="text-sm gap-3 grid grid-cols-2">
           <div>运行批次:<span class="font-bold ml-1">#{{ publishResult.run_no }}</span></div>
           <div>触达人数:<span class="font-bold ml-1">{{ publishResult.audience_count }}</span></div>
           <div>规则版本:<span class="font-bold ml-1">{{ publishResult.rule_version }}</span></div>
-          <div>运行 ID:<span class="font-bold ml-1 text-xs">{{ publishResult.run_id.slice(0, 8) }}…</span></div>
+          <div>运行 ID:<span class="text-xs font-bold ml-1">{{ publishResult.run_id.slice(0, 8) }}…</span></div>
         </div>
       </div>
     </FaModal>

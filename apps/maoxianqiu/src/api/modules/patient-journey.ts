@@ -1,4 +1,4 @@
-import type { JourneyEvent, WorkbenchData, WorkbenchRole } from '@/types/patient-journey'
+import type { ClinicalPlanCommitInput, ClinicalPlanCommitResult, EncounterWorkspace, JourneyEvent, WorkbenchData, WorkbenchRole } from '@/types/patient-journey'
 import api from '../index'
 
 function commandContext(role: WorkbenchRole) {
@@ -10,17 +10,32 @@ function commandContext(role: WorkbenchRole) {
 }
 
 export default {
-  async getWorkbench(role: WorkbenchRole, storeId: string) {
-    const result = await api.get<WorkbenchData>(`/workbenches/${role}`, { params: { storeId } })
+  /** 岗位工作台:支持状态/关键词/分页,状态数量为服务端全量聚合 */
+  async getWorkbench(role: WorkbenchRole, input: { storeId: string, status?: string, keyword?: string, page?: number, pageSize?: number }) {
+    const result = await api.get<WorkbenchData>(`/workbenches/${role}`, { params: input })
     return (result as any).data as WorkbenchData
   },
   async getTimeline(encounterId: string) {
     const result = await api.get<{ list: JourneyEvent[] }>(`/clinical/encounters/${encounterId}/timeline`)
     return (result as any).data.list as JourneyEvent[]
   },
+  /** 患者完整工作区 DTO(医生工作台唯一患者数据源,浏览器不再跨表拼装) */
   async getWorkspace(encounterId: string) {
     const result = await api.get(`/clinical/encounters/${encounterId}/workspace`)
-    return (result as any).data as Record<string, any>
+    return (result as any).data as EncounterWorkspace
+  },
+  /** 诊疗方案原子提交:单个 Command 事务化落库处方/检验/影像/医嘱/收费/任务/事件 */
+  async commitClinicalPlan(encounterId: string, input: ClinicalPlanCommitInput) {
+    // 幂等键契约:body 与 idempotency-key header 使用同一个可复用键,
+    // 服务端以 header 优先,重复重试返回上次结果;调用方需在超时重试时复用同一键
+    const idempotencyKey = input.idempotencyKey ?? crypto.randomUUID()
+    const result = await api.post(`/clinical/encounters/${encounterId}/plan/commit`, {
+      ...input,
+      idempotencyKey,
+    }, {
+      headers: { 'idempotency-key': idempotencyKey },
+    })
+    return (result as any).data as ClinicalPlanCommitResult
   },
   async getQueueDisplay(storeId: string) {
     const result = await api.get<{ list: WorkbenchData['list'] }>('/clinical/queue/display', { params: { storeId } })

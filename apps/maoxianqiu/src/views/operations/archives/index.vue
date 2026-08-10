@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
-import apiArtifacts from '@/api/modules/document-artifacts'
-import apiStore from '@/api/modules/store'
-import { useAppTenantStore } from '@/store/modules/app/tenant'
 import type {
   DocumentArchive,
   SignatureRequest,
 } from '@/types/insurance'
+import apiArtifacts from '@/api/modules/document-artifacts'
+import apiStore from '@/api/modules/store'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
 import {
   ARCHIVE_STATUS_LABELS,
   SIGNATURE_STATUS_LABELS,
@@ -280,7 +280,7 @@ loadArchives()
           <FaInput v-model="signForm.signerEmail" placeholder="签署人邮箱(可选)" class="w-full" />
         </FaLabel>
       </div>
-      <div class="flex justify-end gap-2 pt-4">
+      <div class="pt-4 flex gap-2 justify-end">
         <FaButton @click="signVisible = false">
           取消
         </FaButton>

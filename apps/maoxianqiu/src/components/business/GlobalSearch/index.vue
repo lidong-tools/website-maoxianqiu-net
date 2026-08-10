@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { GlobalSearchResult } from '@/api/modules/search'
 import { serverGlobalSearch } from '@/api/modules/search'
-import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { useHotkeyBindings } from '@/hotkeys'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
 
 defineOptions({
   name: 'BusinessGlobalSearch',

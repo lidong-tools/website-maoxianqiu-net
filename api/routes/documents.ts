@@ -1,6 +1,7 @@
 import type { Context } from 'hono'
-import { createHash } from 'node:crypto'
 import type { AppEnv } from '../lib/types.js'
+import type { DocumentType, PaperSize } from '../services/documents/types.js'
+import { createHash } from 'node:crypto'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit.js'
@@ -15,11 +16,11 @@ import { getAdapter } from '../services/documents/adapters/index.js'
 import { renderDocument } from '../services/documents/index.js'
 import { validateTemplateHtml } from '../services/documents/renderer.js'
 import {
-  DOCUMENT_TYPES,
   DOCUMENT_TYPE_LABELS,
+  DOCUMENT_TYPES,
+
   PAPER_SIZES,
-  type DocumentType,
-  type PaperSize,
+
 } from '../services/documents/types.js'
 
 /**

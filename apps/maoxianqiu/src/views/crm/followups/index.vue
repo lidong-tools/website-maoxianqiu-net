@@ -229,7 +229,7 @@ const tableColumns = computed<TableColumn<FollowupTaskRecord>[]>(() => [
       <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
         <div class="px-4 pt-3 border-b shrink-0">
           <FaTabs v-model="activeBucket" :list="BUCKETS" class="mb-2" @update:model-value="onBucketChange" />
-          <div class="flex flex-wrap gap-3 items-center pb-3">
+          <div class="pb-3 flex flex-wrap gap-3 items-center">
             <FaInput
               v-model="search.keyword"
               placeholder="客户姓名 / 手机号"

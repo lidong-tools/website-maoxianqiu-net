@@ -140,7 +140,7 @@ export async function resolveMeContext(c: Context<AppEnv>): Promise<MeContext> {
 
   // ===== 平台管理员分支:跨租户,列出全部租户/门店,不强制默认门店 =====
   if (isPlatformAdmin) {
-    const { permissions } = await loadPlatformAdminPermissions(service, user.id)
+    const { permissions: platformPerms } = await loadPlatformAdminPermissions(service, user.id)
     const { data: tenantRows, error: tErr } = await service
       .from('tenants')
       .select('id, name, status, trial_ends_at')
@@ -165,27 +165,142 @@ export async function resolveMeContext(c: Context<AppEnv>): Promise<MeContext> {
       }
       stores = (storeRows ?? []) as StoreRow[]
     }
-    return {
-      user: { id: user.id, name, email: user.email ?? '' },
-      mode: 'platform',
-      platformRoles,
-      tenants: tenants.map(t => ({
+
+    // ===== 平台管理员同时作为租户员工时,合并其业务角色权限 =====
+    // 与租户分支同一套聚合模型:platform_admin 账号在自身门店执行业务
+    // (如医生接诊 queue.call)时,前端权限列表不能只含 system_admin 平台模板。
+    const { data: empRows, error: empErr } = await service
+      .from('employees')
+      .select('id, tenant_id')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+    if (empErr) {
+      throw err.internal(`查询员工档案失败: ${empErr.message}`)
+    }
+    const employees = (empRows ?? []) as Array<{ id: string, tenant_id: string }>
+    let era: EraRow[] = []
+    if (employees.length > 0) {
+      const { data: eraRows, error: eraErr } = await service
+        .from('employee_role_assignments')
+        .select('employee_id, tenant_id, store_id, role_id, roles(id, code, scope, permissions)')
+        .in('employee_id', employees.map(e => e.id))
+      if (eraErr) {
+        throw err.internal(`查询角色分配失败: ${eraErr.message}`)
+      }
+      era = (eraRows ?? []) as EraRow[]
+    }
+
+    const rolePermMap = await buildRolePermMap(service, [...new Set(era.map(r => r.role_id))])
+    const rolePermCodeMap = new Map<string, string[]>()
+    for (const r of era) {
+      const role = asSingle(r.roles)
+      if (!role) {
+        continue
+      }
+      const codes = new Set<string>([
+        ...(rolePermMap.get(r.role_id) ?? []),
+        ...(role.permissions ?? []),
+      ])
+      rolePermCodeMap.set(r.role_id, [...codes])
+    }
+    const resolvePerms = (roleIds: string[]): string[] => {
+      const out = new Set<string>()
+      for (const rid of roleIds) {
+        for (const p of rolePermCodeMap.get(rid) ?? []) {
+          out.add(p)
+        }
+      }
+      return [...out]
+    }
+
+    const globalPerms = new Set<string>(platformPerms)
+    const mappedTenants = tenants.map((t) => {
+      const empIds = new Set(employees.filter(e => e.tenant_id === t.id).map(e => e.id))
+      if (empIds.size === 0) {
+        return {
+          id: t.id,
+          name: t.name,
+          roles: [],
+          permissions: [],
+          stores: stores
+            .filter(s => s.tenant_id === t.id)
+            .map(s => ({
+              id: s.id,
+              name: s.name,
+              code: s.code ?? undefined,
+              isPrimary: false,
+              roles: [],
+              permissions: [],
+            })),
+        }
+      }
+      const tenantWideRoles: string[] = []
+      const storeRoleByStore = new Map<string, string[]>()
+      for (const r of era) {
+        if (!empIds.has(r.employee_id) || r.tenant_id !== t.id) {
+          continue
+        }
+        const role = asSingle(r.roles)
+        if (!role) {
+          continue
+        }
+        if (r.store_id === null && (role.scope === 'system' || role.scope === 'tenant')) {
+          tenantWideRoles.push(r.role_id)
+        }
+        else if (r.store_id !== null && role.scope === 'store') {
+          const arr = storeRoleByStore.get(r.store_id) ?? []
+          arr.push(r.role_id)
+          storeRoleByStore.set(r.store_id, arr)
+        }
+      }
+      const tenantWideRoleIds = [...new Set(tenantWideRoles)]
+      const tenantWidePerms = resolvePerms(tenantWideRoleIds)
+      for (const p of tenantWidePerms) {
+        globalPerms.add(p)
+      }
+      const hasTenantWide = tenantWideRoleIds.length > 0
+      const storePool = hasTenantWide
+        ? stores.filter(s => s.tenant_id === t.id)
+        : stores.filter(s => s.tenant_id === t.id && storeRoleByStore.has(s.id))
+      return {
         id: t.id,
         name: t.name,
-        roles: [],
-        permissions: [],
-        stores: stores
-          .filter(s => s.tenant_id === t.id)
-          .map(s => ({
+        roles: [...new Set(era
+          .filter(r => r.tenant_id === t.id && empIds.has(r.employee_id) && tenantWideRoleIds.includes(r.role_id))
+          .map(r => asSingle(r.roles)?.code)
+          .filter((x): x is string => !!x))],
+        permissions: [...tenantWidePerms],
+        stores: storePool.map((s) => {
+          const storeRoleIds = storeRoleByStore.get(s.id) ?? []
+          const roleIds = [...new Set([...tenantWideRoleIds, ...storeRoleIds])]
+          const perms = resolvePerms(roleIds)
+          for (const p of perms) {
+            globalPerms.add(p)
+          }
+          const codes = [
+            ...new Set(era
+              .filter(r => r.tenant_id === t.id && empIds.has(r.employee_id) && roleIds.includes(r.role_id))
+              .map(r => asSingle(r.roles)?.code)
+              .filter((x): x is string => !!x)),
+          ]
+          return {
             id: s.id,
             name: s.name,
             code: s.code ?? undefined,
             isPrimary: false,
-            roles: [],
-            permissions: [],
-          })),
-      })),
-      permissions,
+            roles: codes,
+            permissions: perms,
+          }
+        }),
+      }
+    })
+
+    return {
+      user: { id: user.id, name, email: user.email ?? '' },
+      mode: 'platform',
+      platformRoles,
+      tenants: mappedTenants,
+      permissions: [...globalPerms],
     }
   }
 

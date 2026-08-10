@@ -2,8 +2,8 @@
 import type { TableColumn } from '@fantastic-admin/components'
 import type { ExpiringRow, InventoryReport, LowStockRow } from '@/types/analytics'
 import apiAnalytics from '@/api/modules/analytics'
-import { useAnalyticsContext } from '@/composables/business/useAnalyticsContext'
 import AnalyticsKpiCard from '@/components/analytics/KpiCard.vue'
+import { useAnalyticsContext } from '@/composables/business/useAnalyticsContext'
 import { formatMoney } from '@/utils/format'
 
 defineOptions({
@@ -109,16 +109,16 @@ async function onExport() {
 
 <template>
   <FaPageMain>
-    <div class="mb-4 flex flex-wrap items-center gap-3">
+    <div class="mb-4 flex flex-wrap gap-3 items-center">
       <FaLabel label="时间范围" class="mb-0">
-        <div class="flex items-center gap-2">
+        <div class="flex gap-2 items-center">
           <FaDatePicker v-model="startAt" type="date" value-type="format" class="w-36" />
           <span>至</span>
           <FaDatePicker v-model="endAt" type="date" value-type="format" class="w-36" />
         </div>
       </FaLabel>
       <FaTooltip v-if="canViewTenant" content="全院模式需要 analytics.view.tenant 权限">
-        <label class="flex cursor-pointer items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+        <label class="text-sm text-gray-600 flex gap-2 cursor-pointer items-center dark:text-gray-300">
           <FaSwitch v-model="allStores" size="sm" />
           全院
         </label>
@@ -135,11 +135,11 @@ async function onExport() {
       </FaButton>
     </div>
 
-    <div v-if="error" class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
+    <div v-if="error" class="text-sm text-red-600 mb-4 px-4 py-3 rounded-lg bg-red-50 dark:text-red-400 dark:bg-red-950/40">
       {{ error }}
     </div>
 
-    <div class="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+    <div class="gap-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
       <AnalyticsKpiCard
         v-for="kpi in report?.kpis ?? []"
         :key="kpi.key"
@@ -156,7 +156,7 @@ async function onExport() {
           :columns="lowStockColumns"
           :data="report?.lowStockRows ?? []"
         />
-        <div v-if="!loading && report && report.lowStockRows.length === 0" class="py-8 text-center text-sm text-gray-400">
+        <div v-if="!loading && report && report.lowStockRows.length === 0" class="text-sm text-gray-400 py-8 text-center">
           无缺货商品
         </div>
       </FaCard>
@@ -171,7 +171,7 @@ async function onExport() {
           :columns="expiringColumns"
           :data="report?.expiringRows ?? []"
         />
-        <div v-if="!loading && report && report.expiringRows.length === 0" class="py-8 text-center text-sm text-gray-400">
+        <div v-if="!loading && report && report.expiringRows.length === 0" class="text-sm text-gray-400 py-8 text-center">
           无近效期批次
         </div>
       </FaCard>

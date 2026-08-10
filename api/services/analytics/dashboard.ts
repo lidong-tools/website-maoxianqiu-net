@@ -13,16 +13,15 @@
  *   缺货 SKU / 近效期 = 见 inventory.ts(审计 #25:可用数量 ≤ 0 为缺货而非低库存)
  */
 import type { ServiceClient } from './common.js'
+import type { DashboardReport, RevenueFilters } from './types.js'
 import {
   dayKeyInTz,
   fetchAll,
   localDateToUTC,
-  resolvePeriod,
   toNum,
 } from './common.js'
-import { computeRevenueSummary, buildTrendFromRows } from './revenue.js'
 import { countExpiring, countLowStock } from './inventory.js'
-import type { DashboardReport, RevenueFilters } from './types.js'
+import { buildTrendFromRows, computeRevenueSummary } from './revenue.js'
 
 export async function buildDashboardReport(
   service: ServiceClient,
@@ -46,7 +45,7 @@ export async function buildDashboardReport(
     computeRevenueSummary(service, f),
     computeRevenueSummary(service, todayFilters),
     // 本月发票(会员贡献 + 趋势)分页拉全(审计 v2 §14)
-    fetchAll<{ customer_id: string | null; total: number; created_at: string }>('发票数据', (from, to) => service
+    fetchAll<{ customer_id: string | null, total: number, created_at: string }>('发票数据', (from, to) => service
       .from('invoices')
       .select('customer_id, total, created_at')
       .eq('tenant_id', f.tenantId)
@@ -57,7 +56,7 @@ export async function buildDashboardReport(
       .order('id', { ascending: true })
       .range(from, to)),
     // 客户(会员贡献 + 本月新增)分页拉全(审计 v2 §14)
-    fetchAll<{ id: string; created_at: string }>('客户数据', (from, to) => service
+    fetchAll<{ id: string, created_at: string }>('客户数据', (from, to) => service
       .from('customers')
       .select('id, created_at')
       .eq('tenant_id', f.tenantId)
@@ -97,7 +96,7 @@ export async function buildDashboardReport(
       .select('id, is_active')
       .eq('tenant_id', f.tenantId),
     // 当前有效会员关系(审计 #21 会员口径;分页拉全,审计 v2 §14)
-    fetchAll<{ customer_id: string; tier_id: string | null; expires_at: string | null }>('会员关系数据', (from, to) => service
+    fetchAll<{ customer_id: string, tier_id: string | null, expires_at: string | null }>('会员关系数据', (from, to) => service
       .from('customer_memberships')
       .select('customer_id, tier_id, expires_at')
       .eq('tenant_id', f.tenantId)
@@ -120,7 +119,7 @@ export async function buildDashboardReport(
 
   // 会员贡献:有效会员关系(customer_memberships,未过期)客户的本月消费
   const activeTierIds = new Set(
-    ((tierRes.data as Array<{ id: string; is_active: boolean }> | null) ?? [])
+    ((tierRes.data as Array<{ id: string, is_active: boolean }> | null) ?? [])
       .filter(t => t.is_active)
       .map(t => t.id),
   )
@@ -145,7 +144,7 @@ export async function buildDashboardReport(
     .reduce((s, inv) => s + toNum(inv.total), 0)
 
   // 本月每日趋势(迷你图):退款分页拉全(审计 v2 §14);refunds 无 store_id,经发票 join 收敛门店
-  const refundRows = await fetchAll<{ amount: number; created_at: string }>('退款数据', (from, to) => service
+  const refundRows = await fetchAll<{ amount: number, created_at: string }>('退款数据', (from, to) => service
     .from('refunds')
     .select('amount, created_at, invoices!inner(store_id)')
     .eq('tenant_id', f.tenantId)

@@ -1,4 +1,3 @@
-import api from '../index'
 import type {
   AnalyticsGroupBy,
   ClinicalReport,
@@ -8,6 +7,7 @@ import type {
   RevenueDimension,
   RevenueReport,
 } from '@/types/analytics'
+import api from '../index'
 
 /**
  * S32-B 经营报表与驾驶舱 领域 API 模块
@@ -80,8 +80,8 @@ export default {
     const url = `${base.replace(/\/$/, '')}/analytics/export?${qs.toString()}`
     const res = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${accountStore.token}`,
-        Token: accountStore.token,
+        'Authorization': `Bearer ${accountStore.token}`,
+        'Token': accountStore.token,
         'X-Tenant-Id': tenantStore.currentTenantId,
         'X-Store-Id': tenantStore.currentStoreId,
       },

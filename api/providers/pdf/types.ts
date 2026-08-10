@@ -41,5 +41,5 @@ export interface PdfProvider {
    *   - 输入 HTML 不允许加载任何网络资源(SSRF 防护);
    *   - 返回的 bytes 可被重复消费(同一输入 + 同一 Provider → 尽量确定性输出)。
    */
-  renderHtml(html: string, opts?: PdfRenderOptions): Promise<PdfRenderResult>
+  renderHtml: (html: string, opts?: PdfRenderOptions) => Promise<PdfRenderResult>
 }

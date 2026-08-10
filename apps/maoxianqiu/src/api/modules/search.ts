@@ -1,5 +1,5 @@
-import api from '../index'
 import { supabase } from '@/lib/supabase'
+import api from '../index'
 
 /**
  * 业务全局搜索 API 模块(CORE-03)

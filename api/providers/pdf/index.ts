@@ -1,5 +1,5 @@
-import process from 'node:process'
 import type { PdfProvider } from './types.js'
+import process from 'node:process'
 import { externalPdfProvider } from './external.js'
 import { mockPdfProvider } from './mock.js'
 

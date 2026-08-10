@@ -1,5 +1,5 @@
-import dayjs from 'dayjs'
 import type { AnalyticsQuery } from '@/api/modules/analytics'
+import dayjs from 'dayjs'
 
 /**
  * S32-B 经营报表 页面共享上下文

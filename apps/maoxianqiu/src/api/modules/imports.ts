@@ -1,8 +1,3 @@
-/**
- * Import Center V2 API（S32-A）
- * 数据迁移：模板下载 / 上传 / 映射 / 校验 / 执行 / 结果 / 取消
- */
-import api from '../index'
 import type {
   ImportErrorRow,
   ImportJob,
@@ -11,6 +6,11 @@ import type {
   UploadResult,
   ValidateResult,
 } from '@/types/imports'
+/**
+ * Import Center V2 API（S32-A）
+ * 数据迁移：模板下载 / 上传 / 映射 / 校验 / 执行 / 结果 / 取消
+ */
+import api from '../index'
 
 export interface ImportListParams {
   tenantId: string

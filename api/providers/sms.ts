@@ -1,11 +1,8 @@
+import type { MessageChannel, MessagingProvider, MessagingWebhookProvider, ProviderSendInput, ProviderSendResult, ProviderWebhookEvent } from './types.js'
 import {
+
   ProviderError,
-  type MessageChannel,
-  type MessagingProvider,
-  type MessagingWebhookProvider,
-  type ProviderSendInput,
-  type ProviderSendResult,
-  type ProviderWebhookEvent,
+
 } from './types.js'
 
 /**
@@ -117,10 +114,10 @@ export class SmsMessagingProvider implements MessagingProvider, MessagingWebhook
     const list = Array.isArray(body) ? body : [body]
     const events: ProviderWebhookEvent[] = []
     for (const item of list) {
-      if (!item || typeof item !== 'object') continue
+      if (!item || typeof item !== 'object') { continue }
       const record = item as Record<string, unknown>
       const providerEventId = typeof record.providerEventId === 'string' ? record.providerEventId : null
-      if (!providerEventId) continue
+      if (!providerEventId) { continue }
       const rawType = typeof record.eventType === 'string' ? record.eventType : 'unknown'
       const eventType = rawType === 'delivered' || rawType === 'failed' || rawType === 'bounced'
         ? rawType

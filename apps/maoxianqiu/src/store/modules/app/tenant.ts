@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import { supabase } from '@/lib/supabase'
 import apiMe from '@/api/modules/me'
+import { supabase } from '@/lib/supabase'
 
 /**
  * 当前租户/门店上下文(仅 UI 偏好与工作上下文,不是权限依据)。

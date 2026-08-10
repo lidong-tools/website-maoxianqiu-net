@@ -21,25 +21,26 @@
  */
 import type { Context } from 'hono'
 import type { AppEnv } from '../lib/types.js'
+import type { CsvColumn } from '../services/analytics/csv.js'
+import type { RevenueFilters } from '../services/analytics/types.js'
 import { Hono } from 'hono'
-import { err } from '../lib/errors.js'
 import { writeAudit } from '../lib/audit.js'
+import { err } from '../lib/errors.js'
+import { requireScopedPermission } from '../lib/permission.js'
 import { loadContext } from '../lib/request-context.js'
 import { ok } from '../lib/result.js'
 import { createServiceClient } from '../lib/supabase.js'
 import { authMiddleware, loadCaller } from '../middlewares/auth.js'
+import { buildClinicalReport } from '../services/analytics/clinical.js'
 import {
   resolveAnalyticsScope,
   resolvePeriod,
 } from '../services/analytics/common.js'
-import type { RevenueFilters } from '../services/analytics/types.js'
-import { buildDashboardReport } from '../services/analytics/dashboard.js'
-import { buildRevenueReport } from '../services/analytics/revenue.js'
+import { safeFilename, toCsv } from '../services/analytics/csv.js'
 import { buildCustomerReport } from '../services/analytics/customers.js'
-import { buildClinicalReport } from '../services/analytics/clinical.js'
+import { buildDashboardReport } from '../services/analytics/dashboard.js'
 import { buildInventoryReport } from '../services/analytics/inventory.js'
-import { safeFilename, toCsv, type CsvColumn } from '../services/analytics/csv.js'
-import { requireScopedPermission } from '../lib/permission.js'
+import { buildRevenueReport } from '../services/analytics/revenue.js'
 
 const analyticsRoutes = new Hono<AppEnv>()
 
