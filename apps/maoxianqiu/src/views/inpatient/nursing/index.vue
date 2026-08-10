@@ -6,6 +6,7 @@ import BusinessAdmissionPicker from '@/components/business/AdmissionPicker/index
 import BusinessEmployeePicker from '@/components/business/EmployeePicker/index.vue'
 import EntityStatusTag from '@/components/business/EntityStatusTag/index.vue'
 import BusinessPetPicker from '@/components/business/PetPicker/index.vue'
+import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import {
   NURSING_FREQUENCY_LABELS,
@@ -23,6 +24,68 @@ const submitting = ref(false)
 
 // 选中住院 id 用于查护理计划/任务
 const selectedAdmissionId = ref('')
+
+/** 选中住院记录完整信息(用于取 pet_id 创建计划/任务) */
+const selectedAdmission = ref<{ id: string, pet_id: string, pet_name: string } | null>(null)
+
+/** 当前门店在院患者列表(供快速选择住院记录) */
+const admittedList = ref<Array<{ id: string, pet_id: string, pet_name: string }>>([])
+
+/**
+ * 选择住院记录后加载其详情(取 pet_id,自动回填新建计划表单)
+ * @param admissionId 住院记录 id
+ */
+async function onSelectAdmission(admissionId: string) {
+  if (!admissionId) {
+    selectedAdmission.value = null
+    plans.value = []
+    tasks.value = []
+    return
+  }
+  const { data } = await supabase
+    .from('admissions')
+    .select('id, pet_id, pet:pets(name)')
+    .eq('id', admissionId)
+    .maybeSingle()
+  selectedAdmission.value = {
+    id: admissionId,
+    pet_id: (data as any)?.pet_id ?? '',
+    pet_name: (data as any)?.pet?.name ?? '',
+  }
+  // 自动回填新建护理计划的宠物(仍允许手动修改)
+  if (selectedAdmission.value.pet_id) {
+    newPlan.petId = selectedAdmission.value.pet_id
+  }
+  await loadData()
+}
+
+/**
+ * 加载当前门店在院患者列表,供快捷选择住院记录
+ */
+async function loadAdmittedList() {
+  if (!tenantStore.currentStoreId) {
+    admittedList.value = []
+    return
+  }
+  try {
+    const res = await apiInpatient.listAdmissions(tenantStore.currentStoreId, 'admitted')
+    const rows = res.data.list as Array<{ id: string, pet_id: string }>
+    const petIds = [...new Set(rows.map(r => r.pet_id).filter(Boolean))]
+    const petMap: Record<string, string> = {}
+    if (petIds.length) {
+      const { data } = await supabase.from('pets').select('id, name').in('id', petIds)
+      data?.forEach((p: any) => { petMap[p.id] = p.name })
+    }
+    admittedList.value = rows.map(r => ({
+      id: r.id,
+      pet_id: r.pet_id,
+      pet_name: petMap[r.pet_id] ?? r.pet_id.slice(0, 8),
+    }))
+  }
+  catch {
+    admittedList.value = []
+  }
+}
 
 // 护理计划与任务
 const plans = ref<NursingPlan[]>([])
@@ -176,10 +239,10 @@ async function onCreateTask() {
   }
   submitting.value = true
   try {
-    // 从护理计划中取 pet_id(若没有计划,需要用户填写;此处从已加载的计划取第一条)
-    const petId = plans.value[0]?.pet_id ?? ''
+    // 从所选住院记录取 pet_id,不再依赖第一条护理计划(无计划也可创建任务)
+    const petId = selectedAdmission.value?.pet_id ?? ''
     if (!petId) {
-      useFaToast().warning('请先创建护理计划或选择宠物')
+      useFaToast().warning('住院记录缺少宠物信息,请重新选择住院记录')
       return
     }
     await apiInpatient.createNursingTask({
@@ -260,21 +323,27 @@ async function onSkipTask(row: NursingTask) {
   })
 }
 
-onMounted(() => {
-  // 不预加载,等用户填写住院 ID 后查询
+onMounted(async () => {
+  // 加载当前门店在院患者列表,供快速选择住院记录(替代原"等待填写住院 ID"的空转行为)
+  await loadAdmittedList()
 })
 
 // P0-06:切店后重置所选住院记录并清空列表(避免跨门店数据残留)
 useStoreScopedPage({
-  load: loadData,
+  load: async () => {
+    await loadAdmittedList()
+    await loadData()
+  },
   reset: () => {
     selectedAdmissionId.value = ''
+    selectedAdmission.value = null
   },
 })
 </script>
 
 <template>
   <div class="flex flex-col h-full">
+    <!--
     <EntityPageHeader compact title="护理管理" description="护理计划与任务 · 按住院记录工作">
       <template #actions>
         <FaButton size="sm" @click="loadData">
@@ -283,13 +352,14 @@ useStoreScopedPage({
         </FaButton>
       </template>
     </EntityPageHeader>
+    -->
 
     <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
       <!-- 选择住院记录 -->
       <div class="p-4 border rounded-lg bg-card">
         <div class="gap-3 grid grid-cols-1 items-end md:grid-cols-3">
           <FaLabel label="住院记录">
-            <BusinessAdmissionPicker v-model="selectedAdmissionId" placeholder="搜索选择住院记录" />
+            <BusinessAdmissionPicker v-model="selectedAdmissionId" placeholder="搜索选择住院记录" @change="(v) => onSelectAdmission(v ? String(v) : '')" />
           </FaLabel>
           <div class="flex gap-2">
             <FaButton type="primary" @click="loadData">
@@ -297,6 +367,20 @@ useStoreScopedPage({
               查询
             </FaButton>
           </div>
+        </div>
+        <!-- 当前在院患者快捷选择 -->
+        <div v-if="admittedList.length" class="mt-3 flex flex-wrap gap-2 items-center">
+          <span class="text-xs text-muted-foreground">当前在院:</span>
+          <FaButton
+            v-for="adm in admittedList"
+            :key="adm.id"
+            size="sm"
+            variant="outline"
+            :class="selectedAdmissionId === adm.id ? 'border-primary text-primary' : ''"
+            @click="onSelectAdmission(adm.id)"
+          >
+            {{ adm.pet_name }}
+          </FaButton>
         </div>
       </div>
 

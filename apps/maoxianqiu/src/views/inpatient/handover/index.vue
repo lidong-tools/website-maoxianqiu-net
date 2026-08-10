@@ -66,7 +66,7 @@ const tableColumns = computed<TableColumn<ShiftHandover>[]>(() => [
   {
     id: 'operation',
     header: '操作',
-    width: 160,
+    width: 220,
     align: 'center',
     fixed: 'right',
   },
@@ -166,6 +166,32 @@ function onEdit(row: ShiftHandover) {
     : ''
 }
 
+/**
+ * 确认交接班(接班人确认收到交接内容)
+ * 走 Hono Command 写 acknowledged_at/acknowledged_by,幂等
+ * @param row 交接班记录
+ */
+function onAck(row: ShiftHandover) {
+  if (row.acknowledged_at) {
+    useFaToast().warning('该交接班已确认')
+    return
+  }
+  useFaModal().confirm({
+    title: '确认交接',
+    content: `确认已收到 ${SHIFT_TYPE_LABELS[row.shift_type]} 班次(${row.shift_date})的交接内容？`,
+    onConfirm: async () => {
+      try {
+        await apiInpatient.ackHandover(row.id)
+        useFaToast().success('交接班已确认')
+        await loadData()
+      }
+      catch {
+        // 错误已由全局拦截器提示
+      }
+    },
+  })
+}
+
 // P0-06:切店后按新门店重载交接班列表
 useStoreScopedPage({
   load: loadData,
@@ -180,7 +206,9 @@ onMounted(async () => {
 
 <template>
   <div>
+    <!--
     <EntityPageHeader compact title="交接班" description="班次交接记录 · 同班次多次保存更新摘要" />
+    -->
     <FaPageMain>
       <!-- 新建/编辑交接班表单 -->
       <div class="mb-4 p-4 border rounded-lg bg-muted/30">
@@ -255,6 +283,15 @@ onMounted(async () => {
               </FaButton>
               <FaButton variant="outline" size="icon-sm" @click="onEdit(row.original)">
                 <FaIcon name="i-ri:edit-line" />
+              </FaButton>
+              <FaButton
+                v-if="!row.original.acknowledged_at"
+                type="primary"
+                size="sm"
+                @click="onAck(row.original)"
+              >
+                <FaIcon name="i-ri:check-double-line" />
+                确认交接
               </FaButton>
             </div>
           </template>

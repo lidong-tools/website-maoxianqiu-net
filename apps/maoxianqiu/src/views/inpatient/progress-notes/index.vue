@@ -3,6 +3,7 @@ import type { TableColumn } from '@fantastic-admin/components'
 import type { ProgressNoteStatus, ProgressNoteType } from '@/types/inpatient'
 import apiInpatient from '@/api/modules/inpatient'
 import apiStore from '@/api/modules/store'
+import BusinessAdmissionPicker from '@/components/business/AdmissionPicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { PROGRESS_NOTE_STATUS_COLORS, PROGRESS_NOTE_STATUS_LABELS, PROGRESS_NOTE_TYPE_LABELS } from '@/types/inpatient'
 
@@ -39,7 +40,6 @@ const search = ref({
 
 /** 记录病程弹窗 */
 const createVisible = ref(false)
-const admissionOptions = ref<Array<{ label: string, value: string }>>([])
 const createForm = reactive({
   admissionId: '',
   content: '',
@@ -62,22 +62,6 @@ async function loadStoreOptions() {
   }
   catch {
     storeOptions.value = [{ label: '全部门店', value: '' }]
-  }
-}
-
-/**
- * 加载住院中(admitted)的入院记录,供选择
- */
-async function loadAdmissionOptions() {
-  try {
-    const res: any = await apiInpatient.listAdmissions(search.value.storeId || undefined, 'admitted')
-    admissionOptions.value = (res.data.list ?? []).map((a: any) => ({
-      label: `${a.id?.slice(0, 8) ?? '-'} (${a.pet_id?.slice(0, 8) ?? '-'})`,
-      value: a.id,
-    }))
-  }
-  catch {
-    admissionOptions.value = []
   }
 }
 
@@ -132,7 +116,7 @@ function searchReset() {
 }
 
 /**
- * 打开记录病程弹窗并加载住院记录
+ * 打开记录病程弹窗并重置表单(住院记录由 AdmissionPicker 远程搜索选择)
  */
 function openCreate() {
   createForm.admissionId = ''
@@ -140,7 +124,6 @@ function openCreate() {
   createForm.noteType = 'daily'
   createForm.recordedAt = ''
   createVisible.value = true
-  loadAdmissionOptions()
 }
 
 /**
@@ -311,7 +294,7 @@ const tableColumns = computed<TableColumn<ProgressNoteRow>[]>(() => [
     <FaModal v-model:visible="createVisible" title="记录病程" :loading="creating" @confirm="onCreate">
       <div class="space-y-3">
         <FaLabel label="住院记录" required>
-          <FaSelect v-model="createForm.admissionId" :options="admissionOptions" class="w-full" placeholder="选择住院中的记录" />
+          <BusinessAdmissionPicker v-model="createForm.admissionId" status="admitted" placeholder="搜索选择在院记录" class="w-full" />
         </FaLabel>
         <FaLabel label="病程类型">
           <FaSelect

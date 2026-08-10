@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * AdmissionPicker — 住院记录搜索选择器
- * 支持按 admission_no 或关联宠物名模糊搜索
+ * 按关联宠物名模糊搜索;可选按住院状态过滤(如仅 admitted)
  */
 import type { AcceptableValue } from 'reka-ui'
 import { supabase } from '@/lib/supabase'
@@ -11,12 +11,15 @@ defineOptions({
   name: 'BusinessAdmissionPicker',
 })
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   placeholder?: string
   disabled?: boolean
+  /** 仅列出指定状态的住院记录(如 admitted),为空则不限状态 */
+  status?: string
 }>(), {
   placeholder: '搜索选择住院记录',
   disabled: false,
+  status: '',
 })
 
 const emit = defineEmits<{
@@ -34,7 +37,8 @@ const options = ref<AdmissionOption[]>([])
 const searchKeyword = ref('')
 
 /**
- * 搜索住院记录(按 admission_no 或关联宠物名模糊匹配)
+ * 搜索住院记录(按关联宠物名模糊匹配)
+ * 注意:admissions 表无 admission_no 列,只能按宠物名/宠物 ID 匹配
  */
 async function searchAdmissions(keyword: string) {
   if (!keyword.trim()) {
@@ -53,24 +57,27 @@ async function searchAdmissions(keyword: string) {
 
     const petIds = (matchedPets ?? []).map((p: any) => p.id)
 
-    // 构建 OR 条件:admission_no 模糊匹配 OR pet_id 在匹配列表中
-    const orConditions: string[] = []
-    orConditions.push(`admission_no.ilike.%${trimmed}%`)
-    if (petIds.length > 0) {
-      orConditions.push(`pet_id.in.(${petIds.join(',')})`)
+    // 无匹配宠物则直接返回空列表(避免对不存在的列构造 OR 条件导致 400)
+    if (petIds.length === 0) {
+      options.value = []
+      return
     }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('admissions')
-      .select('id, admission_no, status, pet:pets(name)')
-      .or(orConditions.join(','))
-      .limit(20)
+      .select('id, admitted_at, status, pet:pets(name)')
+      .in('pet_id', petIds)
+    // 指定状态时才过滤(为空不限状态,避免空值 eq 导致无结果)
+    if (props.status) {
+      query = query.eq('status', props.status)
+    }
+    const { data, error } = await query.limit(20)
 
     if (error) {
       throw new Error(error.message)
     }
     options.value = (data ?? []).map((adm: any) => ({
-      label: `${adm.admission_no ?? adm.id.slice(0, 8)} ${(adm.pet as any)?.name ?? ''} (${ADMISSION_STATUS_LABELS[adm.status as keyof typeof ADMISSION_STATUS_LABELS] ?? adm.status})`,
+      label: `${(adm.pet as any)?.name ?? ''} · ${adm.admitted_at ? new Date(adm.admitted_at).toLocaleDateString('zh-CN') : ''} (${ADMISSION_STATUS_LABELS[adm.status as keyof typeof ADMISSION_STATUS_LABELS] ?? adm.status})`,
       value: adm.id,
     }))
   }

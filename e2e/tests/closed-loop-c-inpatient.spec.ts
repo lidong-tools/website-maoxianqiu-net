@@ -16,10 +16,11 @@ import { ensureChromium } from '../helpers/browser'
 test.skip(!ensureChromium(), 'Chromium 浏览器未安装且未设置 E2E_OPTIONAL=true')
 
 /**
- * 闭环 C: 入院 → 房位占用 → 护理任务 → 换房 → 自动计费 → 出院
+ * 闭环 C: 入院 → 房位占用 → 护理任务 → 换房 → 自动计费 → 结算出院
  *
  * P0-09 新增:
  *   - 入院/换房/自动计费/出院走 Hono Command + RPC(真实业务链路)
+ *   - 出院统一走结算闭环:prepare → settle → finalize(不再直接调 discharge)
  *   - 护理任务沿用前端"浏览器直连"模式:supabaseInsert 创建 + REST PATCH 流转状态(RLS 兜底)
  *   - 每阶段用 Supabase REST 断言笼位状态/住院记录/换房历史/计费流水
  *   - 笼位费率 > 0 时才断言计费金额,费率 0 的笼位跳过费用断言(RPC 设计如此)
@@ -27,7 +28,8 @@ test.skip(!ensureChromium(), 'Chromium 浏览器未安装且未设置 E2E_OPTION
  *
  * 运行前提:
  *   - 后端 API 可达(默认页面 origin + /api,可用 E2E_API_BASE 覆盖)
- *   - E2E_USERNAME / E2E_PASSWORD 具备 inpatient.* / nursing.* / customer.create 等权限
+ *   - E2E_USERNAME / E2E_PASSWORD 具备 inpatient.* / nursing.* / settlement.write /
+ *     settlement.execute / customer.create 等权限
  *   - seed 数据包含至少 2 个 available 笼位(若不足则跳过)
  */
 test.describe('闭环 C — 住院闭环(串行)', () => {
@@ -205,21 +207,34 @@ test.describe('闭环 C — 住院闭环(串行)', () => {
       expect(charges[0].is_auto).toBe(true)
     }
 
-    /* ========== 6. 出院:API → 笼位释放 + 费用汇总断言 ========== */
-    console.log('[闭环C] 步骤6 出院')
-    const dischargeRes = (await api.post('/inpatient/discharge', {
-      admissionId,
-      dischargeReason: '康复出院',
-      dischargeNotes: 'E2E 出院',
-      idempotencyKey: newIdemKey('e2e-c-discharge'),
-    })) as { data: { status: string, totalCharge: number } }
-    expect(dischargeRes.data.status).toBe('discharged')
-    const admissionDone = (await supabaseSelect<{ status: string, discharged_at: string | null, total_charge: number }[]>(
+    /* ========== 6. 结算出院:prepare → settle → finalize ========== */
+    console.log('[闭环C] 步骤6 结算出院(prepare→settle→finalize)')
+    // 6.1 生成结算单
+    const prepareRes = (await api.post(`/inpatient/admissions/${admissionId}/settlement/prepare`, {})) as {
+      data: { settlementStatus: string, settlementNo: string, receivableAmount: number }
+    }
+    expect(prepareRes.data.settlementStatus).toBe('prepared')
+    expect(prepareRes.data.settlementNo).toBeTruthy()
+    const receivable = prepareRes.data.receivableAmount
+    // 6.2 收款结算(全额支付:押金/减免默认 0,应付 = 应收)
+    const settleRes = (await api.post(`/inpatient/admissions/${admissionId}/settlement/settle`, {
+      paidAmount: receivable,
+      paymentMethod: 'cash',
+    })) as { data: { settlementStatus: string } }
+    expect(settleRes.data.settlementStatus).toBe('settled')
+    // 6.3 完成结算并出院(联动释放笼位 + total_charge 同步)
+    const finalizeRes = (await api.post(`/inpatient/admissions/${admissionId}/settlement/finalize`, {})) as {
+      data: { status: string, settlementStatus: string }
+    }
+    expect(finalizeRes.data.status).toBe('discharged')
+    expect(finalizeRes.data.settlementStatus).toBe('finalized')
+    const admissionDone = (await supabaseSelect<{ status: string, discharged_at: string | null, total_charge: number, settlement_status: string }[]>(
       page,
       'admissions',
-      `select=status,discharged_at,total_charge&id=eq.${admissionId}`,
+      `select=status,discharged_at,total_charge,settlement_status&id=eq.${admissionId}`,
     ))
     expect(admissionDone[0].status).toBe('discharged')
+    expect(admissionDone[0].settlement_status).toBe('finalized')
     expect(admissionDone[0].discharged_at).toBeTruthy()
     // 笼位 B 已释放(REST 可见性可能有延迟,轮询断言)
     await expect

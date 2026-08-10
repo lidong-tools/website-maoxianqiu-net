@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { CageStatusView } from '@/types/inpatient'
 import apiInpatient from '@/api/modules/inpatient'
+import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { CAGE_STATUS_COLORS, CAGE_STATUS_LABELS, CAGE_TYPE_LABELS, ROOM_TYPE_LABELS } from '@/types/inpatient'
 
@@ -9,8 +10,80 @@ defineOptions({
 })
 
 const tenantStore = useAppTenantStore()
+const router = useRouter()
 const loading = ref(false)
 const cageStatusList = ref<CageStatusView[]>([])
+
+// 占用笼位详情 Drawer
+const detailVisible = ref(false)
+const detailCage = ref<CageStatusView | null>(null)
+const detailPetName = ref('')
+const detailCustomerName = ref('')
+const detailDoctorName = ref('')
+
+/**
+ * 点击笼位卡片:占用 → 打开详情 Drawer;空闲/维护/清洁 → 跳入院登记
+ * @param cage 笼位状态视图记录
+ */
+async function onCageClick(cage: CageStatusView) {
+  if (cage.cage_status !== 'occupied' || !cage.current_admission_id) {
+    router.push('/inpatient/admission')
+    return
+  }
+  await openCageDetail(cage)
+}
+
+/**
+ * 打开占用笼位详情 Drawer,补查宠物/主人/主治医生名称
+ * @param cage 笼位状态视图记录
+ */
+async function openCageDetail(cage: CageStatusView) {
+  detailCage.value = cage
+  detailPetName.value = ''
+  detailCustomerName.value = ''
+  detailDoctorName.value = ''
+  detailVisible.value = true
+  // 并行补查关联名称
+  const queries: Array<PromiseLike<unknown>> = []
+  if (cage.pet_id) {
+    queries.push(supabase.from('pets').select('name').eq('id', cage.pet_id).maybeSingle()
+      .then(({ data }) => { detailPetName.value = (data as any)?.name ?? '' }))
+  }
+  if (cage.customer_id) {
+    queries.push(supabase.from('customers').select('name').eq('id', cage.customer_id).maybeSingle()
+      .then(({ data }) => { detailCustomerName.value = (data as any)?.name ?? '' }))
+  }
+  if (cage.doctor_id) {
+    queries.push(supabase.from('employees').select('name').eq('id', cage.doctor_id).maybeSingle()
+      .then(({ data }) => { detailDoctorName.value = (data as any)?.name ?? '' }))
+  }
+  await Promise.allSettled(queries)
+}
+
+/**
+ * 跳转到指定住院子页面
+ * @param path 目标路径
+ */
+function goTo(path: string) {
+  detailVisible.value = false
+  router.push(path)
+}
+
+/** 占用笼位详情项(宠物/主人/主治医生/入院时间/入院原因/日费率) */
+const cageDetailItems = computed(() => {
+  const cage = detailCage.value
+  if (!cage) {
+    return []
+  }
+  return [
+    { label: '宠物', value: detailPetName.value || (cage.pet_id ? '未知' : '-') },
+    { label: '主人', value: detailCustomerName.value || (cage.customer_id ? '未知' : '-') },
+    { label: '主治医生', value: detailDoctorName.value || (cage.doctor_id ? '未知' : '-') },
+    { label: '入院时间', value: cage.admitted_at ? new Date(cage.admitted_at).toLocaleString('zh-CN') : '-' },
+    { label: '入院原因', value: cage.admission_reason || '-' },
+    { label: '日费率', value: cage.daily_rate > 0 ? `¥${cage.daily_rate}/日` : '-' },
+  ]
+})
 
 /** 按房间分组的笼位状态 */
 interface RoomGroup {
@@ -208,6 +281,7 @@ useStoreScopedPage({
               :key="cage.cage_id"
               class="p-2 border rounded cursor-pointer transition hover:shadow"
               :class="cageCardClass(cage.cage_status)"
+              @click="onCageClick(cage)"
             >
               <div class="text-sm font-bold truncate">
                 {{ cage.cage_name }}
@@ -230,9 +304,46 @@ useStoreScopedPage({
           </div>
         </div>
         <div v-if="!loading && cageStatusList.length === 0" class="text-muted-foreground py-8 text-center">
-          当前门店暂无笼位数据,请先在「住院管理 → 入院登记」中维护房间与笼位
+          当前门店暂无笼位数据,请先在「住院管理 → 房间笼位」中维护房间与笼位
         </div>
       </div>
     </div>
+
+    <!-- 占用笼位详情 Drawer -->
+    <FaDrawer v-model="detailVisible" title="笼位详情" :width="420">
+      <div v-if="detailCage" class="text-sm space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="font-bold text-base">
+            {{ detailCage.cage_name }}
+          </div>
+          <FaTag :variant="statusTagVariant(detailCage.cage_status)" size="sm">
+            {{ CAGE_STATUS_LABELS[detailCage.cage_status] }}
+          </FaTag>
+        </div>
+        <FaDescriptions :column="1" :items="cageDetailItems" />
+        <FaDivider />
+        <div class="text-xs text-muted-foreground">
+          点击下方按钮跳转到对应功能页继续处理
+        </div>
+        <div class="flex gap-2 flex-wrap">
+          <FaButton type="primary" size="sm" @click="goTo('/inpatient/settlement')">
+            <FaIcon name="i-ri:bank-card-line" />
+            去结算
+          </FaButton>
+          <FaButton variant="outline" size="sm" @click="goTo('/inpatient/nursing')">
+            <FaIcon name="i-ri:nurse-line" />
+            看护理
+          </FaButton>
+          <FaButton variant="outline" size="sm" @click="goTo('/inpatient/progress-notes')">
+            <FaIcon name="i-ri:file-list-3-line" />
+            看病程
+          </FaButton>
+          <FaButton variant="ghost" size="sm" @click="goTo('/inpatient/admission')">
+            <FaIcon name="i-ri:swap-box-line" />
+            入院/换房
+          </FaButton>
+        </div>
+      </div>
+    </FaDrawer>
   </div>
 </template>

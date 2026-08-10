@@ -420,6 +420,15 @@ export default {
   },
 
   /**
+   * 确认交接班(接班人确认收到交接内容)
+   * 走 Hono Command,写入 acknowledged_at / acknowledged_by,幂等
+   * @param id 交接班记录 id
+   */
+  ackHandover(id: string) {
+    return api.post(`inpatient/handover/${id}/ack`)
+  },
+
+  /**
    * 自动计费(MXQ-11007)
    * 走 Hono Command + generate_daily_charges RPC,扫描所有 admitted admission 生成当日笼位费
    * @param targetDate 目标计费日期(可选,默认今日)

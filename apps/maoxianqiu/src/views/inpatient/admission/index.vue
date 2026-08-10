@@ -29,6 +29,7 @@ interface AdmissionRow {
 }
 
 const tenantStore = useAppTenantStore()
+const router = useRouter()
 const { pagination, onSizeChange, onCurrentChange } = usePagination()
 const loading = ref(false)
 const submitting = ref(false)
@@ -99,7 +100,7 @@ const tableColumns = computed<TableColumn<AdmissionRow>[]>(() => [
   {
     id: 'operation',
     header: '操作',
-    width: 140,
+    width: 170,
     align: 'right',
     fixed: 'right',
   },
@@ -219,28 +220,16 @@ async function onAdmit() {
   }
 }
 
-function onDischarge(row: AdmissionRow) {
+/**
+ * 跳转到出院结算页(出院统一走结算流程,不在本页直接出院)
+ * @param row 住院记录
+ */
+function goSettlement(row: AdmissionRow) {
   if (row.status !== 'admitted') {
-    useFaToast().warning('仅「在院」状态可出院')
+    useFaToast().warning('仅「在院」状态可结算出院')
     return
   }
-  useFaModal().confirm({
-    title: '办理出院',
-    content: `确认将宠物 ${petMap.value[row.pet_id]?.name ?? row.pet_id.slice(0, 8)} 办理出院吗？出院后将释放笼位并汇总费用。`,
-    onConfirm: async () => {
-      try {
-        const idempotencyKey = generateIdempotencyKey()
-        await apiInpatient.dischargePatient({
-          admissionId: row.id,
-        }, idempotencyKey)
-        useFaToast().success('已出院')
-        await Promise.all([loadCages(), loadAdmissions()])
-      }
-      catch {
-        // 错误已由全局拦截器提示
-      }
-    },
-  })
+  router.push('/inpatient/settlement')
 }
 
 function onTransfer(row: AdmissionRow) {
@@ -375,9 +364,19 @@ onMounted(async () => {
                 <FaButton v-if="row.original.status === 'admitted'" variant="outline" size="sm" @click="onTransfer(row.original)">
                   换房
                 </FaButton>
-                <FaButton v-if="row.original.status === 'admitted'" variant="outline" size="sm" @click="onDischarge(row.original)">
-                  出院
+                <FaButton v-if="row.original.status === 'admitted'" size="sm" @click="goSettlement(row.original)">
+                  去结算
                 </FaButton>
+                <FaTooltip text="查看护理计划与任务">
+                  <FaButton variant="ghost" size="icon-sm" @click="router.push('/inpatient/nursing')">
+                    <FaIcon name="i-ri:nurse-line" />
+                  </FaButton>
+                </FaTooltip>
+                <FaTooltip text="查看病程记录">
+                  <FaButton variant="ghost" size="icon-sm" @click="router.push('/inpatient/progress-notes')">
+                    <FaIcon name="i-ri:file-list-3-line" />
+                  </FaButton>
+                </FaTooltip>
               </div>
             </template>
           </FaTable>

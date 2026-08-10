@@ -39,6 +39,17 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    // 房间笼位维护(P0-3 住院闭环:新店需先维护房间/笼位才能办理入院)
+    path: '/inpatient/facility',
+    name: 'inpatientFacility',
+    component: () => import('@/views/inpatient/facility/index.vue'),
+    meta: {
+      title: '房间笼位',
+      icon: 'i-ri:building-2-line',
+      auth: 'inpatient.admit',
+    },
+  },
+  {
     // 护理管理(MXQ-11004)
     path: '/inpatient/nursing',
     name: 'inpatientNursing',

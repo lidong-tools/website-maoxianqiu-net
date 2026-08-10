@@ -407,6 +407,72 @@ inpatientRoutes.post('/handover', async (c) => {
   return ok(c, data)
 })
 
+/**
+ * 确认交接班(MXQ-11005 闭环补充)
+ * - 权限:handover.manage
+ * - 行为:接班人确认已收到交接内容,写入 acknowledged_at / acknowledged_by
+ * - 幂等:已确认的交接班重复确认直接返回原确认信息
+ */
+inpatientRoutes.post('/handover/:id/ack', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  // 先查交接班归属,再做门店级作用域授权
+  const { data: handover, error: fetchErr } = await service
+    .from('shift_handovers')
+    .select('id, tenant_id, store_id, shift_date, acknowledged_at, acknowledged_by')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchErr || !handover) {
+    throw err.notFound('交接班记录不存在')
+  }
+  await requireScopedPermission(c, {
+    code: 'handover.manage',
+    tenantId: handover.tenant_id,
+    storeId: handover.store_id ?? undefined,
+  })
+
+  const user = c.get('user')
+  // 幂等:已确认直接返回
+  if (handover.acknowledged_at) {
+    return ok(c, {
+      handoverId: id,
+      acknowledgedAt: handover.acknowledged_at,
+      acknowledgedBy: handover.acknowledged_by,
+    })
+  }
+
+  const { error: updateErr } = await service
+    .from('shift_handovers')
+    .update({
+      acknowledged_at: new Date().toISOString(),
+      acknowledged_by: user.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+  if (updateErr) {
+    throw err.internal(`确认交接班失败: ${updateErr.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'inpatient.handover.ack',
+    entityType: 'shift_handover',
+    entityId: id,
+    tenantId: handover.tenant_id,
+    storeId: handover.store_id ?? undefined,
+    metadata: {
+      acknowledgedBy: user.id,
+      shiftDate: handover.shift_date,
+    },
+  })
+
+  return ok(c, {
+    handoverId: id,
+    acknowledgedAt: new Date().toISOString(),
+    acknowledgedBy: user.id,
+  })
+})
+
 const generateChargesSchema = z.object({
   targetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式应为 YYYY-MM-DD').optional().nullable(),
 })

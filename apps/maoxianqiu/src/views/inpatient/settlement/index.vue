@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
 import type { PetRecord } from '@/types/customer'
-import type { PaymentMethod, SettlementStatus } from '@/types/inpatient'
+import type { Admission, InpatientCharge, PaymentMethod, SettlementStatus } from '@/types/inpatient'
 import apiInpatient from '@/api/modules/inpatient'
 import apiStore from '@/api/modules/store'
+import PermissionButton from '@/components/business/PermissionButton/index.vue'
 import EntityStatusTag from '@/components/business/EntityStatusTag/index.vue'
 import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
@@ -17,6 +18,7 @@ interface SettlementRow {
   id: string
   pet_id: string
   customer_id: string | null
+  status: Admission['status']
   settlement_no: string | null
   settlement_status: SettlementStatus
   deposit_amount: number
@@ -60,7 +62,16 @@ const waiveForm = reactive({
 })
 const waiving = ref(false)
 
-const pendingSettleCount = computed(() => dataList.value.filter(r => r.settlement_status === 'unsettled').length)
+// 自动计费
+const charging = ref(false)
+
+// 费用明细弹窗
+const chargeVisible = ref(false)
+const chargeLoading = ref(false)
+const chargeTarget = ref<SettlementRow | null>(null)
+const chargeRows = ref<InpatientCharge[]>([])
+
+const pendingSettleCount = computed(() => dataList.value.filter(r => r.status === 'admitted' && r.settlement_status === 'unsettled').length)
 const preparedCount = computed(() => dataList.value.filter(r => r.settlement_status === 'prepared').length)
 const finalizedCount = computed(() => dataList.value.filter(r => r.settlement_status === 'finalized').length)
 
@@ -92,6 +103,8 @@ async function getDataList() {
   try {
     const res: any = await apiInpatient.listAdmissions(search.value.storeId || undefined)
     let list = res.data.list ?? []
+    // 过滤:已出院且未结算的历史直出记录不可再发起结算,不进入结算待办
+    list = list.filter((a: any) => a.settlement_status !== 'unsettled' || a.status === 'admitted')
     if (search.value.settlementStatus) {
       list = list.filter((a: any) => a.settlement_status === search.value.settlementStatus)
     }
@@ -157,6 +170,45 @@ function currentChange(page = 1) {
 function searchReset() {
   search.value.settlementStatus = ''
   currentChange()
+}
+
+/**
+ * 生成当日住院费用(自动计费,权限 inpatient.admit;后端按幂等键防重复计费)
+ */
+async function onGenerateDailyCharges() {
+  charging.value = true
+  try {
+    const res: any = await apiInpatient.generateDailyCharges()
+    useFaToast().success(`当日费用已生成(${res.data?.generatedCount ?? 0} 条)`)
+    getDataList()
+  }
+  catch (e: any) {
+    useFaToast().error(e?.message || '生成费用失败')
+  }
+  finally {
+    charging.value = false
+  }
+}
+
+/**
+ * 打开费用明细弹窗(展示该住院记录的全部费用流水)
+ * @param row 结算行
+ */
+async function openCharges(row: SettlementRow) {
+  chargeTarget.value = row
+  chargeVisible.value = true
+  chargeLoading.value = true
+  try {
+    const res = await apiInpatient.listCharges(row.id)
+    chargeRows.value = res.data.list
+  }
+  catch (e: any) {
+    useFaToast().error(e?.message || '加载费用明细失败')
+    chargeRows.value = []
+  }
+  finally {
+    chargeLoading.value = false
+  }
 }
 
 async function onPrepare(row: SettlementRow) {
@@ -271,6 +323,39 @@ function statusVariant(s: SettlementStatus): 'success' | 'info' | 'warning' | 'd
   return 'danger'
 }
 
+const chargeColumns = computed<TableColumn<InpatientCharge>[]>(() => [
+  {
+    accessorKey: 'charge_date',
+    header: '计费日期',
+    cell: (info: any) => info.getValue() ? new Date(info.getValue() as string).toLocaleDateString('zh-CN') : '-',
+  },
+  {
+    accessorKey: 'description',
+    header: '费用项目',
+    cell: (info: any) => info.getValue() ?? '-',
+  },
+  {
+    accessorKey: 'quantity',
+    header: '数量',
+    cell: (info: any) => info.getValue() ?? 1,
+  },
+  {
+    accessorKey: 'unit_price',
+    header: '单价',
+    cell: (info: any) => `¥${Number(info.getValue() ?? 0).toFixed(2)}`,
+  },
+  {
+    accessorKey: 'amount',
+    header: '金额',
+    cell: (info: any) => `¥${Number(info.getValue() ?? 0).toFixed(2)}`,
+  },
+  {
+    accessorKey: 'is_auto',
+    header: '来源',
+    cell: (info: any) => (info.getValue() ? '自动计费' : '手工录入'),
+  },
+])
+
 const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
   {
     id: 'pet',
@@ -298,7 +383,7 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
   {
     id: 'operation',
     header: '操作',
-    width: 180,
+    width: 260,
     align: 'right',
     fixed: 'right',
   },
@@ -380,6 +465,10 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
               @change="currentChange()"
             />
             <div class="ml-auto flex gap-2 items-center">
+              <PermissionButton permission="inpatient.admit" size="sm" variant="outline" :loading="charging" @click="onGenerateDailyCharges">
+                <FaIcon name="i-lucide:zap" />
+                生成当日费用
+              </PermissionButton>
               <FaButton size="sm" variant="outline" @click="searchReset">
                 重置
               </FaButton>
@@ -398,19 +487,24 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
             :data="dataList"
           >
             <template #cell-operation="{ row }">
-              <TablePrimaryAction
-                v-if="row.original.settlement_status === 'prepared'"
-                primary-label="收款"
-                primary-icon="i-lucide:banknote"
-                :more="moreFor(row.original)"
-                @primary="openSettle(row.original)"
-              />
-              <FaButton v-else-if="row.original.settlement_status === 'settled' || row.original.settlement_status === 'waived'" size="sm" @click="onFinalize(row.original)">
-                完成出院
-              </FaButton>
-              <FaButton v-else size="sm" variant="outline" @click="onPrepare(row.original)">
-                生成结算单
-              </FaButton>
+              <div class="flex gap-1 justify-end items-center">
+                <FaButton variant="ghost" size="sm" @click="openCharges(row.original)">
+                  明细
+                </FaButton>
+                <TablePrimaryAction
+                  v-if="row.original.settlement_status === 'prepared'"
+                  primary-label="收款"
+                  primary-icon="i-lucide:banknote"
+                  :more="moreFor(row.original)"
+                  @primary="openSettle(row.original)"
+                />
+                <FaButton v-else-if="row.original.settlement_status === 'settled' || row.original.settlement_status === 'waived'" size="sm" @click="onFinalize(row.original)">
+                  完成出院
+                </FaButton>
+                <FaButton v-else-if="row.original.status === 'admitted'" size="sm" variant="outline" @click="onPrepare(row.original)">
+                  生成结算单
+                </FaButton>
+              </div>
             </template>
           </FaTable>
         </div>
@@ -456,6 +550,27 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
         <FaLabel label="减免原因" required>
           <FaInput v-model="waiveForm.reason" placeholder="如:医疗纠纷减免 / 优惠券抵扣" class="w-full" />
         </FaLabel>
+      </div>
+    </FaModal>
+
+    <!-- 费用明细弹窗 -->
+    <FaModal v-model:visible="chargeVisible" title="费用明细" :show-confirm-button="false" :show-cancel-button="false">
+      <div v-loading="chargeLoading" class="space-y-2">
+        <div class="flex flex-wrap gap-2 text-xs text-muted-foreground">
+          <span>住院记录:</span>
+          <span class="font-medium">{{ petMap[chargeTarget?.pet_id ?? '']?.name ?? (chargeTarget?.pet_id?.slice(0, 8) ?? '-') }}</span>
+        </div>
+        <FaTable
+          table-root-class="rounded-lg overflow-hidden"
+          row-key="id"
+          stripe
+          border
+          :columns="chargeColumns"
+          :data="chargeRows"
+        />
+        <div v-if="!chargeLoading && chargeRows.length === 0" class="text-muted-foreground py-6 text-center">
+          暂无费用记录,可点击「生成当日费用」生成住院床位费
+        </div>
       </div>
     </FaModal>
   </div>

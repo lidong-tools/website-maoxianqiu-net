@@ -653,7 +653,9 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col h-full bg-card">
+    <!-- 注释掉标题和描述区域(与其他界面保持一致,操作按钮已移至内容区) -->
+    <!--
     <EntityPageHeader compact title="寄养管理" description="寄养与住院共享笼位 · 每日照护 · 额外服务 · 离店结算">
       <template #actions>
         <FaButton size="sm" variant="outline" @click="load">
@@ -670,9 +672,25 @@ onMounted(load)
         </FaButton>
       </template>
     </EntityPageHeader>
+    -->
 
     <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
-      <FaTabs v-model="activeTab" :list="TABS" class="mb-1" @change="onTabChange" />
+      <!-- 内容区工具栏:Tab 切换 + 功能按钮 -->
+      <div class="flex flex-wrap gap-2 items-center">
+        <FaTabs v-model="activeTab" :list="TABS" class="flex-1" @change="onTabChange" />
+        <FaButton size="sm" variant="outline" @click="load">
+          <FaIcon name="i-lucide:refresh-cw" />
+          刷新
+        </FaButton>
+        <FaButton size="sm" variant="outline" @click="openForm('book')">
+          <FaIcon name="i-lucide:calendar-plus" />
+          预约入住
+        </FaButton>
+        <FaButton size="sm" @click="openForm('checkin')">
+          <FaIcon name="i-lucide:plus" />
+          办理入住
+        </FaButton>
+      </div>
 
       <!-- 房态 -->
       <div v-if="activeTab === 'cages'" v-loading="loading" class="flex-1 min-h-0 overflow-auto space-y-3">
