@@ -38,6 +38,8 @@ const draft = useEncounterDraft({
   onAutosaveConflict: () => { conflictVisible.value = true },
 })
 const plan = useClinicalPlanDraft()
+const route = useRoute()
+const router = useRouter()
 
 // 顶层解构:plain 对象内的 ref 在模板中不会自动解包,解构为顶层 ref 后由模板自动解包
 const {
@@ -231,6 +233,24 @@ async function loadWorkspaceById(encounterId: string, token: number) {
   draft.applyEncounter(data.encounter as EncounterRecord)
   plan.resetPlanDraft()
   summaryVisible.value = false
+}
+
+/**
+ * 从路由 query 恢复待打开的接诊(候诊队列「开始就诊」跳转时携带 encounterId)。
+ * 队列加载完成后调用:优先定位队列行以高亮并复用 openQueueRow 逻辑,队列未同步时直接按就诊加载。
+ */
+async function openEncounterFromQuery() {
+  const encounterId = route.query.encounterId
+  if (typeof encounterId !== 'string' || !encounterId) { return }
+  // 消费后立即清除 query,避免刷新页面时重复打开
+  router.replace({ query: {} })
+  const row = doctorQueue.value.find(item => item.encounter?.id === encounterId)
+  if (row) {
+    await openQueueRow(row)
+    return
+  }
+  previewToken += 1
+  await loadWorkspaceById(encounterId, previewToken)
 }
 
 // ===== 病历保存 =====
@@ -554,8 +574,10 @@ useStoreScopedPage({
 })
 
 // ===== 生命周期 =====
-onMounted(() => {
-  queue.loadQueue()
+onMounted(async () => {
+  await queue.loadQueue()
+  // 候诊队列「开始就诊」跳转携带 encounterId 时自动打开该患者工作区
+  await openEncounterFromQuery()
   // 以内容区容器宽度驱动三栏布局切换(替代 window.innerWidth)
   measureContentWidth()
   resizeObserver = new ResizeObserver(measureContentWidth)

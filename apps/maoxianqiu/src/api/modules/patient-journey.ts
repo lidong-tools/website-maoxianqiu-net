@@ -41,6 +41,17 @@ export default {
     const result = await api.get<{ list: WorkbenchData['list'] }>('/clinical/queue/display', { params: { storeId } })
     return (result as any).data.list as WorkbenchData['list']
   },
+  /** 前台签到:创建/复用候诊队列记录(幂等,已存在时直接返回既有记录) */
+  async checkInAppointment(input: { appointmentId: string, triageRequired?: boolean, serviceType?: string, actorRole: WorkbenchRole, sourceWorkbench?: string, idempotencyKey?: string }) {
+    const idempotencyKey = input.idempotencyKey ?? crypto.randomUUID()
+    const result = await api.post('/clinical/queue/check-in', {
+      ...input,
+      idempotencyKey,
+    }, {
+      headers: { 'idempotency-key': idempotencyKey },
+    })
+    return result
+  },
   async transitionQueue(queueId: string, role: WorkbenchRole, targetStatus: string, reason?: string) {
     return api.post(`/clinical/queue/${queueId}/transition`, { ...commandContext(role), targetStatus, reason })
   },

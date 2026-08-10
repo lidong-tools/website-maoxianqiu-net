@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import type { CustomerRecord, PetRecord } from '@/types/customer'
 import apiClinical from '@/api/modules/clinical'
+import apiJourney from '@/api/modules/patient-journey'
 import apiStore from '@/api/modules/store'
 import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
+import { useWorkbenchStore } from '@/store/modules/app/workbench'
 import { APPOINTMENT_SOURCE_LABELS } from '@/types/clinical'
 
 defineOptions({
@@ -23,7 +25,10 @@ interface WaitingRow {
 
 const router = useRouter()
 const tenantStore = useAppTenantStore()
+const workbenchStore = useWorkbenchStore()
 const loading = ref(false)
+/** 当前正在执行「开始就诊」的候诊行 id,用于按钮 loading 与防重复点击 */
+const startingId = ref<string | null>(null)
 const dataList = ref<WaitingRow[]>([])
 const storeOptions = ref<Array<{ label: string, value: string }>>([])
 const currentStoreId = ref('')
@@ -105,14 +110,49 @@ onUnmounted(() => {
   }
 })
 
+/**
+ * 开始就诊:将候诊预约完整交接给医生工作台
+ * 1. 幂等确保候诊队列记录存在(check-in 已存在则直接复用,不重复排队);
+ * 2. 流转队列 → in_consultation,服务端在队列流转中自动创建就诊并同步预约状态;
+ * 3. 携带 encounterId 跳转医生工作台,由工作台自动定位打开该患者。
+ * 失败时降级为仅推进预约状态(兼容队列记录缺失/权限未同步的存量环境)。
+ */
 async function onStartVisit(row: WaitingRow) {
+  if (startingId.value) { return }
+  startingId.value = row.id
   try {
-    await apiClinical.startAppointment(row.id)
+    const actorRole = workbenchStore.activeRole
+    // 1. 幂等确保候诊队列记录存在(不存在则按无需分诊创建,状态直接为 waiting)
+    const checkIn: any = await apiJourney.checkInAppointment({
+      appointmentId: row.id,
+      triageRequired: false,
+      serviceType: 'outpatient',
+      actorRole,
+      sourceWorkbench: `workbench.${actorRole}`,
+      idempotencyKey: crypto.randomUUID(),
+    })
+    const queueRow = checkIn.data as { id: string, status: string, encounter_id: string | null }
+    // 2. 流转队列到诊疗中(服务端自动创建就诊、同步预约到 in_progress)
+    let encounterId: string | null = queueRow.encounter_id
+    if (queueRow.status !== 'in_consultation') {
+      const trans: any = await apiJourney.transitionQueue(queueRow.id, actorRole, 'in_consultation')
+      encounterId = trans.data?.encounter_id ?? null
+    }
     useFaToast().success('已开始就诊')
-    router.push('/clinical/workbench')
+    router.push(encounterId ? `/clinical/workbench?encounterId=${encounterId}` : '/clinical/workbench')
   }
   catch (e: any) {
-    useFaToast().error(e?.message || '开始就诊失败')
+    // 降级:仅推进预约状态后跳转(不携带 encounterId,工作台展示空态)
+    try {
+      await apiClinical.startAppointment(row.id)
+      router.push('/clinical/workbench')
+    }
+    catch {
+      useFaToast().error(e?.message || '开始就诊失败')
+    }
+  }
+  finally {
+    startingId.value = null
   }
 }
 
@@ -136,6 +176,35 @@ const sortedList = computed(() => {
     return new Date(a.scheduled_start).getTime() - new Date(b.scheduled_start).getTime()
   })
 })
+
+// ===== 本地分页(候诊排序在客户端完成,接口不参与分页) =====
+const { pagination, onSizeChange, onCurrentChange } = usePagination()
+
+/** 当前页展示的候诊行(按排序结果切片) */
+const pagedList = computed(() => {
+  const { page, size } = pagination.value
+  const start = (page - 1) * size
+  return sortedList.value.slice(start, start + size)
+})
+
+/** 候诊总数变化时同步总条数,并兜底钳制页码(防止刷新后页码越界出现空页) */
+watch(
+  () => sortedList.value.length,
+  (len) => {
+    pagination.value.total = len
+    const maxPage = Math.max(1, Math.ceil(len / pagination.value.size))
+    if (pagination.value.page > maxPage) {
+      pagination.value.page = maxPage
+    }
+  },
+  { immediate: true },
+)
+
+/** 每页条数变化后回到第一页 */
+async function onPaginationSizeChange(size: number) {
+  await onSizeChange(size)
+  pagination.value.page = 1
+}
 
 function displayRow(row: WaitingRow) {
   const pet = petMap.value[row.pet_id]
@@ -213,9 +282,9 @@ function displayRow(row: WaitingRow) {
         </div>
 
         <!-- 候诊卡片流 -->
-        <div v-loading="loading" class="flex-1 gap-3 grid auto-rows-max grid-cols-1 min-h-0 overflow-auto xl:grid-cols-2">
+        <div v-loading="loading" class="flex-1 gap-3 p-3 grid auto-rows-max grid-cols-1 min-h-0 overflow-auto xl:grid-cols-2">
           <div
-            v-for="row in sortedList"
+            v-for="row in pagedList"
             :key="row.id"
             class="p-3 border rounded-lg flex gap-3 items-center justify-between"
             :class="waitMinutes(row.scheduled_start) > 30 ? 'border-red-200 bg-red-50/50' : 'bg-card'"
@@ -250,13 +319,36 @@ function displayRow(row: WaitingRow) {
               </div>
             </div>
             <div class="shrink-0">
-              <FaButton size="sm" @click="onStartVisit(row)">
+              <FaButton
+                size="sm"
+                :loading="startingId === row.id"
+                :disabled="Boolean(startingId)"
+                @click="onStartVisit(row)"
+              >
                 <FaIcon name="i-lucide:play" />
                 开始就诊
               </FaButton>
             </div>
           </div>
-          <EmptyState v-if="!loading && sortedList.length === 0" compact title="当前无候诊宠物" description="有新预约报到后自动显示" />
+          <!-- 空状态:横跨全部列并撑满可用高度,内容垂直水平居中(EmptyState 自身为 flex 居中布局) -->
+          <EmptyState
+            v-if="!loading && sortedList.length === 0"
+            compact
+            title="当前无候诊宠物"
+            description="有新预约报到后自动显示"
+            class="col-span-full min-h-[280px]"
+          />
+        </div>
+
+        <!-- 底部分页工具栏(本地分页,候诊排序在客户端完成) -->
+        <div class="px-3 py-2 border-t shrink-0">
+          <FaPagination
+            :page="pagination.page"
+            :size="pagination.size"
+            :total="pagination.total"
+            @page-change="onCurrentChange"
+            @size-change="onPaginationSizeChange"
+          />
         </div>
       </div>
     </div>

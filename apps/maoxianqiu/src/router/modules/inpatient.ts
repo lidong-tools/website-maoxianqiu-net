@@ -89,7 +89,8 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/inpatient/boarding/index.vue'),
     meta: {
       title: '寄养管理',
-      icon: 'i-ri:paw-print-line',
+      // ri 集合(v4.8.0)无 paw-print 图标,改用 lucide 集合(与项目其他宠物图标保持一致)
+      icon: 'i-lucide:paw-print',
       auth: 'boarding.view',
     },
   },
