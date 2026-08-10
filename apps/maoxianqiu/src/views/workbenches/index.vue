@@ -180,75 +180,78 @@ async function confirmVoid() {
 </script>
 
 <template>
-  <div class="p-2 flex flex-col gap-2 h-full min-h-0 overflow-hidden">
-    <WorkbenchToolbar
-      :role="role"
-      :role-options="roleOptions"
-      :role-disabled="!availableRoles.length"
-      :loading="loading"
-      :counts="counts"
-      :all-count="allCount"
-      :status="status"
-      :search-keyword="searchKeyword"
-      @update:role="switchRole"
-      @update:status="setStatus"
-      @update:search-keyword="searchKeyword = $event"
-      @refresh="refresh"
-    />
-
-    <!-- 无可用岗位提示 -->
-    <div v-if="!availableRoles.length" class="p-4 border rounded-lg bg-card">
-      <div class="flex flex-wrap gap-4 items-center justify-between">
-        <div class="text-sm text-muted-foreground">
-          当前门店没有返回岗位或对应业务权限。请先刷新岗位信息；仍为空时，需要管理员为该员工分配门店岗位。
+  <!-- 绝对定位占满父容器,与回访任务等列表页保持内容区高度一致 -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <!-- 无可用岗位提示 -->
+      <div v-if="!availableRoles.length" class="p-4 border rounded-lg bg-card">
+        <div class="flex flex-wrap gap-4 items-center justify-between">
+          <div class="text-sm text-muted-foreground">
+            当前门店没有返回岗位或对应业务权限。请先刷新岗位信息；仍为空时，需要管理员为该员工分配门店岗位。
+          </div>
+          <FaButton :loading="loading" @click="refreshRoleContext">
+            <FaIcon name="i-lucide:refresh-cw" />刷新岗位权限
+          </FaButton>
         </div>
-        <FaButton :loading="loading" @click="refreshRoleContext">
-          <FaIcon name="i-lucide:refresh-cw" />刷新岗位权限
-        </FaButton>
       </div>
-    </div>
 
-    <!-- 主工作区:状态筛选 + 紧凑表格 + 分页 -->
-    <div v-else class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
-      <WorkbenchTable
-        :rows="rows"
-        :loading="loading"
+      <!-- 主工作区:工具栏 + 状态筛选 + 紧凑表格 + 分页(同一卡片) -->
+      <div v-else class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <WorkbenchToolbar
+          :role="role"
+          :role-options="roleOptions"
+          :role-disabled="!availableRoles.length"
+          :loading="loading"
+          :counts="counts"
+          :all-count="allCount"
+          :total="total"
+          :status="status"
+          :search-keyword="searchKeyword"
+          @update:role="switchRole"
+          @update:status="setStatus"
+          @update:search-keyword="searchKeyword = $event"
+          @refresh="refresh"
+        />
+        <WorkbenchTable
+          :rows="rows"
+          :loading="loading"
+          :role="role"
+          :is-row-loading="isRowLoading"
+          @row-click="openDrawer"
+          @action="(row, action) => runRowAction(row, action)"
+        />
+        <FaPagination
+          :page="page"
+          :size="pageSize"
+          :total="total"
+          class="mt-2 px-4 pb-3 shrink-0"
+          @page-change="setPage"
+          @size-change="setPageSize"
+        />
+      </div>
+
+      <!-- 右侧详情抽屉 -->
+      <WorkbenchDetailDrawer
+        v-model:visible="drawerVisible"
+        :row="detailRow"
         :role="role"
         :is-row-loading="isRowLoading"
-        @row-click="openDrawer"
+        :triage-saving="triageSaving"
         @action="(row, action) => runRowAction(row, action)"
+        @save-triage="confirmTriage"
       />
-      <FaPagination
-        :page="page"
-        :size="pageSize"
-        :total="total"
-        class="px-4 py-3 shrink-0"
-        @page-change="setPage"
-        @size-change="setPageSize"
-      />
-    </div>
 
-    <!-- 右侧详情抽屉 -->
-    <WorkbenchDetailDrawer
-      v-model:visible="drawerVisible"
-      :row="detailRow"
-      :role="role"
-      :is-row-loading="isRowLoading"
-      :triage-saving="triageSaving"
-      @action="(row, action) => runRowAction(row, action)"
-      @save-triage="confirmTriage"
-    />
-
-    <!-- 收银异议作废 -->
-    <FaModal v-model:visible="voidVisible" title="作废待付款条目" :loading="voidLoading" @confirm="confirmVoid">
-      <div class="space-y-3">
-        <div class="text-sm text-amber-800 p-3 rounded-md bg-amber-50">
-          该操作不会删除条目。系统将保留原金额、来源医嘱、作废原因、收银员身份和操作时间。
+      <!-- 收银异议作废 -->
+      <FaModal v-model:visible="voidVisible" title="作废待付款条目" :loading="voidLoading" @confirm="confirmVoid">
+        <div class="space-y-3">
+          <div class="text-sm text-amber-800 p-3 rounded-md bg-amber-50">
+            该操作不会删除条目。系统将保留原金额、来源医嘱、作废原因、收银员身份和操作时间。
+          </div>
+          <FaLabel label="客户异议 / 作废原因（必填）">
+            <FaTextarea v-model="voidReason" :maxlength="2000" placeholder="例如：客户对该检查项目有异议，经沟通确认本次不执行" />
+          </FaLabel>
         </div>
-        <FaLabel label="客户异议 / 作废原因（必填）">
-          <FaTextarea v-model="voidReason" :maxlength="2000" placeholder="例如：客户对该检查项目有异议，经沟通确认本次不执行" />
-        </FaLabel>
-      </div>
-    </FaModal>
+      </FaModal>
+    </div>
   </div>
 </template>

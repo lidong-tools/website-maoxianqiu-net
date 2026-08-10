@@ -422,7 +422,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <!-- 绝对定位占满父容器,与回访任务等列表页保持内容区高度一致 -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
     <!-- 注释掉标题和描述区域(UI界面-人工测试报告) -->
     <!--
     <EntityPageHeader compact title="套餐次卡">
@@ -431,8 +432,8 @@ onMounted(() => {
       </template>
     </EntityPageHeader>
     -->
-    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
-      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
         <div class="px-4 pt-3 border-b">
           <FaTabs v-model="activeTab" :list="TABS" class="mb-2" @update:model-value="onTabChange" />
 

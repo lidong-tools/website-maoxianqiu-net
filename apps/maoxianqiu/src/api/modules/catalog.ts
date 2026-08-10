@@ -224,6 +224,8 @@ export default {
     storeId: string
     keyword?: string
     isActive?: boolean
+    from?: number
+    limit?: number
   }) {
     let query = supabase
       .from('store_catalog_items')
@@ -238,6 +240,9 @@ export default {
     }
     if (params.keyword) {
       query = query.or(`custom_name.ilike.%${params.keyword}%,catalog_item.name.ilike.%${params.keyword}%`)
+    }
+    if (params.from !== undefined && params.limit !== undefined) {
+      query = query.range(params.from, params.from + params.limit - 1)
     }
     const { data, error, count } = await query.order('sort_order', { ascending: true })
     if (error) {

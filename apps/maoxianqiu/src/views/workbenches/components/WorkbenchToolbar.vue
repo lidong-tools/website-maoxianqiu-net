@@ -14,6 +14,8 @@ const props = withDefaults(defineProps<{
   loading?: boolean
   counts?: Record<string, number>
   allCount?: number
+  /** 当前筛选条件下的总条数(与分页 total 一致,用于"共 X 条"文案) */
+  total?: number
   /** 当前状态筛选:'' 表示全部 */
   status?: string
   searchKeyword?: string
@@ -22,6 +24,7 @@ const props = withDefaults(defineProps<{
   loading: false,
   counts: () => ({}),
   allCount: 0,
+  total: 0,
   status: '',
   searchKeyword: '',
 })
@@ -53,8 +56,9 @@ const roleLabel = computed(() => WORKBENCH_ROLE_LABELS[props.role] ?? '岗位')
 </script>
 
 <template>
-  <div class="flex shrink-0 flex-col gap-2">
-    <div class="flex flex-wrap gap-2 items-center">
+  <!-- 工具栏区:位于主工作区卡片内,与表格共用同一背景,底部用分隔线隔开 -->
+  <div class="px-4 pt-3 border-b shrink-0">
+    <div class="pb-3 flex flex-wrap gap-2 items-center">
       <FaSelect
         :model-value="props.role"
         :options="props.roleOptions"
@@ -75,19 +79,21 @@ const roleLabel = computed(() => WORKBENCH_ROLE_LABELS[props.role] ?? '岗位')
         </template>
       </FaInput>
       <span class="text-sm text-muted-foreground shrink-0">
-        {{ roleLabel }}工作台 · 共 {{ props.loading ? '…' : props.allCount }} 条待办
+        {{ roleLabel }}工作台 · 共 {{ props.loading ? '…' : props.total }} 条待办
       </span>
       <FaButton variant="outline" size="sm" class="ml-auto" :loading="props.loading" @click="emit('refresh')">
         <FaIcon name="i-lucide:refresh-cw" />
         刷新
       </FaButton>
     </div>
-    <FaTabs
-      :model-value="activeStatus"
-      :list="statusTabs"
-      list-class="justify-start gap-1 w-fit"
-      class="shrink-0"
-      @update:model-value="activeStatus = String($event)"
-    />
+    <div class="py-3 border-t">
+      <FaTabs
+        :model-value="activeStatus"
+        :list="statusTabs"
+        list-class="justify-start gap-1 w-fit"
+        class="shrink-0"
+        @update:model-value="activeStatus = String($event)"
+      />
+    </div>
   </div>
 </template>

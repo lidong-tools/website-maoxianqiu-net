@@ -27,6 +27,13 @@ defineOptions({
 const tenantStore = useAppTenantStore()
 const tabActive = ref<'items' | 'store' | 'intake' | 'diagnosis' | 'lab'>('items')
 
+// ==================== 分页状态(每个 tab 独立,避免切换时互相干扰) ====================
+const { pagination: itemPagination, getParams: getItemParams, onSizeChange: onItemSizeChange, onCurrentChange: onItemCurrentChange } = usePagination()
+const { pagination: storePagination, getParams: getStoreParams, onSizeChange: onStoreSizeChange, onCurrentChange: onStoreCurrentChange } = usePagination()
+const { pagination: intakePagination, getParams: getIntakeParams, onSizeChange: onIntakeSizeChange, onCurrentChange: onIntakeCurrentChange } = usePagination()
+const { pagination: diagnosisPagination, getParams: getDiagnosisParams, onSizeChange: onDiagnosisSizeChange, onCurrentChange: onDiagnosisCurrentChange } = usePagination()
+const { pagination: labPagination, getParams: getLabParams, onSizeChange: onLabSizeChange, onCurrentChange: onLabCurrentChange } = usePagination()
+
 // ==================== 类目与目录项 ====================
 const categoryLoading = ref(false)
 const categories = ref<CatalogCategory[]>([])
@@ -95,18 +102,23 @@ async function loadCategories() {
 async function loadItems() {
   if (!tenantStore.currentTenantId) {
     itemList.value = []
+    itemPagination.value.total = 0
     return
   }
   itemLoading.value = true
   try {
+    const { from, limit } = getItemParams()
     const res = await apiCatalog.listItems({
       tenantId: tenantStore.currentTenantId,
       categoryId: selectedCategoryId.value || undefined,
       keyword: itemFilters.value.keyword || undefined,
       billingType: itemFilters.value.billingType || undefined,
       isActive: itemFilters.value.isActive === '' ? undefined : itemFilters.value.isActive === 'true',
+      from,
+      limit,
     })
     itemList.value = (res.data.list ?? []) as CatalogItemWithRelations[]
+    itemPagination.value.total = res.data.total ?? 0
   }
   catch (e: unknown) {
     useFaToast().error((e as Error)?.message || '加载目录项失败')
@@ -114,6 +126,16 @@ async function loadItems() {
   finally {
     itemLoading.value = false
   }
+}
+
+/** 目录项分页切换(页码/每页条数变化后重新加载) */
+function onItemPageChange(page: number) {
+  onItemCurrentChange(page).then(() => loadItems())
+}
+
+/** 目录项每页条数切换 */
+function onItemSizeChangeFn(size: number) {
+  onItemSizeChange(size).then(() => loadItems())
 }
 
 /** 按类目筛选 */
@@ -263,16 +285,21 @@ const storeItemColumns = computed<TableColumn<StoreCatalogItemWithCatalog>[]>(()
 async function loadStoreItems() {
   if (!tenantStore.currentStoreId) {
     storeItemList.value = []
+    storePagination.value.total = 0
     return
   }
   storeItemLoading.value = true
   try {
+    const { from, limit } = getStoreParams()
     const res = await apiCatalog.listStoreItems({
       storeId: tenantStore.currentStoreId,
       keyword: storeFilters.value.keyword || undefined,
       isActive: storeFilters.value.isActive === '' ? undefined : storeFilters.value.isActive === 'true',
+      from,
+      limit,
     })
     storeItemList.value = (res.data.list ?? []) as StoreCatalogItemWithCatalog[]
+    storePagination.value.total = res.data.total ?? 0
   }
   catch (e: unknown) {
     useFaToast().error((e as Error)?.message || '加载门店目录项失败')
@@ -280,6 +307,16 @@ async function loadStoreItems() {
   finally {
     storeItemLoading.value = false
   }
+}
+
+/** 门店目录项分页切换 */
+function onStorePageChange(page: number) {
+  onStoreCurrentChange(page).then(() => loadStoreItems())
+}
+
+/** 门店目录项每页条数切换 */
+function onStoreSizeChangeFn(size: number) {
+  onStoreSizeChange(size).then(() => loadStoreItems())
 }
 
 /** 切换门店目录项启停状态 */
@@ -421,16 +458,21 @@ const intakeColumns = computed<TableColumn<IntakeQuestion>[]>(() => [
 async function loadIntakeQuestions() {
   if (!tenantStore.currentTenantId) {
     intakeList.value = []
+    intakePagination.value.total = 0
     return
   }
   intakeLoading.value = true
   try {
+    const { page, size } = getIntakeParams()
     const res = await apiCatalog.listIntakeQuestions({
       tenantId: tenantStore.currentTenantId,
       category: intakeFilters.value.category || undefined,
       isActive: intakeFilters.value.isActive === '' ? undefined : intakeFilters.value.isActive === 'true',
+      page,
+      pageSize: size,
     })
     intakeList.value = (res.data.list ?? []) as IntakeQuestion[]
+    intakePagination.value.total = res.data.total ?? 0
   }
   catch (e: unknown) {
     useFaToast().error((e as Error)?.message || '加载问诊问题失败')
@@ -438,6 +480,16 @@ async function loadIntakeQuestions() {
   finally {
     intakeLoading.value = false
   }
+}
+
+/** 问诊问题分页切换 */
+function onIntakePageChange(page: number) {
+  onIntakeCurrentChange(page).then(() => loadIntakeQuestions())
+}
+
+/** 问诊问题每页条数切换 */
+function onIntakeSizeChangeFn(size: number) {
+  onIntakeSizeChange(size).then(() => loadIntakeQuestions())
 }
 
 /** 新增问诊问题 */
@@ -520,17 +572,22 @@ const diagnosisColumns = computed<TableColumn<DiagnosisDict>[]>(() => [
 async function loadDiagnosisDict() {
   if (!tenantStore.currentTenantId) {
     diagnosisList.value = []
+    diagnosisPagination.value.total = 0
     return
   }
   diagnosisLoading.value = true
   try {
+    const { page, size } = getDiagnosisParams()
     const res = await apiCatalog.listDiagnosisDict({
       tenantId: tenantStore.currentTenantId,
       keyword: diagnosisFilters.value.keyword || undefined,
       category: diagnosisFilters.value.category || undefined,
       isActive: diagnosisFilters.value.isActive === '' ? undefined : diagnosisFilters.value.isActive === 'true',
+      page,
+      pageSize: size,
     })
     diagnosisList.value = (res.data.list ?? []) as DiagnosisDict[]
+    diagnosisPagination.value.total = res.data.total ?? 0
   }
   catch (e: unknown) {
     useFaToast().error((e as Error)?.message || '加载诊断字典失败')
@@ -538,6 +595,16 @@ async function loadDiagnosisDict() {
   finally {
     diagnosisLoading.value = false
   }
+}
+
+/** 诊断字典分页切换 */
+function onDiagnosisPageChange(page: number) {
+  onDiagnosisCurrentChange(page).then(() => loadDiagnosisDict())
+}
+
+/** 诊断字典每页条数切换 */
+function onDiagnosisSizeChangeFn(size: number) {
+  onDiagnosisSizeChange(size).then(() => loadDiagnosisDict())
 }
 
 /** 新增诊断 */
@@ -627,16 +694,21 @@ const labPanelColumns = computed<TableColumn<LabPanel>[]>(() => [
 async function loadLabPanels() {
   if (!tenantStore.currentTenantId) {
     labPanelList.value = []
+    labPagination.value.total = 0
     return
   }
   labLoading.value = true
   try {
+    const { page, size } = getLabParams()
     const res = await apiCatalog.listLabPanels({
       tenantId: tenantStore.currentTenantId,
       category: labFilters.value.category || undefined,
       isActive: labFilters.value.isActive === '' ? undefined : labFilters.value.isActive === 'true',
+      page,
+      pageSize: size,
     })
     labPanelList.value = (res.data.list ?? []) as LabPanel[]
+    labPagination.value.total = res.data.total ?? 0
   }
   catch (e: unknown) {
     useFaToast().error((e as Error)?.message || '加载检验 panel 失败')
@@ -644,6 +716,16 @@ async function loadLabPanels() {
   finally {
     labLoading.value = false
   }
+}
+
+/** 检验 panel 分页切换 */
+function onLabPageChange(page: number) {
+  onLabCurrentChange(page).then(() => loadLabPanels())
+}
+
+/** 检验 panel 每页条数切换 */
+function onLabSizeChangeFn(size: number) {
+  onLabSizeChange(size).then(() => loadLabPanels())
 }
 
 /** 新增检验 panel */
@@ -730,58 +812,65 @@ onMounted(() => {
 </script>
 
 <template>
-  <div>
+  <!-- 绝对定位占满父容器,与回访任务等列表页保持内容区高度一致 -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
     <!-- 注释掉标题和描述区域(UI界面-人工测试报告) -->
     <!--
     <EntityPageHeader compact title="目录管理" description="统一目录(类目/项目/药品疫苗扩展)、门店价格覆盖、问诊问题、诊断字典、检验 panel" />
     -->
-    <FaPageMain>
-      <FaTabs
-        v-model="tabActive"
-        :list="[
-          { label: '统一目录', value: 'items' },
-          { label: '门店价格', value: 'store' },
-          { label: '问诊问题', value: 'intake' },
-          { label: '诊断字典', value: 'diagnosis' },
-          { label: '检验 panel', value: 'lab' },
-        ]"
-      >
-        <!-- ==================== 统一目录 ==================== -->
-        <template #items>
-          <div class="flex flex-col gap-4 xl:flex-row">
-            <!-- 类目树 -->
-            <CatalogCategoryTree
-              :tenant-id="tenantStore.currentTenantId"
-              :categories="categories"
-              :loading="categoryLoading"
-              :selected-id="selectedCategoryId"
-              @select="onSelectCategory"
-              @updated="loadCategories"
-            />
-
-            <!-- 目录项列表 -->
-            <div class="flex-1 min-w-0">
-              <FaSearchBar :show-toggle="false">
-                <template #default>
-                  <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
-                    <div class="flex gap-2 col-span-1 items-end">
-                      <FaLabel label="关键词" class="flex-1">
-                        <FaInput
-                          v-model="itemFilters.keyword"
-                          placeholder="名称/编码"
-                          clearable
-                          class="w-full"
-                          @keydown.enter="loadItems"
-                          @clear="loadItems"
-                        />
-                      </FaLabel>
-                      <FaButton type="primary" class="shrink-0" @click="onCreateItem">
-                        <FaIcon name="i-ri:add-line" />
-                        新增目录项
-                      </FaButton>
-                    </div>
-                    <!-- 注释掉收费类型筛选选择器(UI界面-人工测试报告) -->
-                    <!--
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 左侧类目树 + 右侧内容区(tabs 标签位于右侧栏上方) -->
+        <div class="p-4 flex flex-1 gap-4 min-h-0 xl:flex-row">
+          <!-- 类目树:仅在"统一目录"tab 显示 -->
+          <CatalogCategoryTree
+            v-if="tabActive === 'items'"
+            :tenant-id="tenantStore.currentTenantId"
+            :categories="categories"
+            :loading="categoryLoading"
+            :selected-id="selectedCategoryId"
+            @select="onSelectCategory"
+            @updated="loadCategories"
+          />
+          <!-- 右侧栏:FaTabs 标签 + 各 tab 内容 -->
+          <div class="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+            <FaTabs
+              v-model="tabActive"
+              class="flex-1 min-h-0"
+              content-class="flex-1 min-h-0 flex flex-col"
+              :list="[
+                { label: '统一目录', value: 'items' },
+                { label: '门店价格', value: 'store' },
+                { label: '问诊问题', value: 'intake' },
+                { label: '诊断字典', value: 'diagnosis' },
+                { label: '检验 panel', value: 'lab' },
+              ]"
+            >
+              <!-- ==================== 统一目录 ==================== -->
+              <template #items>
+                <!-- 查询区固定,表格区占满剩余高度滚动 -->
+                <div class="p-4 flex flex-1 flex-col min-h-0">
+                  <FaSearchBar :show-toggle="false">
+                    <template #default>
+                      <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
+                        <div class="flex gap-2 col-span-1 items-end">
+                          <FaLabel label="关键词" class="flex-1">
+                            <FaInput
+                              v-model="itemFilters.keyword"
+                              placeholder="名称/编码"
+                              clearable
+                              class="w-full"
+                              @keydown.enter="loadItems"
+                              @clear="loadItems"
+                            />
+                          </FaLabel>
+                          <FaButton type="primary" class="shrink-0" @click="onCreateItem">
+                            <FaIcon name="i-ri:add-line" />
+                            新增目录项
+                          </FaButton>
+                        </div>
+                        <!-- 注释掉收费类型筛选选择器(UI界面-人工测试报告) -->
+                        <!--
                     <FaLabel label="收费类型" class="col-span-1">
                       <FaSelect
                         v-model="itemFilters.billingType"
@@ -810,368 +899,417 @@ onMounted(() => {
                       />
                     </FaLabel>
                     -->
-                    <div class="flex gap-2 col-end--1 justify-end">
-                      <FaButton variant="outline" @click="onResetItems">
-                        重置
-                      </FaButton>
-                      <FaButton type="primary" @click="loadItems">
-                        <FaIcon name="i-ri:search-line" />
-                        筛选
-                      </FaButton>
-                    </div>
-                  </div>
-                </template>
-              </FaSearchBar>
-              <div class="mx--4 my-3 border-t border-t-dashed" />
-              <FaTable
-                v-loading="itemLoading"
-                table-root-class="rounded-lg overflow-hidden"
-                row-key="id"
-                stripe
-                border
-                :columns="itemColumns"
-                :data="itemList"
-              >
-                <template #cell-operation="{ row }">
-                  <div class="flex-center gap-2">
-                    <FaButton variant="outline" size="icon-sm" @click="onEditItem(row.original)">
-                      <FaIcon name="i-ri:edit-line" />
-                    </FaButton>
-                    <FaDropdown
-                      :items="[[
-                        { label: row.original.is_active ? '停用' : '启用', handle: () => onToggleItemActive(row.original) },
-                        { label: '删除', variant: 'destructive', handle: () => onDeleteItem(row.original) },
-                      ]]"
+                        <div class="flex gap-2 col-end--1 justify-end">
+                          <FaButton variant="outline" @click="onResetItems">
+                            重置
+                          </FaButton>
+                          <FaButton type="primary" @click="loadItems">
+                            <FaIcon name="i-ri:search-line" />
+                            筛选
+                          </FaButton>
+                        </div>
+                      </div>
+                    </template>
+                  </FaSearchBar>
+                  <div class="mx--4 my-3 border-t border-t-dashed" />
+                  <!-- 表格区占满剩余高度,内部滚动 -->
+                  <div v-loading="itemLoading" class="flex-1 min-h-0 overflow-hidden">
+                    <FaTable
+                      class="h-full min-h-0"
+                      table-root-class="overflow-hidden"
+                      row-key="id"
+                      stripe
+                      border
+                      :columns="itemColumns"
+                      :data="itemList"
                     >
-                      <FaButton variant="outline" size="icon-sm">
-                        <FaIcon name="i-ri:more-line" />
-                      </FaButton>
-                    </FaDropdown>
+                      <template #cell-operation="{ row }">
+                        <div class="flex-center gap-2">
+                          <FaButton variant="outline" size="icon-sm" @click="onEditItem(row.original)">
+                            <FaIcon name="i-ri:edit-line" />
+                          </FaButton>
+                          <FaDropdown
+                            :items="[[
+                              { label: row.original.is_active ? '停用' : '启用', handle: () => onToggleItemActive(row.original) },
+                              { label: '删除', variant: 'destructive', handle: () => onDeleteItem(row.original) },
+                            ]]"
+                          >
+                            <FaButton variant="outline" size="icon-sm">
+                              <FaIcon name="i-ri:more-line" />
+                            </FaButton>
+                          </FaDropdown>
+                        </div>
+                      </template>
+                      <template #empty>
+                        <FaEmptyState description="暂无目录项" />
+                      </template>
+                    </FaTable>
                   </div>
-                </template>
-              </FaTable>
-            </div>
+                  <FaPagination :page="itemPagination.page" :size="itemPagination.size" :total="itemPagination.total" class="mt-2 shrink-0" @page-change="onItemPageChange" @size-change="onItemSizeChangeFn" />
+                </div>
+              </template>
+
+              <!-- ==================== 门店价格 ==================== -->
+              <template #store>
+                <!-- 查询区固定,表格区占满卡片剩余高度滚动 -->
+                <div class="p-4 flex flex-1 flex-col min-h-0">
+                  <FaSearchBar :show-toggle="false">
+                    <template #default>
+                      <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
+                        <FaLabel label="当前门店" class="col-span-1">
+                          <FaTag variant="default">
+                            {{ tenantStore.currentStoreId ? '已选门店' : '未选择门店' }}
+                          </FaTag>
+                        </FaLabel>
+                        <FaLabel label="关键词" class="col-span-1">
+                          <FaInput
+                            v-model="storeFilters.keyword"
+                            placeholder="自定义名称/目录项名称"
+                            clearable
+                            class="w-full"
+                            @keydown.enter="loadStoreItems"
+                            @clear="loadStoreItems"
+                          />
+                        </FaLabel>
+                        <FaLabel label="状态" class="col-span-1">
+                          <FaSelect
+                            v-model="storeFilters.isActive"
+                            :options="[
+                              { label: '全部', value: '' },
+                              { label: '启用', value: 'true' },
+                              { label: '停用', value: 'false' },
+                            ]"
+                            class="w-full"
+                            @change="loadStoreItems"
+                          />
+                        </FaLabel>
+                        <div class="flex gap-2 col-end--1 justify-end">
+                          <FaButton variant="outline" @click="storeFilters.keyword = ''; storeFilters.isActive = ''; loadStoreItems()">
+                            重置
+                          </FaButton>
+                          <FaButton type="primary" @click="loadStoreItems">
+                            <FaIcon name="i-ri:search-line" />
+                            筛选
+                          </FaButton>
+                        </div>
+                      </div>
+                    </template>
+                  </FaSearchBar>
+                  <div class="mx--4 my-3 border-t border-t-dashed" />
+                  <!-- 表格区占满剩余高度,内部滚动 -->
+                  <div v-loading="storeItemLoading" class="flex-1 min-h-0 overflow-hidden">
+                    <FaTable
+                      class="h-full min-h-0"
+                      table-root-class="overflow-hidden"
+                      row-key="id"
+                      stripe
+                      border
+                      :columns="storeItemColumns"
+                      :data="storeItemList"
+                    >
+                      <template #toolbar>
+                        <FaButton type="primary" @click="onMigrateToStore">
+                          <FaIcon name="i-ri:download-cloud-2-line" />
+                          批量迁移到门店
+                        </FaButton>
+                        <FaButton variant="outline" @click="loadStoreItems">
+                          <FaIcon name="i-ri:refresh-line" />
+                          刷新
+                        </FaButton>
+                      </template>
+                      <template #cell-operation="{ row }">
+                        <div class="flex-center gap-2">
+                          <FaDropdown
+                            :items="[[
+                              { label: row.original.is_active ? '停用' : '启用', handle: () => onToggleStoreItemActive(row.original) },
+                              { label: '删除', variant: 'destructive', handle: () => onDeleteStoreItem(row.original) },
+                            ]]"
+                          >
+                            <FaButton variant="outline" size="icon-sm">
+                              <FaIcon name="i-ri:more-line" />
+                            </FaButton>
+                          </FaDropdown>
+                        </div>
+                      </template>
+                      <template #empty>
+                        <FaEmptyState description="暂无门店目录项" />
+                      </template>
+                    </FaTable>
+                  </div>
+                  <FaPagination :page="storePagination.page" :size="storePagination.size" :total="storePagination.total" class="mt-2 shrink-0" @page-change="onStorePageChange" @size-change="onStoreSizeChangeFn" />
+                </div>
+              </template>
+
+              <!-- ==================== 问诊问题 ==================== -->
+              <template #intake>
+                <!-- 查询区固定,表格区占满卡片剩余高度滚动 -->
+                <div class="p-4 flex flex-1 flex-col min-h-0">
+                  <FaSearchBar :show-toggle="false">
+                    <template #default>
+                      <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
+                        <FaLabel label="分类" class="col-span-1">
+                          <FaInput
+                            v-model="intakeFilters.category"
+                            placeholder="如 general/history/symptom"
+                            clearable
+                            class="w-full"
+                            @keydown.enter="loadIntakeQuestions"
+                            @clear="loadIntakeQuestions"
+                          />
+                        </FaLabel>
+                        <FaLabel label="状态" class="col-span-1">
+                          <FaSelect
+                            v-model="intakeFilters.isActive"
+                            :options="[
+                              { label: '全部', value: '' },
+                              { label: '启用', value: 'true' },
+                              { label: '停用', value: 'false' },
+                            ]"
+                            class="w-full"
+                            @change="loadIntakeQuestions"
+                          />
+                        </FaLabel>
+                        <div class="flex gap-2 col-end--1 justify-end">
+                          <FaButton variant="outline" @click="intakeFilters.category = ''; intakeFilters.isActive = ''; loadIntakeQuestions()">
+                            重置
+                          </FaButton>
+                          <FaButton type="primary" @click="loadIntakeQuestions">
+                            <FaIcon name="i-ri:search-line" />
+                            筛选
+                          </FaButton>
+                        </div>
+                      </div>
+                    </template>
+                  </FaSearchBar>
+                  <div class="mx--4 my-3 border-t border-t-dashed" />
+                  <!-- 表格区占满剩余高度,内部滚动 -->
+                  <div v-loading="intakeLoading" class="flex-1 min-h-0 overflow-hidden">
+                    <FaTable
+                      class="h-full min-h-0"
+                      table-root-class="overflow-hidden"
+                      row-key="id"
+                      stripe
+                      border
+                      :columns="intakeColumns"
+                      :data="intakeList"
+                    >
+                      <template #toolbar>
+                        <FaButton type="primary" @click="onCreateIntake">
+                          <FaIcon name="i-ri:add-line" />
+                          新增问诊问题
+                        </FaButton>
+                      </template>
+                      <template #cell-operation="{ row }">
+                        <div class="flex-center gap-2">
+                          <FaDropdown
+                            :items="[[
+                              { label: row.original.is_active ? '停用' : '启用', handle: () => onToggleIntakeActive(row.original) },
+                              { label: '删除', variant: 'destructive', handle: () => onDeleteIntake(row.original) },
+                            ]]"
+                          >
+                            <FaButton variant="outline" size="icon-sm">
+                              <FaIcon name="i-ri:more-line" />
+                            </FaButton>
+                          </FaDropdown>
+                        </div>
+                      </template>
+                      <template #empty>
+                        <FaEmptyState description="暂无问诊问题" />
+                      </template>
+                    </FaTable>
+                  </div>
+                  <FaPagination :page="intakePagination.page" :size="intakePagination.size" :total="intakePagination.total" class="mt-2 shrink-0" @page-change="onIntakePageChange" @size-change="onIntakeSizeChangeFn" />
+                </div>
+              </template>
+
+              <!-- ==================== 诊断字典 ==================== -->
+              <template #diagnosis>
+                <!-- 查询区固定,表格区占满卡片剩余高度滚动 -->
+                <div class="p-4 flex flex-1 flex-col min-h-0">
+                  <FaSearchBar :show-toggle="false">
+                    <template #default>
+                      <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
+                        <FaLabel label="关键词" class="col-span-1">
+                          <FaInput
+                            v-model="diagnosisFilters.keyword"
+                            placeholder="名称/编码"
+                            clearable
+                            class="w-full"
+                            @keydown.enter="loadDiagnosisDict"
+                            @clear="loadDiagnosisDict"
+                          />
+                        </FaLabel>
+                        <FaLabel label="分类" class="col-span-1">
+                          <FaInput
+                            v-model="diagnosisFilters.category"
+                            placeholder="如 内科/外科/传染"
+                            clearable
+                            class="w-full"
+                            @keydown.enter="loadDiagnosisDict"
+                            @clear="loadDiagnosisDict"
+                          />
+                        </FaLabel>
+                        <FaLabel label="状态" class="col-span-1">
+                          <FaSelect
+                            v-model="diagnosisFilters.isActive"
+                            :options="[
+                              { label: '全部', value: '' },
+                              { label: '启用', value: 'true' },
+                              { label: '停用', value: 'false' },
+                            ]"
+                            class="w-full"
+                            @change="loadDiagnosisDict"
+                          />
+                        </FaLabel>
+                        <div class="flex gap-2 col-end--1 justify-end">
+                          <FaButton
+                            variant="outline"
+                            @click="diagnosisFilters.keyword = ''; diagnosisFilters.category = ''; diagnosisFilters.isActive = ''; loadDiagnosisDict()"
+                          >
+                            重置
+                          </FaButton>
+                          <FaButton type="primary" @click="loadDiagnosisDict">
+                            <FaIcon name="i-ri:search-line" />
+                            筛选
+                          </FaButton>
+                        </div>
+                      </div>
+                    </template>
+                  </FaSearchBar>
+                  <div class="mx--4 my-3 border-t border-t-dashed" />
+                  <!-- 表格区占满剩余高度,内部滚动 -->
+                  <div v-loading="diagnosisLoading" class="flex-1 min-h-0 overflow-hidden">
+                    <FaTable
+                      class="h-full min-h-0"
+                      table-root-class="overflow-hidden"
+                      row-key="id"
+                      stripe
+                      border
+                      :columns="diagnosisColumns"
+                      :data="diagnosisList"
+                    >
+                      <template #toolbar>
+                        <FaButton type="primary" @click="onCreateDiagnosis">
+                          <FaIcon name="i-ri:add-line" />
+                          新增诊断
+                        </FaButton>
+                      </template>
+                      <template #cell-operation="{ row }">
+                        <div class="flex-center gap-2">
+                          <FaDropdown
+                            :items="[[
+                              { label: row.original.is_active ? '停用' : '启用', handle: () => onToggleDiagnosisActive(row.original) },
+                              { label: '删除', variant: 'destructive', handle: () => onDeleteDiagnosis(row.original) },
+                            ]]"
+                          >
+                            <FaButton variant="outline" size="icon-sm">
+                              <FaIcon name="i-ri:more-line" />
+                            </FaButton>
+                          </FaDropdown>
+                        </div>
+                      </template>
+                      <template #empty>
+                        <FaEmptyState description="暂无诊断" />
+                      </template>
+                    </FaTable>
+                  </div>
+                  <FaPagination :page="diagnosisPagination.page" :size="diagnosisPagination.size" :total="diagnosisPagination.total" class="mt-2 shrink-0" @page-change="onDiagnosisPageChange" @size-change="onDiagnosisSizeChangeFn" />
+                </div>
+              </template>
+
+              <!-- ==================== 检验 panel ==================== -->
+              <template #lab>
+                <!-- 查询区固定,表格区占满卡片剩余高度滚动 -->
+                <div class="p-4 flex flex-1 flex-col min-h-0">
+                  <FaSearchBar :show-toggle="false">
+                    <template #default>
+                      <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
+                        <FaLabel label="分类" class="col-span-1">
+                          <FaSelect
+                            v-model="labFilters.category"
+                            :options="[
+                              { label: '全部', value: '' },
+                              { label: '血液', value: 'blood' },
+                              { label: '尿液', value: 'urine' },
+                              { label: '生化', value: 'biochem' },
+                              { label: '内分泌', value: 'endocrine' },
+                              { label: '其他', value: 'other' },
+                            ]"
+                            class="w-full"
+                            @change="loadLabPanels"
+                          />
+                        </FaLabel>
+                        <FaLabel label="状态" class="col-span-1">
+                          <FaSelect
+                            v-model="labFilters.isActive"
+                            :options="[
+                              { label: '全部', value: '' },
+                              { label: '启用', value: 'true' },
+                              { label: '停用', value: 'false' },
+                            ]"
+                            class="w-full"
+                            @change="loadLabPanels"
+                          />
+                        </FaLabel>
+                        <div class="flex gap-2 col-end--1 justify-end">
+                          <FaButton
+                            variant="outline"
+                            @click="labFilters.category = ''; labFilters.isActive = ''; loadLabPanels()"
+                          >
+                            重置
+                          </FaButton>
+                          <FaButton type="primary" @click="loadLabPanels">
+                            <FaIcon name="i-ri:search-line" />
+                            筛选
+                          </FaButton>
+                        </div>
+                      </div>
+                    </template>
+                  </FaSearchBar>
+                  <div class="mx--4 my-3 border-t border-t-dashed" />
+                  <!-- 表格区占满剩余高度,内部滚动 -->
+                  <div v-loading="labLoading" class="flex-1 min-h-0 overflow-hidden">
+                    <FaTable
+                      class="h-full min-h-0"
+                      table-root-class="overflow-hidden"
+                      row-key="id"
+                      stripe
+                      border
+                      :columns="labPanelColumns"
+                      :data="labPanelList"
+                    >
+                      <template #toolbar>
+                        <FaButton type="primary" @click="onCreateLabPanel">
+                          <FaIcon name="i-ri:add-line" />
+                          新增 panel
+                        </FaButton>
+                      </template>
+                      <template #cell-operation="{ row }">
+                        <div class="flex-center gap-2">
+                          <FaDropdown
+                            :items="[[
+                              { label: row.original.is_active ? '停用' : '启用', handle: () => onToggleLabPanelActive(row.original) },
+                              { label: '删除', variant: 'destructive', handle: () => onDeleteLabPanel(row.original) },
+                            ]]"
+                          >
+                            <FaButton variant="outline" size="icon-sm">
+                              <FaIcon name="i-ri:more-line" />
+                            </FaButton>
+                          </FaDropdown>
+                        </div>
+                      </template>
+                      <template #empty>
+                        <FaEmptyState description="暂无检验 panel" />
+                      </template>
+                    </FaTable>
+                  </div>
+                  <FaPagination :page="labPagination.page" :size="labPagination.size" :total="labPagination.total" class="mt-2 shrink-0" @page-change="onLabPageChange" @size-change="onLabSizeChangeFn" />
+                </div>
+              </template>
+            </FaTabs>
           </div>
-        </template>
-
-        <!-- ==================== 门店价格 ==================== -->
-        <template #store>
-          <FaSearchBar :show-toggle="false">
-            <template #default>
-              <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
-                <FaLabel label="当前门店" class="col-span-1">
-                  <FaTag variant="default">
-                    {{ tenantStore.currentStoreId ? '已选门店' : '未选择门店' }}
-                  </FaTag>
-                </FaLabel>
-                <FaLabel label="关键词" class="col-span-1">
-                  <FaInput
-                    v-model="storeFilters.keyword"
-                    placeholder="自定义名称/目录项名称"
-                    clearable
-                    class="w-full"
-                    @keydown.enter="loadStoreItems"
-                    @clear="loadStoreItems"
-                  />
-                </FaLabel>
-                <FaLabel label="状态" class="col-span-1">
-                  <FaSelect
-                    v-model="storeFilters.isActive"
-                    :options="[
-                      { label: '全部', value: '' },
-                      { label: '启用', value: 'true' },
-                      { label: '停用', value: 'false' },
-                    ]"
-                    class="w-full"
-                    @change="loadStoreItems"
-                  />
-                </FaLabel>
-                <div class="flex gap-2 col-end--1 justify-end">
-                  <FaButton variant="outline" @click="storeFilters.keyword = ''; storeFilters.isActive = ''; loadStoreItems()">
-                    重置
-                  </FaButton>
-                  <FaButton type="primary" @click="loadStoreItems">
-                    <FaIcon name="i-ri:search-line" />
-                    筛选
-                  </FaButton>
-                </div>
-              </div>
-            </template>
-          </FaSearchBar>
-          <div class="mx--4 my-3 border-t border-t-dashed" />
-          <FaTable
-            v-loading="storeItemLoading"
-            table-root-class="rounded-lg overflow-hidden"
-            row-key="id"
-            stripe
-            border
-            :columns="storeItemColumns"
-            :data="storeItemList"
-          >
-            <template #toolbar>
-              <FaButton type="primary" @click="onMigrateToStore">
-                <FaIcon name="i-ri:download-cloud-2-line" />
-                批量迁移到门店
-              </FaButton>
-              <FaButton variant="outline" @click="loadStoreItems">
-                <FaIcon name="i-ri:refresh-line" />
-                刷新
-              </FaButton>
-            </template>
-            <template #cell-operation="{ row }">
-              <div class="flex-center gap-2">
-                <FaDropdown
-                  :items="[[
-                    { label: row.original.is_active ? '停用' : '启用', handle: () => onToggleStoreItemActive(row.original) },
-                    { label: '删除', variant: 'destructive', handle: () => onDeleteStoreItem(row.original) },
-                  ]]"
-                >
-                  <FaButton variant="outline" size="icon-sm">
-                    <FaIcon name="i-ri:more-line" />
-                  </FaButton>
-                </FaDropdown>
-              </div>
-            </template>
-          </FaTable>
-        </template>
-
-        <!-- ==================== 问诊问题 ==================== -->
-        <template #intake>
-          <FaSearchBar :show-toggle="false">
-            <template #default>
-              <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
-                <FaLabel label="分类" class="col-span-1">
-                  <FaInput
-                    v-model="intakeFilters.category"
-                    placeholder="如 general/history/symptom"
-                    clearable
-                    class="w-full"
-                    @keydown.enter="loadIntakeQuestions"
-                    @clear="loadIntakeQuestions"
-                  />
-                </FaLabel>
-                <FaLabel label="状态" class="col-span-1">
-                  <FaSelect
-                    v-model="intakeFilters.isActive"
-                    :options="[
-                      { label: '全部', value: '' },
-                      { label: '启用', value: 'true' },
-                      { label: '停用', value: 'false' },
-                    ]"
-                    class="w-full"
-                    @change="loadIntakeQuestions"
-                  />
-                </FaLabel>
-                <div class="flex gap-2 col-end--1 justify-end">
-                  <FaButton variant="outline" @click="intakeFilters.category = ''; intakeFilters.isActive = ''; loadIntakeQuestions()">
-                    重置
-                  </FaButton>
-                  <FaButton type="primary" @click="loadIntakeQuestions">
-                    <FaIcon name="i-ri:search-line" />
-                    筛选
-                  </FaButton>
-                </div>
-              </div>
-            </template>
-          </FaSearchBar>
-          <div class="mx--4 my-3 border-t border-t-dashed" />
-          <FaTable
-            v-loading="intakeLoading"
-            table-root-class="rounded-lg overflow-hidden"
-            row-key="id"
-            stripe
-            border
-            :columns="intakeColumns"
-            :data="intakeList"
-          >
-            <template #toolbar>
-              <FaButton type="primary" @click="onCreateIntake">
-                <FaIcon name="i-ri:add-line" />
-                新增问诊问题
-              </FaButton>
-            </template>
-            <template #cell-operation="{ row }">
-              <div class="flex-center gap-2">
-                <FaDropdown
-                  :items="[[
-                    { label: row.original.is_active ? '停用' : '启用', handle: () => onToggleIntakeActive(row.original) },
-                    { label: '删除', variant: 'destructive', handle: () => onDeleteIntake(row.original) },
-                  ]]"
-                >
-                  <FaButton variant="outline" size="icon-sm">
-                    <FaIcon name="i-ri:more-line" />
-                  </FaButton>
-                </FaDropdown>
-              </div>
-            </template>
-          </FaTable>
-        </template>
-
-        <!-- ==================== 诊断字典 ==================== -->
-        <template #diagnosis>
-          <FaSearchBar :show-toggle="false">
-            <template #default>
-              <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
-                <FaLabel label="关键词" class="col-span-1">
-                  <FaInput
-                    v-model="diagnosisFilters.keyword"
-                    placeholder="名称/编码"
-                    clearable
-                    class="w-full"
-                    @keydown.enter="loadDiagnosisDict"
-                    @clear="loadDiagnosisDict"
-                  />
-                </FaLabel>
-                <FaLabel label="分类" class="col-span-1">
-                  <FaInput
-                    v-model="diagnosisFilters.category"
-                    placeholder="如 内科/外科/传染"
-                    clearable
-                    class="w-full"
-                    @keydown.enter="loadDiagnosisDict"
-                    @clear="loadDiagnosisDict"
-                  />
-                </FaLabel>
-                <FaLabel label="状态" class="col-span-1">
-                  <FaSelect
-                    v-model="diagnosisFilters.isActive"
-                    :options="[
-                      { label: '全部', value: '' },
-                      { label: '启用', value: 'true' },
-                      { label: '停用', value: 'false' },
-                    ]"
-                    class="w-full"
-                    @change="loadDiagnosisDict"
-                  />
-                </FaLabel>
-                <div class="flex gap-2 col-end--1 justify-end">
-                  <FaButton
-                    variant="outline"
-                    @click="diagnosisFilters.keyword = ''; diagnosisFilters.category = ''; diagnosisFilters.isActive = ''; loadDiagnosisDict()"
-                  >
-                    重置
-                  </FaButton>
-                  <FaButton type="primary" @click="loadDiagnosisDict">
-                    <FaIcon name="i-ri:search-line" />
-                    筛选
-                  </FaButton>
-                </div>
-              </div>
-            </template>
-          </FaSearchBar>
-          <div class="mx--4 my-3 border-t border-t-dashed" />
-          <FaTable
-            v-loading="diagnosisLoading"
-            table-root-class="rounded-lg overflow-hidden"
-            row-key="id"
-            stripe
-            border
-            :columns="diagnosisColumns"
-            :data="diagnosisList"
-          >
-            <template #toolbar>
-              <FaButton type="primary" @click="onCreateDiagnosis">
-                <FaIcon name="i-ri:add-line" />
-                新增诊断
-              </FaButton>
-            </template>
-            <template #cell-operation="{ row }">
-              <div class="flex-center gap-2">
-                <FaDropdown
-                  :items="[[
-                    { label: row.original.is_active ? '停用' : '启用', handle: () => onToggleDiagnosisActive(row.original) },
-                    { label: '删除', variant: 'destructive', handle: () => onDeleteDiagnosis(row.original) },
-                  ]]"
-                >
-                  <FaButton variant="outline" size="icon-sm">
-                    <FaIcon name="i-ri:more-line" />
-                  </FaButton>
-                </FaDropdown>
-              </div>
-            </template>
-          </FaTable>
-        </template>
-
-        <!-- ==================== 检验 panel ==================== -->
-        <template #lab>
-          <FaSearchBar :show-toggle="false">
-            <template #default>
-              <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
-                <FaLabel label="分类" class="col-span-1">
-                  <FaSelect
-                    v-model="labFilters.category"
-                    :options="[
-                      { label: '全部', value: '' },
-                      { label: '血液', value: 'blood' },
-                      { label: '尿液', value: 'urine' },
-                      { label: '生化', value: 'biochem' },
-                      { label: '内分泌', value: 'endocrine' },
-                      { label: '其他', value: 'other' },
-                    ]"
-                    class="w-full"
-                    @change="loadLabPanels"
-                  />
-                </FaLabel>
-                <FaLabel label="状态" class="col-span-1">
-                  <FaSelect
-                    v-model="labFilters.isActive"
-                    :options="[
-                      { label: '全部', value: '' },
-                      { label: '启用', value: 'true' },
-                      { label: '停用', value: 'false' },
-                    ]"
-                    class="w-full"
-                    @change="loadLabPanels"
-                  />
-                </FaLabel>
-                <div class="flex gap-2 col-end--1 justify-end">
-                  <FaButton
-                    variant="outline"
-                    @click="labFilters.category = ''; labFilters.isActive = ''; loadLabPanels()"
-                  >
-                    重置
-                  </FaButton>
-                  <FaButton type="primary" @click="loadLabPanels">
-                    <FaIcon name="i-ri:search-line" />
-                    筛选
-                  </FaButton>
-                </div>
-              </div>
-            </template>
-          </FaSearchBar>
-          <div class="mx--4 my-3 border-t border-t-dashed" />
-          <FaTable
-            v-loading="labLoading"
-            table-root-class="rounded-lg overflow-hidden"
-            row-key="id"
-            stripe
-            border
-            :columns="labPanelColumns"
-            :data="labPanelList"
-          >
-            <template #toolbar>
-              <FaButton type="primary" @click="onCreateLabPanel">
-                <FaIcon name="i-ri:add-line" />
-                新增 panel
-              </FaButton>
-            </template>
-            <template #cell-operation="{ row }">
-              <div class="flex-center gap-2">
-                <FaDropdown
-                  :items="[[
-                    { label: row.original.is_active ? '停用' : '启用', handle: () => onToggleLabPanelActive(row.original) },
-                    { label: '删除', variant: 'destructive', handle: () => onDeleteLabPanel(row.original) },
-                  ]]"
-                >
-                  <FaButton variant="outline" size="icon-sm">
-                    <FaIcon name="i-ri:more-line" />
-                  </FaButton>
-                </FaDropdown>
-              </div>
-            </template>
-          </FaTable>
-        </template>
-      </FaTabs>
-    </FaPageMain>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

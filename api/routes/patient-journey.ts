@@ -114,7 +114,9 @@ async function resolveKeywordScopes(
   }
 }
 
-/** 构造工作台基础查询:门店/租户范围 + 关键词 OR 过滤(宠物/主人 id 或文本字段模糊匹配)。 */
+/** 构造工作台基础查询:门店/租户范围 + 关键词 OR 过滤(宠物/主人 id 或文本字段模糊匹配)。
+ * 每次调用均从入口 select 重新构建,返回独立查询构建器;
+ * 入口 select 必须在此处携带 columns/options,因为后续 FilterBuilder.select 不支持 count/head 选项。 */
 function workbenchBuilder(
   service: ReturnType<typeof createServiceClient>,
   table: 'clinical_queue_entries' | 'encounter_charge_items' | 'workflow_tasks',
@@ -123,11 +125,13 @@ function workbenchBuilder(
   keyword: string | undefined,
   scopes: { petIds: string[], customerIds: string[] } | null,
   textFields: string[],
+  columns = '*',
+  options?: { count?: 'exact' | 'planned' | 'estimated', head?: boolean },
 ) {
   // 动态表名(from 联合类型)会产生 PostgrestQueryBuilder 联合类型,统一按 any 处理以便链式过滤
   // 必须先 select() 拿到 PostgrestFilterBuilder,否则 from() 返回的 QueryBuilder 上没有 eq/or 等过滤方法
   let builder: any = (service.from(table) as any)
-    .select()
+    .select(columns, options)
     .eq('tenant_id', tenantId)
     .eq('store_id', storeId)
   if (keyword && scopes) {
@@ -140,9 +144,17 @@ function workbenchBuilder(
   return builder
 }
 
-/** 全量状态计数(完整业务范围,不受状态筛选与分页影响),并返回筛选后总数与当前页记录。 */
+/** 全量状态计数(完整业务范围,不受状态筛选与分页影响),并返回筛选后总数与当前页记录。
+ * 计数/总数/列表三个查询各自从入口独立构建,避免复用同一 mutable builder 导致 count 选项丢失与过滤条件叠加。 */
 async function aggregateWorkbenchPage(
-  builder: any,
+  service: ReturnType<typeof createServiceClient>,
+  table: 'clinical_queue_entries' | 'encounter_charge_items' | 'workflow_tasks',
+  tenantId: string,
+  storeId: string,
+  keyword: string | undefined,
+  scopes: { petIds: string[], customerIds: string[] } | null,
+  textFields: string[],
+  transform: (builder: any) => any,
   statuses: string[],
   status: string | undefined,
   page: number,
@@ -150,17 +162,21 @@ async function aggregateWorkbenchPage(
 ) {
   // 当前选中状态只作用于"总数 + 分页",状态计数始终按全部状态统计
   const activeStatuses = status ? [status] : statuses
-  const { data: countRows, error: countError } = await builder.select('id,status').in('status', statuses)
+  const { data: countRows, error: countError } = await workbenchBuilder(service, table, tenantId, storeId, keyword, scopes, textFields, 'id,status')
+    .in('status', statuses)
   if (countError) { throw err.internal(`加载工作台统计失败: ${countError.message}`) }
   const counts = ((countRows ?? []) as Array<{ status: string }>).reduce<Record<string, number>>((acc, row) => {
     const key = String(row.status)
     acc[key] = (acc[key] ?? 0) + 1
     return acc
   }, {})
-  const { count, error: totalError } = await builder.select('id', { count: 'exact', head: true }).in('status', activeStatuses)
+  const { count, error: totalError } = await workbenchBuilder(service, table, tenantId, storeId, keyword, scopes, textFields, 'id', { count: 'exact', head: true })
+    .in('status', activeStatuses)
   if (totalError) { throw err.internal(`加载工作台总数失败: ${totalError.message}`) }
   const from = (page - 1) * pageSize
-  const { data, error } = await builder.select('*').in('status', activeStatuses).range(from, from + pageSize - 1)
+  const { data, error } = await transform(workbenchBuilder(service, table, tenantId, storeId, keyword, scopes, textFields))
+    .in('status', activeStatuses)
+    .range(from, from + pageSize - 1)
   if (error) { throw err.internal(`加载工作台列表失败: ${error.message}`) }
   return { list: data ?? [], counts, total: count ?? 0 }
 }
@@ -337,29 +353,58 @@ patientJourneyRoutes.get('/workbenches/:role', async (c) => {
       : role === 'doctor'
         ? ['waiting', 'called', 'in_consultation']
         : ['checked_in', 'triage', 'waiting', 'called', 'missed', 'in_consultation']
-    const builder = workbenchBuilder(service, 'clinical_queue_entries', tenantId, input.storeId, keyword, scopes, ['queue_no'])
-      .order('priority', { ascending: false })
-      .order('checked_in_at', { ascending: true })
-    const paged = await aggregateWorkbenchPage(builder, allowedStatuses, input.status, page, pageSize)
+    const paged = await aggregateWorkbenchPage(
+      service,
+      'clinical_queue_entries',
+      tenantId,
+      input.storeId,
+      keyword,
+      scopes,
+      ['queue_no'],
+      (b) => b.order('priority', { ascending: false }).order('checked_in_at', { ascending: true }),
+      allowedStatuses,
+      input.status,
+      page,
+      pageSize,
+    )
     rows = paged.list
     counts = paged.counts
     total = paged.total
   }
   else if (role === 'cashier') {
-    const builder = workbenchBuilder(service, 'encounter_charge_items', tenantId, input.storeId, keyword, scopes, ['item_name', 'source_id'])
-      .order('created_at', { ascending: true })
-    const paged = await aggregateWorkbenchPage(builder, ['pending', 'invoiced'], input.status, page, pageSize)
+    const paged = await aggregateWorkbenchPage(
+      service,
+      'encounter_charge_items',
+      tenantId,
+      input.storeId,
+      keyword,
+      scopes,
+      ['item_name', 'source_id'],
+      (b) => b.order('created_at', { ascending: true }),
+      ['pending', 'invoiced'],
+      input.status,
+      page,
+      pageSize,
+    )
     rows = paged.list
     counts = paged.counts
     total = paged.total
   }
   else {
-    const builder = workbenchBuilder(service, 'workflow_tasks', tenantId, input.storeId, keyword, scopes, ['title', 'source_id'])
-      .eq('owner_role', taskRole(role))
-      .order('priority', { ascending: false })
-      .order('due_at', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: true })
-    const paged = await aggregateWorkbenchPage(builder, ['pending', 'claimed', 'in_progress', 'failed'], input.status, page, pageSize)
+    const paged = await aggregateWorkbenchPage(
+      service,
+      'workflow_tasks',
+      tenantId,
+      input.storeId,
+      keyword,
+      scopes,
+      ['title', 'source_id'],
+      (b) => b.eq('owner_role', taskRole(role)).order('priority', { ascending: false }).order('due_at', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true }),
+      ['pending', 'claimed', 'in_progress', 'failed'],
+      input.status,
+      page,
+      pageSize,
+    )
     rows = paged.list
     counts = paged.counts
     total = paged.total

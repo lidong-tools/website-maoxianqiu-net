@@ -152,7 +152,8 @@ function displayRow(row: WaitingRow) {
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <!-- 绝对定位占满父容器,与回访任务等列表页保持内容区高度一致 -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
     <!-- 注释掉标题和描述区域(UI界面-人工测试报告) -->
     <!--
     <EntityPageHeader compact title="候诊队列" description="实时队列 · 每 30 秒自动刷新">
@@ -166,9 +167,9 @@ function displayRow(row: WaitingRow) {
     </EntityPageHeader>
     -->
 
-    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
       <!-- 顶部统计 -->
-      <div class="gap-4 grid grid-cols-3">
+      <div class="shrink-0 gap-4 grid grid-cols-3">
         <div class="p-3 border rounded-lg bg-card">
           <div class="text-2xl font-semibold tabular-nums">
             {{ waitingCount }}
@@ -196,9 +197,9 @@ function displayRow(row: WaitingRow) {
       </div>
 
       <!-- 候诊列表卡片 -->
-      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
         <!-- 工具栏:左筛选,右功能按钮 -->
-        <div class="px-4 pt-3 border-b">
+        <div class="px-4 pt-3 border-b shrink-0">
           <div class="pb-3 flex flex-wrap gap-2 items-center justify-between">
             <div class="flex gap-2 items-center">
               <FaSelect v-model="currentStoreId" :options="storeOptions" class="w-40" @change="loadData" />

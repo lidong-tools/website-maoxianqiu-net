@@ -13,6 +13,8 @@ defineOptions({
 
 const props = defineProps<{
   workspace: EncounterWorkspace
+  /** 纵向模式:信息纵向堆叠,用于左侧患者个人信息列 */
+  vertical?: boolean
 }>()
 
 /** 物种中文名 */
@@ -94,7 +96,95 @@ const blockerCount = computed(() => props.workspace.blockers.length)
 </script>
 
 <template>
-  <div class="text-sm px-3 py-2 border rounded-lg bg-card flex flex-wrap gap-x-4 gap-y-1 items-center">
+  <!-- 纵向模式:左侧患者个人信息列(外层容器由调用方提供卡片边框) -->
+  <div v-if="vertical" class="text-sm px-3 py-2 flex flex-1 min-h-0 flex-col gap-3 overflow-auto">
+    <!-- 宠物核心信息 -->
+    <div class="flex gap-2 min-w-0 items-center">
+      <div class="bg-primary-50 text-primary rounded-full flex shrink-0 size-9 items-center justify-center">
+        <span class="text-sm font-semibold">{{ pet?.name?.slice(0, 1) ?? '宠' }}</span>
+      </div>
+      <div class="min-w-0">
+        <div class="font-medium flex gap-1.5 items-center">
+          <span class="truncate">{{ pet?.name ?? '未知宠物' }}</span>
+          <EntityStatusTag
+            v-if="workspace.journeyStage"
+            :label="JOURNEY_STAGE_LABELS[workspace.journeyStage] ?? workspace.journeyStage"
+            variant="info"
+            :dot="false"
+          />
+        </div>
+        <div class="text-xs text-muted-foreground truncate">
+          {{ SPECIES_LABELS[pet?.species ?? ''] ?? pet?.species ?? '' }}
+          <template v-if="pet?.breed">
+            · {{ pet.breed }}
+          </template>
+          · {{ petGenderText }} · {{ petAgeText }}
+          <template v-if="pet?.weight != null">
+            · {{ pet.weight }}kg
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- 主人信息 -->
+    <div v-if="customer" class="text-xs text-muted-foreground min-w-0 border-t pt-2">
+      <div class="text-foreground font-medium truncate">
+        {{ customer.name }}
+      </div>
+      <div v-if="customer.phone" class="truncate">
+        {{ customer.phone }}
+      </div>
+    </div>
+
+    <!-- 分诊与生命体征 -->
+    <div v-if="triage" class="text-xs text-muted-foreground min-w-0 border-t pt-2">
+      <div class="flex gap-1 items-center">
+        <span class="text-foreground font-medium">分诊</span>
+        <EntityStatusTag
+          :label="ACUITY_LABELS[triage.acuity ?? ''] ?? triage.acuity ?? '常规'"
+          :variant="triage.acuity === 'urgent' || triage.acuity === 'emergency' ? 'danger' : 'info'"
+          :dot="false"
+        />
+      </div>
+      <div v-if="vitalsText" class="truncate">
+        {{ vitalsText }}
+      </div>
+    </div>
+
+    <!-- 过敏与风险(危险色,不可折叠) -->
+    <div class="border-t pt-2">
+      <div class="text-xs text-muted-foreground mb-1">过敏与风险</div>
+      <div v-if="dangerItems.length" class="flex flex-wrap gap-1.5 items-center">
+        <span
+          v-for="(item, i) in dangerItems"
+          :key="i"
+          class="text-xs text-red-600 font-medium px-2 py-0.5 border border-red-200 rounded-md bg-red-50 dark:border-red-800 dark:bg-red-950/40"
+        >
+          <FaIcon name="i-lucide:alert-triangle" class="mr-1 size-3 inline" />
+          {{ item }}
+        </span>
+      </div>
+      <div v-else class="text-xs text-muted-foreground">
+        无已知风险
+      </div>
+    </div>
+
+    <!-- 收费与阻断 -->
+    <div class="text-xs text-muted-foreground border-t pt-2 flex flex-col gap-1">
+      <span v-if="workspace.billing.pendingCount">
+        待付款 <span class="text-foreground font-medium">¥{{ workspace.billing.pendingAmount.toFixed(2) }}</span>
+        <span v-if="workspace.billing.noPriceCount" class="text-amber-600">({{ workspace.billing.noPriceCount }}项无价)</span>
+      </span>
+      <span v-if="openTaskCount">任务 {{ openTaskCount }}</span>
+      <span v-if="blockerCount" class="text-red-600 font-medium">
+        <FaIcon name="i-lucide:shield-alert" class="mr-0.5 size-3.5 inline" />
+        阻断 {{ blockerCount }}
+      </span>
+    </div>
+  </div>
+
+  <!-- 横向模式:顶部患者安全条 -->
+  <div v-else class="text-sm px-3 py-2 border rounded-lg bg-card flex flex-wrap gap-x-4 gap-y-1 items-center">
     <!-- 宠物核心信息 -->
     <div class="flex gap-2 min-w-0 items-center">
       <div class="bg-primary-50 text-primary rounded-full flex shrink-0 size-8 items-center justify-center">

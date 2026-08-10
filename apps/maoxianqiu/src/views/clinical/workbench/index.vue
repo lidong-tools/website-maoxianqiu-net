@@ -43,7 +43,6 @@ const plan = useClinicalPlanDraft()
 const {
   doctorQueue,
   loadingQueue,
-  queueCounts,
 } = queue
 const {
   workspace: workspaceData,
@@ -576,28 +575,20 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="contentRef" class="flex flex-col h-full min-h-0">
-    <!-- 顶部患者安全条(点击患者即展示预览,工作区加载完成后切换为完整数据) -->
+    <!-- 顶部患者安全条:窄屏保留横向安全条,宽屏个人信息移入左侧列 -->
     <PatientContextBar
-      v-if="displayWorkspace"
+      v-if="displayWorkspace && !isWide"
       :workspace="displayWorkspace"
       class="m-3 mb-0 shrink-0"
     />
 
     <!-- ===== 宽屏三栏(内容区 ≥1360) ===== -->
     <template v-if="isWide">
-      <div class="p-3 flex flex-1 gap-3 min-h-0">
-        <!-- 左:候诊队列 -->
-        <aside class="border rounded-lg bg-card flex shrink-0 flex-col min-h-0 w-60">
-          <div class="px-3 py-2 border-b flex shrink-0 items-center justify-between">
-            <span class="text-sm font-medium">
-              候诊({{ queueCounts.waiting + queueCounts.called + queueCounts.consulting }})
-            </span>
-            <FaButton size="sm" variant="ghost" @click="historyDrawerVisible = true">
-              <FaIcon name="i-lucide:history" />
-              历史病历
-            </FaButton>
-          </div>
+      <div class="p-3 flex flex-1 flex-col gap-3 min-h-0">
+        <!-- 顶部:候诊横向列表 -->
+        <aside class="border rounded-lg bg-card flex shrink-0 flex-col min-h-0 overflow-hidden">
           <DoctorQueuePanel
+            horizontal
             :rows="doctorQueue"
             :loading="loadingQueue"
             :active-queue-id="activeQueueId"
@@ -607,62 +598,88 @@ onBeforeUnmount(() => {
           />
         </aside>
 
-        <!-- 中:病历编辑 -->
-        <main class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-auto">
-          <div
-            v-if="loadingWorkspace"
-            class="text-muted-foreground flex flex-1 flex-col gap-2 items-center justify-center"
-          >
-            <FaIcon name="i-mdi:loading" class="size-6 animate-spin" />
-            <span class="text-sm">正在加载患者工作区…</span>
-          </div>
-          <EncounterEditor
-            v-else-if="activeEncounter"
-            :form="form"
-            :readonly="encounterReadonly"
-            :saving="saving"
-            @update="onFormUpdate"
-            @save="onSaveDraft"
-          />
-          <EmptyState
-            v-else
-            description="从左侧候诊队列选择患者开始接诊"
-            class="flex-1"
-          />
-        </main>
+        <!-- 下方三栏:左患者个人信息 + 中病历编辑 + 右诊疗方案 -->
+        <div class="flex flex-1 gap-3 min-h-0">
+          <!-- 左:患者个人信息 -->
+          <aside class="border rounded-lg bg-card flex shrink-0 flex-col min-h-0 w-60 overflow-hidden">
+            <div class="px-3 py-2 border-b shrink-0 flex items-center justify-between">
+              <span class="text-sm font-medium">患者信息</span>
+              <FaButton size="sm" variant="ghost" @click="historyDrawerVisible = true">
+                <FaIcon name="i-lucide:history" />
+                历史病历
+              </FaButton>
+            </div>
+            <PatientContextBar
+              v-if="displayWorkspace"
+              vertical
+              :workspace="displayWorkspace"
+            />
+            <EmptyState
+              v-else
+              compact
+              title="请选择患者"
+              description="从顶部候诊列表选择患者"
+              class="flex-1"
+            />
+          </aside>
 
-        <!-- 右:诊疗方案 -->
-        <aside class="border rounded-lg bg-card flex shrink-0 flex-col min-h-0 w-80">
-          <div
-            v-if="loadingWorkspace"
-            class="text-muted-foreground flex flex-1 items-center justify-center"
-          >
-            <FaIcon name="i-mdi:loading" class="size-6 animate-spin" />
-          </div>
-          <ClinicalPlanPanel
-            v-else-if="workspaceData"
-            :workspace="workspaceData"
-            :readonly="encounterReadonly"
-            :prescription-items="prescriptionDraft"
-            :prescription-submitting="prescriptionSubmitting"
-            :lab-draft="labDraft"
-            :imaging-draft="imagingDraft"
-            :diagnostic-submitting="diagnosticSubmitting"
-            :medical-order-draft="medicalOrderDraft"
-            :medical-order-submitting="medicalOrderSubmitting"
-            @add-prescription="plan.addPrescriptionItem()"
-            @remove-prescription="plan.removePrescriptionItem($event)"
-            @update-prescription="(idx, field, val) => plan.updatePrescriptionItem(idx, field, val)"
-            @submit-prescription="onSubmitPrescription"
-            @update-lab="(field, val) => plan.updateLabDraft(field, val)"
-            @submit-lab="onSubmitLab"
-            @update-imaging="(field, val) => plan.updateImagingDraft(field, val)"
-            @submit-imaging="onSubmitImaging"
-            @update-medical-order="(field, val) => plan.updateMedicalOrderDraft(field, val)"
-            @submit-medical-order="onSubmitMedicalOrder"
-          />
-          <EmptyState v-else compact title="选择就诊后显示处方/检验/影像/医嘱" />
-        </aside>
+          <!-- 中:病历编辑 -->
+          <main class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-auto">
+            <div
+              v-if="loadingWorkspace"
+              class="text-muted-foreground flex flex-1 flex-col gap-2 items-center justify-center"
+            >
+              <FaIcon name="i-mdi:loading" class="size-6 animate-spin" />
+              <span class="text-sm">正在加载患者工作区…</span>
+            </div>
+            <EncounterEditor
+              v-else-if="activeEncounter"
+              :form="form"
+              :readonly="encounterReadonly"
+              :saving="saving"
+              @update="onFormUpdate"
+              @save="onSaveDraft"
+            />
+            <EmptyState
+              v-else
+              description="从顶部候诊列表选择患者开始接诊"
+              class="flex-1"
+            />
+          </main>
+
+          <!-- 右:诊疗方案 -->
+          <aside class="border rounded-lg bg-card flex shrink-0 flex-col min-h-0 w-80">
+            <div
+              v-if="loadingWorkspace"
+              class="text-muted-foreground flex flex-1 items-center justify-center"
+            >
+              <FaIcon name="i-mdi:loading" class="size-6 animate-spin" />
+            </div>
+            <ClinicalPlanPanel
+              v-else-if="workspaceData"
+              :workspace="workspaceData"
+              :readonly="encounterReadonly"
+              :prescription-items="prescriptionDraft"
+              :prescription-submitting="prescriptionSubmitting"
+              :lab-draft="labDraft"
+              :imaging-draft="imagingDraft"
+              :diagnostic-submitting="diagnosticSubmitting"
+              :medical-order-draft="medicalOrderDraft"
+              :medical-order-submitting="medicalOrderSubmitting"
+              @add-prescription="plan.addPrescriptionItem()"
+              @remove-prescription="plan.removePrescriptionItem($event)"
+              @update-prescription="(idx, field, val) => plan.updatePrescriptionItem(idx, field, val)"
+              @submit-prescription="onSubmitPrescription"
+              @update-lab="(field, val) => plan.updateLabDraft(field, val)"
+              @submit-lab="onSubmitLab"
+              @update-imaging="(field, val) => plan.updateImagingDraft(field, val)"
+              @submit-imaging="onSubmitImaging"
+              @update-medical-order="(field, val) => plan.updateMedicalOrderDraft(field, val)"
+              @submit-medical-order="onSubmitMedicalOrder"
+            />
+            <EmptyState v-else compact title="选择就诊后显示处方/检验/影像/医嘱" />
+          </aside>
+        </div>
       </div>
     </template>
 

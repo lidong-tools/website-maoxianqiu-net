@@ -176,10 +176,12 @@ async function moveCategory(payload: { categoryId: string, parentId: string | nu
 </script>
 
 <template>
-  <FaCard class="shrink-0 h-full min-h-96 w-full xl:w-80" content-class="p-3">
-    <div v-loading="loading || commandLoading" class="min-h-72">
+  <!-- content-class 需 flex-1 min-h-0,否则 CardContent 高度跟随内容,树列表滚动容器无参照高度 -->
+  <FaCard class="shrink-0 h-full min-h-96 w-full xl:w-80" content-class="p-3 flex-1 min-h-0">
+    <!-- 树内容:头部固定,类目列表区占满剩余高度并独立滚动,避免超出组件 -->
+    <div v-loading="loading || commandLoading" class="flex h-full min-h-0 flex-col">
       <div
-        class="text-sm mb-2 pr-2 rounded-md flex gap-1 min-h-9 transition-colors items-center"
+        class="text-sm mb-2 pr-2 rounded-md flex gap-1 min-h-9 transition-colors items-center shrink-0"
         :class="selectedId === '' ? 'bg-primary/10 text-primary' : 'hover:bg-muted'"
       >
         <FaButton
@@ -205,20 +207,23 @@ async function moveCategory(payload: { categoryId: string, parentId: string | nu
         </FaTag>
       </div>
 
-      <CategoryTreeLevel
-        v-if="categoryTree.length"
-        :nodes="categoryTree"
-        :level="1"
-        :parent-id="null"
-        :selected-id="selectedId"
-        :busy="commandLoading"
-        @select="emit('select', $event)"
-        @create="openCreate"
-        @edit="openEdit"
-        @remove="removeCategory"
-        @move="moveCategory"
-      />
-      <FaEmpty v-else title="暂无类目" description="点击新增创建第一个顶级类目" />
+      <!-- 类目树滚动区:内容超出高度时在卡片内滚动 -->
+      <div class="flex-1 min-h-0 overflow-auto">
+        <CategoryTreeLevel
+          v-if="categoryTree.length"
+          :nodes="categoryTree"
+          :level="1"
+          :parent-id="null"
+          :selected-id="selectedId"
+          :busy="commandLoading"
+          @select="emit('select', $event)"
+          @create="openCreate"
+          @edit="openEdit"
+          @remove="removeCategory"
+          @move="moveCategory"
+        />
+        <FaEmpty v-else title="暂无类目" description="点击新增创建第一个顶级类目" />
+      </div>
     </div>
   </FaCard>
 

@@ -232,15 +232,16 @@ const tableColumns = computed<TableColumn<AppointmentRow>[]>(() => [
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <!-- 绝对定位占满父容器,与回访任务等列表页保持内容区高度一致 -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
     <!-- 注释掉标题和描述区域(UI界面-人工测试报告) -->
     <!--
     <EntityPageHeader compact title="预约管理" description="管理宠物医院预约,支持状态机推进(确认→候诊→就诊→完成)" />
     -->
-    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
-      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
         <!-- 工具栏:左筛选,右功能按钮 -->
-        <div class="px-4 pt-3 border-b">
+        <div class="px-4 pt-3 border-b shrink-0">
           <div class="pb-3 flex flex-wrap gap-2 items-center justify-between">
             <div class="flex flex-wrap gap-2 items-center">
               <FaSelect v-model="search.storeId" :options="storeOptions" class="w-36" @change="currentChange()" />
@@ -275,8 +276,9 @@ const tableColumns = computed<TableColumn<AppointmentRow>[]>(() => [
         </div>
 
         <!-- 表格区 -->
-        <div v-loading="loading" class="flex-1 min-h-0 overflow-auto">
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
           <FaTable
+            class="h-full min-h-0"
             table-root-class="overflow-hidden"
             row-key="id"
             stripe
@@ -296,7 +298,7 @@ const tableColumns = computed<TableColumn<AppointmentRow>[]>(() => [
         </div>
 
         <!-- 分页区 -->
-        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2 px-4 pb-3" @page-change="currentChange" @size-change="sizeChange" />
+        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2 px-4 pb-3 shrink-0" @page-change="currentChange" @size-change="sizeChange" />
       </div>
     </div>
   </div>

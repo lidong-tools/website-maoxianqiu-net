@@ -384,7 +384,8 @@ onMounted(loadWarehouses)
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <!-- 绝对定位占满父容器,与回访任务等列表页保持内容区高度一致 -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
     <!-- 注释掉标题和描述区域(参考优惠券界面布局) -->
     <!--
     <EntityPageHeader compact title="入库管理" description="采购入库 · 预留冻结 · 余额与流水">
@@ -399,8 +400,8 @@ onMounted(loadWarehouses)
     </EntityPageHeader>
     -->
 
-    <div class="p-4 flex flex-1 flex-col gap-3 min-h-0">
-      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0">
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
         <!-- 工具栏:左筛选/搜索,右功能按钮 -->
         <div class="px-4 pt-3 border-b">
           <div class="pb-3 flex items-center justify-between">

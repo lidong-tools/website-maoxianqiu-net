@@ -288,10 +288,11 @@ onMounted(loadWarehouses)
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
-    <div class="p-4 flex flex-1 min-h-0">
+  <!-- 绝对定位占满父容器,与回访任务等列表页保持内容区高度一致 -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
       <!-- 调拨内容保持为与其他业务列表一致的单块主区域 -->
-      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
         <!-- 穿梭选择区:左侧筛选源仓商品，右侧编辑待调拨商品 -->
         <div v-loading="loading" class="p-4 flex flex-1 flex-col gap-3 min-h-0 lg:flex-row">
           <section class="border rounded-lg flex flex-1 flex-col min-h-[360px] min-w-0 overflow-hidden">
