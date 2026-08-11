@@ -308,41 +308,53 @@ loadPacks()
 </script>
 
 <template>
-  <div class="p-4">
-    <FaSearchBar :show-toggle="false">
-      <FaSearchItem label="门店">
-        <FaSelect
-          v-model="search.storeId"
-          placeholder="全部门店"
-          clearable
-          class="w-52"
-          :options="storeOptions"
-          @change="loadPacks"
-        />
-      </FaSearchItem>
-      <FaButton type="primary" @click="openCreate">
-        新建理赔包
-      </FaButton>
-      <FaButton variant="outline" @click="loadPacks">
-        刷新
-      </FaButton>
-    </FaSearchBar>
+  <!-- 最外层固定高度容器,撑满视口 -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <!-- 主内容白底卡片 -->
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 卡片顶部筛选区(左筛选右按钮) -->
+        <div class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 flex flex-wrap gap-3 items-center">
+            <FaLabel label="门店">
+              <FaSelect
+                v-model="search.storeId"
+                placeholder="全部门店"
+                clearable
+                class="w-52"
+                :options="storeOptions"
+                @change="loadPacks"
+              />
+            </FaLabel>
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton variant="outline" @click="loadPacks">
+                刷新
+              </FaButton>
+              <FaButton type="primary" @click="openCreate">
+                新建理赔包
+              </FaButton>
+            </div>
+          </div>
+        </div>
 
-    <FaCard>
-      <FaTable
-        row-key="id"
-        :loading="packsLoading"
-        :columns="packColumns"
-        :data="packs"
-        :pagination="false"
-      >
+        <div v-loading="packsLoading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            :columns="packColumns"
+            :data="packs"
+            :pagination="false"
+          >
         <template #cell-actions="{ row }">
           <FaButton type="link" @click="openDetail(row.original.id)">
             详情
           </FaButton>
         </template>
-      </FaTable>
-    </FaCard>
+        </FaTable>
+        </div>
+      </div>
+    </div>
 
     <!-- 新建理赔包 -->
     <FaModal v-model="createVisible" title="新建理赔包" width="560px" :footer="false" :close-on-click-overlay="false">

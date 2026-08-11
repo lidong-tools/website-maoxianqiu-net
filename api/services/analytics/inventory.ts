@@ -4,12 +4,11 @@
  * 口径(S32-B 规格 §8 + KPI-DEFINITIONS.md + 审计 #25):
  *   - 库存 SKU   = 有在库(quantity_on_hand > 0)的目录项数;
  *   - 库存价值   = Σ(quantity_on_hand × catalog_items.cost_price);
- *   - 缺货 SKU   = 可用数量(quantity_on_hand − quantity_reserved) ≤ 0 的 SKU 数
- *               (系统暂无每 SKU 低库存阈值,第一版以"断货/不可售"为口径,
- *                避免给管理层不存在的"低库存阈值"概念);
+ *   - 低库存 SKU = 可用数量(quantity_on_hand − quantity_reserved) ≤ 低库存阈值
+ *                (catalog_items.low_stock_threshold,R-14;未配置阈值回落 ≤0 断货口径);
  *   - 近效期     = 30 天内到期且仍有剩余库存的活跃批次(inventory_batches)数;
- *   - 报损       = movement_type='adjust' 且数量为负、reference_type 含
- *               报损/waste/damage/报废/expire 的负向调整合计(按 catalog cost_price 计价);
+ *   - 报损       = 周期内 movement_type ∈ (write_off / scrap / expired) 的负向流水合计
+ *                (按 catalog cost_price 计价;R-15 移除正则 hack,口径与流水类型对齐);
  *   - 采购金额   = 周期内创建、状态非 draft/cancelled 的采购订单 total_cost 合计;
  *   - 库存异动   = 周期内 inventory_movements 记录数。
  *
@@ -19,12 +18,12 @@ import type { ServiceClient } from './common.js'
 import type { ExpiringRow, InventoryReport, LowStockRow, RevenueFilters } from './types.js'
 import { chunk, fetchAll, toNum, UUID_CHUNK_SIZE } from './common.js'
 
-/** 缺货口径:可用数量阈值(含),available ≤ 0 即断货/不可售(审计 #25) */
+/** 低库存口径:可用数量阈值下限(含);未配置阈值时回落 0(断货/不可售,审计 #25) */
 const STOCKOUT_MAX_AVAILABLE = 0
 /** 近效期窗口(天) */
 const EXPIRING_DAYS = 30
-
-const WASTAGE_RE = /waste|damage|报损|报废|损耗|expire/i
+/** 报损流水类型(R-15:与 post_inventory_writeoff 的 reason_type 对齐) */
+const WASTAGE_TYPES = ['write_off', 'scrap', 'expired']
 
 interface BalanceRow {
   warehouse_id: string
@@ -50,9 +49,10 @@ interface CatalogInfo {
   name: string
   unit: string | null
   cost_price: number
+  low_stock_threshold: number
 }
 
-/** 缺货 SKU 计数(驾驶舱复用,审计 #25:缺货 = 可用 ≤ 0) */
+/** 低库存 SKU 计数(驾驶舱复用;R-14:可用 ≤ 阈值,未配置回落 ≤0 断货口径) */
 export async function countLowStock(
   service: ServiceClient,
   f: RevenueFilters,
@@ -62,16 +62,36 @@ export async function countLowStock(
     return 0
   }
   // 分页拉全后过滤,避免 PostgREST 行数上限静默截断导致少算(审计 v2 §14)
-  const rows = await fetchAll<{ quantity_on_hand: number, quantity_reserved: number }>('库存余额数据', (from, to) => service
+  const rows = await fetchAll<{ catalog_item_id: string, quantity_on_hand: number, quantity_reserved: number }>('库存余额数据', (from, to) => service
     .from('inventory_balances')
-    .select('quantity_on_hand, quantity_reserved')
+    .select('catalog_item_id, quantity_on_hand, quantity_reserved')
     .eq('tenant_id', f.tenantId)
     .in('warehouse_id', warehouseIds)
     .order('id', { ascending: true })
     .range(from, to))
-  return rows.filter(
-    b => toNum(b.quantity_on_hand) - toNum(b.quantity_reserved) <= STOCKOUT_MAX_AVAILABLE,
-  ).length
+  if (rows.length === 0) {
+    return 0
+  }
+  // 阈值映射(catalog_items.low_stock_threshold,R-14;缺省 0)
+  const thresholdMap = new Map<string, number>()
+  const catalogIds = [...new Set(rows.map(r => r.catalog_item_id))]
+  for (const chunkIds of chunk(catalogIds, UUID_CHUNK_SIZE)) {
+    const { data, error } = await service
+      .from('catalog_items')
+      .select('id, low_stock_threshold')
+      .eq('tenant_id', f.tenantId)
+      .in('id', chunkIds)
+    if (error) {
+      throw new Error(`目录项查询失败: ${error.message}`)
+    }
+    for (const c of (data as Array<{ id: string, low_stock_threshold: number }> | null) ?? []) {
+      thresholdMap.set(c.id, toNum(c.low_stock_threshold))
+    }
+  }
+  return rows.filter((b) => {
+    const threshold = thresholdMap.get(b.catalog_item_id) ?? STOCKOUT_MAX_AVAILABLE
+    return toNum(b.quantity_on_hand) - toNum(b.quantity_reserved) <= threshold
+  }).length
 }
 
 /** 近效期批次计数(驾驶舱复用) */
@@ -166,7 +186,7 @@ export async function buildInventoryReport(
     for (const chunkIds of chunk(catalogIds, UUID_CHUNK_SIZE)) {
       const { data, error } = await service
         .from('catalog_items')
-        .select('id, code, name, unit, cost_price')
+        .select('id, code, name, unit, cost_price, low_stock_threshold')
         .eq('tenant_id', f.tenantId)
         .in('id', chunkIds)
       if (error) {
@@ -178,7 +198,7 @@ export async function buildInventoryReport(
     }
   }
 
-  // 库存 SKU / 价值 / 缺货
+  // 库存 SKU / 价值 / 低库存(R-14:可用 ≤ 阈值,未配置回落 ≤0 断货口径)
   const skuSet = new Set<string>()
   let stockValue = 0
   const lowStockRows: LowStockRow[] = []
@@ -189,7 +209,8 @@ export async function buildInventoryReport(
     const cat = catalogMap.get(b.catalog_item_id)
     stockValue += toNum(b.quantity_on_hand) * (cat?.cost_price ?? 0)
     const available = toNum(b.quantity_on_hand) - toNum(b.quantity_reserved)
-    if (available <= STOCKOUT_MAX_AVAILABLE) {
+    const threshold = cat ? toNum(cat.low_stock_threshold) : STOCKOUT_MAX_AVAILABLE
+    if (available <= threshold) {
       lowStockRows.push({
         warehouseId: b.warehouse_id,
         warehouseName: warehouseNameMap.get(b.warehouse_id) ?? b.warehouse_id.slice(0, 8),
@@ -200,7 +221,7 @@ export async function buildInventoryReport(
         quantityOnHand: toNum(b.quantity_on_hand),
         quantityReserved: toNum(b.quantity_reserved),
         available,
-        lowStockThreshold: 0,
+        lowStockThreshold: threshold,
         stockValue: toNum(b.quantity_on_hand) * (cat?.cost_price ?? 0),
       })
     }
@@ -251,22 +272,19 @@ export async function buildInventoryReport(
     if (!countRes.error) {
       movementCount = countRes.count ?? 0
     }
-    // 报损:负向 adjust 且 reference_type 匹配(分页拉全,替代原 limit(2000),审计 v2 §14)
-    const wasteRows = await fetchAll<{ catalog_item_id: string, quantity: number, reference_type: string | null }>('库存异动数据', (from, to) => service
+    // 报损:真实流水类型 write_off/scrap/expired(R-15,移除正则 hack)
+    const wasteRows = await fetchAll<{ catalog_item_id: string, quantity: number }>('库存异动数据', (from, to) => service
       .from('inventory_movements')
-      .select('catalog_item_id, quantity, reference_type')
+      .select('catalog_item_id, quantity')
       .eq('tenant_id', f.tenantId)
       .in('warehouse_id', warehouseIds)
-      .eq('movement_type', 'adjust')
+      .in('movement_type', WASTAGE_TYPES)
       .lt('quantity', 0)
       .gte('created_at', f.period.startISO)
       .lte('created_at', f.period.endISO)
       .order('id', { ascending: true })
       .range(from, to))
     for (const w of wasteRows) {
-      if (!WASTAGE_RE.test(w.reference_type ?? '')) {
-        continue
-      }
       const cat = catalogMap.get(w.catalog_item_id)
       wastageAmount += Math.abs(toNum(w.quantity)) * (cat?.cost_price ?? 0)
     }
@@ -309,10 +327,10 @@ export async function buildInventoryReport(
       },
       {
         key: 'lowStock',
-        label: '缺货 SKU',
+        label: '低库存 SKU',
         value: lowStockCount,
         format: 'integer',
-        definition: '可用数量(在库−预留) ≤ 0 的 SKU 数(断货/不可售口径;暂无低库存阈值配置,审计 #25)。',
+        definition: '可用数量(在库−预留) ≤ 低库存阈值 的 SKU 数(未配置阈值回落 ≤0 断货口径;R-14)。',
       },
       {
         key: 'expiring',
@@ -326,7 +344,7 @@ export async function buildInventoryReport(
         label: '报损',
         value: Math.round(wastageAmount * 100) / 100,
         format: 'money',
-        definition: '负向 adjust 且 reference_type 含 报损/waste/damage/报废/expire 的调整,按 catalog cost_price 计价。',
+        definition: '周期内 write_off/scrap/expired 负向流水合计,按 catalog cost_price 计价(R-15)。',
       },
       {
         key: 'purchaseAmount',

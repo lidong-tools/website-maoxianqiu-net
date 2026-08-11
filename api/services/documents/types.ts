@@ -47,7 +47,8 @@ export interface DocumentTemplateRow {
 
 /** 文档通用信息(医院/门店/客户/宠物/医生/操作员) */
 export interface DocumentBase {
-  hospital: { name: string, shortName?: string }
+  /** hospital.logo 为医院 Logo 的短期预签名下载 URL(R-C6 3.4.2.3-05),模板变量 {{hospital.logo}} */
+  hospital: { name: string, shortName?: string, logo?: string }
   store: { name: string, code?: string, address?: string, phone?: string } | null
   customer: { name: string, phone?: string, gender?: string } | null
   pet: { name: string, species?: string, breed?: string, gender?: string, weight?: number } | null

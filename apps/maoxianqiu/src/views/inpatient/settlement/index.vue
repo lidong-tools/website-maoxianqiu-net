@@ -513,7 +513,7 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
     </div>
 
     <!-- 收款弹窗 -->
-    <FaModal v-model:visible="settleVisible" title="收款结算" :loading="settling" @confirm="onSettle">
+    <FaModal v-model="settleVisible" title="收款结算" :loading="settling" @confirm="onSettle">
       <div class="space-y-3">
         <FaAlert type="info" :closable="false">
           应付 = 应收 ¥{{ settleTarget?.receivable_amount ?? 0 }} - 押金 ¥{{ settleTarget?.deposit_amount ?? 0 }} - 已减免 ¥{{ settleTarget?.waived_amount ?? 0 }}
@@ -539,7 +539,7 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
     </FaModal>
 
     <!-- 减免弹窗 -->
-    <FaModal v-model:visible="waiveVisible" title="减免/挂账" :loading="waiving" @confirm="onWaive">
+    <FaModal v-model="waiveVisible" title="减免/挂账" :loading="waiving" @confirm="onWaive">
       <div class="space-y-3">
         <FaAlert type="warning" :closable="false">
           减免金额不可超过应付金额,且须填写减免原因
@@ -554,7 +554,7 @@ const tableColumns = computed<TableColumn<SettlementRow>[]>(() => [
     </FaModal>
 
     <!-- 费用明细弹窗 -->
-    <FaModal v-model:visible="chargeVisible" title="费用明细" :show-confirm-button="false" :show-cancel-button="false">
+    <FaModal v-model="chargeVisible" title="费用明细" :show-confirm-button="false" :show-cancel-button="false">
       <div v-loading="chargeLoading" class="space-y-2">
         <div class="flex flex-wrap gap-2 text-xs text-muted-foreground">
           <span>住院记录:</span>

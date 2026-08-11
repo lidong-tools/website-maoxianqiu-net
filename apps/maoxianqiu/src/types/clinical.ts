@@ -641,3 +641,69 @@ export const MEDICAL_ORDER_STATUS_COLORS: Record<MedicalOrderStatus, string> = {
   cancelled: 'default',
   expired: 'warning',
 }
+
+// ===== 检验结果引用病历(G-3.9 R-2:发布后医生可一键引用检验结果到病历) =====
+
+/** 引用可插入的病历字段(与 encounters 表列对应,camelCase 形式) */
+export type EncounterLabResultTargetField = 'chiefComplaint' | 'historyPresent' | 'examFindings' | 'diagnosisText' | 'treatmentPlan'
+
+/** 引用快照中的单条结果项(引用时的结果明细,修订后不随原结果变化) */
+export interface LabResultSnapshotItem {
+  /** lab_order_analytes.id(引用写入 source_lab_result_id 的键,勾选/追溯用) */
+  sourceId: string
+  /** lab_analytes.id(检验项目定义 id,可空) */
+  analyteId: string | null
+  name: string
+  resultValue: string
+  unit: string | null
+  refRange: string | null
+  flag: string | null
+  isAbnormal: boolean
+  isCritical: boolean
+  note: string | null
+  resultedAt: string | null
+}
+
+/** 引用时的结果快照(整单) */
+export interface LabResultSnapshot {
+  text: string
+  labOrderNo: string
+  publishedAt: string | null
+  items: LabResultSnapshotItem[]
+}
+
+/** encounter_lab_result_refs 表记录 */
+export interface EncounterLabResultRef {
+  id: string
+  tenant_id: string
+  store_id: string | null
+  encounter_id: string
+  pet_id: string
+  lab_order_id: string
+  source_lab_result_id: string
+  snapshot: LabResultSnapshot
+  target_field: string
+  sort_order: number
+  created_by: string | null
+  created_at: string
+  /** 联表展示:来源检验申请(仅列表接口返回) */
+  lab_orders?: { order_no: string } | null
+}
+
+/** 创建病历检验结果引用入参 */
+export interface CreateEncounterLabResultRefInput {
+  labOrderId: string
+  sourceLabResultIds: string[]
+  targetField: EncounterLabResultTargetField
+}
+
+/** 可引用的已发布检验单(available 接口返回) */
+export interface AvailableLabResult {
+  labOrder: {
+    id: string
+    order_no: string
+    requested_at: string
+    completed_at: string | null
+  }
+  analytes: LabResultSnapshotItem[]
+}

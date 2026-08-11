@@ -75,6 +75,7 @@ export const PERMISSIONS = [
   { code: 'inventory.count', label: '盘点' },
   { code: 'inventory.transfer', label: '调拨' },
   { code: 'inventory.manage', label: '仓库管理' },
+  { code: 'inventory.write_off', label: '报损/报废' },
   // ===== S3.1-PARALLEL-05:供应商与采购权限 =====
   { code: 'supplier.view', label: '查看供应商' },
   { code: 'supplier.manage', label: '管理供应商' },
@@ -95,6 +96,7 @@ export const PERMISSIONS = [
   { code: 'lab.collect', label: '采集标本' },
   { code: 'lab.result.input', label: '录入结果' },
   { code: 'lab.result.review', label: '审核结果' },
+  { code: 'lab.result.revise', label: '修订结果' },
   { code: 'lab.critical.acknowledge', label: '确认危急值' },
   { code: 'diag_reminder.view', label: '查看提醒' },
   // ===== S3.1-PARALLEL-03:影像工作流权限 =====

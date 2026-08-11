@@ -10,6 +10,7 @@ import { getContext, loadContext } from '../lib/request-context.js'
 import { ok } from '../lib/result.js'
 import { createServiceClient } from '../lib/supabase.js'
 import { parseJsonBody } from '../lib/validation.js'
+import { sendMessage } from '../services/messaging/engine.js'
 import { authMiddleware, loadCaller } from '../middlewares/auth.js'
 
 /**
@@ -64,6 +65,15 @@ function mapRpcError(error: { message: string }) {
   }
   if (msg.includes('REVIEWER_IS_RESULT_INPUTTER')) {
     return err.conflict('审核人不可与结果录入人为同一人(双签要求)')
+  }
+  if (msg.includes('REVISE_REASON_REQUIRED')) {
+    return err.badRequest('变更原因必填')
+  }
+  if (msg.includes('LAB_ORDER_NOT_PUBLISHED')) {
+    return err.conflict('仅已发布的检验结果可修订')
+  }
+  if (msg.includes('REVISER_IS_RESULT_INPUTTER')) {
+    return err.conflict('修订人不可与结果录入人为同一人(双签要求)')
   }
   return err.internal(`Diagnostics 操作失败: ${msg}`)
 }
@@ -268,6 +278,111 @@ diagnosticsRoutes.post('/reminders/scan', async (c) => {
 })
 
 // ============================================================
+// 发送诊断提醒 F-R-1(3.8.1-01 疫苗提醒一体化发送)
+// ============================================================
+
+const sendRemindersSchema = z.object({
+  reminderIds: z.array(z.string().uuid('提醒 id 格式错误')).min(1, '至少选择一条提醒'),
+})
+
+/** 提醒类型 → 场景模板 code 映射(F-R-1:疫苗/驱虫到期提醒) */
+const REMINDER_TEMPLATE_CODES: Record<string, string> = {
+  vaccine: 'vaccine_reminder',
+  deworming: 'deworming_reminder',
+}
+
+/**
+ * 批量发送诊断提醒(F-R-1)
+ * - 权限:diag_reminder.view
+ * - 行为:按 reminder_type 匹配场景模板 code(vaccine_reminder/deworming_reminder),
+ *        复用 engine.ts sendMessage 真实发送(scene=vaccine_reminder,渲染 customer/pet 变量),
+ *        成功回写 diag_reminders.status='sent'、sent_at
+ * - 跳过:非 pending、客户未留手机号、模板缺失/发送失败(计入 failures,不影响其余条目)
+ */
+diagnosticsRoutes.post('/reminders/send', async (c) => {
+  const input = await parseJsonBody(c, sendRemindersSchema)
+  const service = createServiceClient()
+
+  // 查询选中的提醒(取租户/门店作用域)
+  const { data: rows, error: rErr } = await service
+    .from('diag_reminders')
+    .select('*')
+    .in('id', input.reminderIds)
+  if (rErr) {
+    throw err.internal(`查询提醒失败: ${rErr.message}`)
+  }
+  const reminders = (rows ?? []) as Array<Record<string, unknown>>
+  if (!reminders.length) {
+    throw err.notFound('未找到选中的提醒')
+  }
+  const tenantId = reminders[0].tenant_id as string
+  const storeId = (reminders[0].store_id as string | null) ?? null
+  await requireScopedPermission(c, { code: 'diag_reminder.view', tenantId, storeId: storeId ?? undefined })
+
+  // 逐条:匹配模板 → sendMessage 真实发送 → 回写 sent
+  const failures: Array<{ id: string, reason: string }> = []
+  let sentCount = 0
+  for (const r of reminders) {
+    const rid = r.id as string
+    if (r.status !== 'pending') {
+      failures.push({ id: rid, reason: '非待发送状态,跳过' })
+      continue
+    }
+    const templateCode = REMINDER_TEMPLATE_CODES[r.reminder_type as string]
+    if (!templateCode) {
+      failures.push({ id: rid, reason: `不支持的提醒类型: ${r.reminder_type}` })
+      continue
+    }
+    // 查客户手机号与宠物信息(变量渲染)
+    const [custRes, petRes] = await Promise.all([
+      service.from('customers').select('name, phone').eq('id', r.customer_id as string).maybeSingle(),
+      service.from('pets').select('name, species').eq('id', r.pet_id as string).maybeSingle(),
+    ])
+    const cust = custRes.data as { name?: string, phone?: string } | null
+    const pet = petRes.data as { name?: string, species?: string } | null
+    if (!cust?.phone) {
+      failures.push({ id: rid, reason: '客户未留手机号,跳过' })
+      continue
+    }
+    try {
+      await sendMessage({
+        tenantId: r.tenant_id as string,
+        storeId: (r.store_id as string | null) ?? null,
+        scene: 'vaccine_reminder',
+        templateCode,
+        channel: 'sms',
+        recipient: cust.phone,
+        variables: {
+          'customer.name': cust.name ?? '',
+          'customer.phone': cust.phone,
+          'pet.name': pet?.name ?? '',
+          'pet.species': pet?.species ?? '',
+        },
+        idempotencyKey: `diag-reminder-${rid}`,
+      })
+      await service
+        .from('diag_reminders')
+        .update({ status: 'sent', sent_at: new Date().toISOString() })
+        .eq('id', rid)
+      sentCount += 1
+    }
+    catch (e) {
+      failures.push({ id: rid, reason: e instanceof Error ? e.message : '发送失败' })
+    }
+  }
+
+  await writeAudit(c, {
+    action: 'diag_reminder.send',
+    entityType: 'diag_reminder',
+    tenantId,
+    storeId: storeId ?? undefined,
+    metadata: { total: reminders.length, sentCount, failures },
+  })
+
+  return ok(c, { total: reminders.length, sentCount, failedCount: failures.length, failures })
+})
+
+// ============================================================
 // 创建检验申请 MXQ-10006
 // ============================================================
 
@@ -325,6 +440,14 @@ diagnosticsRoutes.post('/lab-orders', async (c) => {
   }
   if (error) {
     throw err.internal(`创建检验申请失败: ${error.message}`)
+  }
+
+  // G-R-1(3.9.2-02):按 panel 下 lab_analytes 批量生成 lab_order_analytes 占位行
+  // (复用 batchCreateAnalytes 逻辑,上收为服务端 RPC;失败则回滚刚创建的申请单,避免"有单无结果项"脏数据)
+  const { error: genErr } = await service.rpc('generate_lab_order_analytes', { p_lab_order_id: data.id })
+  if (genErr) {
+    await service.from('lab_orders').delete().eq('id', data.id).eq('tenant_id', scope.tenantId)
+    throw err.internal(`生成检验结果项失败: ${genErr.message}`)
   }
 
   await writeAudit(c, {
@@ -428,6 +551,61 @@ diagnosticsRoutes.post('/lab-orders/review', async (c) => {
     p_decision: input.decision,
     p_comment: input.comment ?? null,
     p_reviewer_id: user.id,
+  })
+
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  // 审计已由 RPC 内部写入,此处补充 request_id 关联
+  return ok(c, data)
+})
+
+// ============================================================
+// 修订检验结果 G-R-3(3.9.2-05,跨表事务 RPC,版本化修订)
+// ============================================================
+
+const reviseResultsSchema = z.object({
+  results: z.array(z.object({
+    id: z.string().uuid('结果项 id 格式错误'),
+    result_value: z.string().optional(),
+    result_numeric: z.number().optional(),
+    is_abnormal: z.boolean().optional(),
+    is_critical: z.boolean().optional(),
+    flag: z.enum(['low', 'high', 'critical']).optional(),
+    note: z.string().max(500).optional(),
+  })).min(1, '至少修订一条结果'),
+  changeReason: z.string().min(1, '变更原因必填').max(500),
+})
+
+/**
+ * 修订检验结果(G-R-3)
+ * - 权限:lab.result.revise
+ * - 行为:调 revise_lab_results RPC:仅已发布可修订,复制当前结果为新版本 + 更新当前值 + 写审计
+ * - 校验:change_reason 必填;双签(修订人≠结果录入人);已发布结果仍保持只读(普通 update 被拒)
+ */
+diagnosticsRoutes.post('/lab-orders/:id/revise', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, reviseResultsSchema)
+  const service = createServiceClient()
+
+  // 先查 lab_order 获取 tenant/store,用于权限校验
+  const { data: order, error: orderErr } = await service
+    .from('lab_orders')
+    .select('id, tenant_id, store_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (orderErr || !order) {
+    throw err.notFound('检验申请不存在')
+  }
+  await requireScopedPermission(c, { code: 'lab.result.revise', tenantId: order.tenant_id, storeId: order.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('revise_lab_results', {
+    p_lab_order_id: id,
+    p_results_json: input.results,
+    p_change_reason: input.changeReason,
+    p_operator_id: user.id,
   })
 
   if (error) {

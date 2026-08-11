@@ -1,3 +1,5 @@
+import { useAppAccountStore } from '@/store/modules/app/account'
+import { useAppTenantStore } from '@/store/modules/app/tenant'
 import { supabase } from '@/lib/supabase'
 import api from '../index'
 
@@ -76,8 +78,8 @@ export default {
       .select(`
         *,
         category:catalog_categories(id, code, name),
-        drug_extension:catalog_drug_extensions(id, drug_form, strength, manufacturer, barcode, is_controlled, storage_condition, shelf_life_days),
-        vaccine_extension:catalog_vaccine_extensions(id, vaccine_type, manufacturer, protocol_course, interval_days, is_required)
+        drug_extension:catalog_drug_extensions(id, drug_form, strength, manufacturer, barcode, is_controlled, storage_condition, shelf_life_days, approval_number, generic_name, dosage_unit, stock_unit, conversion_rate, is_rx),
+        vaccine_extension:catalog_vaccine_extensions(id, vaccine_type, manufacturer, protocol_course, interval_days, is_required, recommended_species, recommended_age, contraindications, reminder_rules)
       `, { count: 'exact' })
       .eq('tenant_id', params.tenantId)
 
@@ -117,6 +119,8 @@ export default {
     costPrice?: number
     tags?: string[]
     billingType?: string
+    barcode?: string | null
+    manufacturer?: string | null
   }) {
     const { data: row, error } = await supabase
       .from('catalog_items')
@@ -131,6 +135,8 @@ export default {
         cost_price: data.costPrice ?? 0,
         tags: data.tags ?? [],
         billing_type: data.billingType ?? 'service',
+        barcode: data.barcode ?? null,
+        manufacturer: data.manufacturer ?? null,
       })
       .select()
       .single()
@@ -154,6 +160,8 @@ export default {
     tags?: string[]
     billingType?: string
     isActive?: boolean
+    barcode?: string | null
+    manufacturer?: string | null
   }) {
     const patch: Record<string, string | number | boolean | string[] | null> = {}
     if (data.categoryId !== undefined) {
@@ -182,6 +190,12 @@ export default {
     }
     if (data.isActive !== undefined) {
       patch.is_active = data.isActive
+    }
+    if (data.barcode !== undefined) {
+      patch.barcode = data.barcode
+    }
+    if (data.manufacturer !== undefined) {
+      patch.manufacturer = data.manufacturer
     }
     const { error } = await supabase.from('catalog_items').update(patch).eq('id', data.id)
     if (error) {
@@ -311,6 +325,7 @@ export default {
 
   /**
    * 药品扩展(upsert,需 catalog.drug.manage)
+   * B-R-4:补充批准文号/通用名成分/用药单位/库存单位/换算率/是否处方药字段
    */
   async upsertDrugExtension(data: {
     catalogItemId: string
@@ -321,6 +336,12 @@ export default {
     isControlled?: boolean
     storageCondition?: string | null
     shelfLifeDays?: number | null
+    approvalNumber?: string | null
+    genericName?: string | null
+    dosageUnit?: string | null
+    stockUnit?: string | null
+    conversionRate?: number | null
+    isRx?: boolean
   }) {
     const { data: row, error } = await supabase
       .from('catalog_drug_extensions')
@@ -333,6 +354,12 @@ export default {
         is_controlled: data.isControlled ?? false,
         storage_condition: data.storageCondition ?? null,
         shelf_life_days: data.shelfLifeDays ?? null,
+        approval_number: data.approvalNumber ?? null,
+        generic_name: data.genericName ?? null,
+        dosage_unit: data.dosageUnit ?? null,
+        stock_unit: data.stockUnit ?? null,
+        conversion_rate: data.conversionRate ?? null,
+        is_rx: data.isRx ?? false,
       })
       .select()
       .single()
@@ -346,6 +373,7 @@ export default {
 
   /**
    * 疫苗扩展(upsert,需 catalog.vaccine.manage)
+   * B-R-9:补充推荐物种/推荐年龄/接种禁忌/提醒规则字段
    */
   async upsertVaccineExtension(data: {
     catalogItemId: string
@@ -354,6 +382,10 @@ export default {
     protocolCourse?: number
     intervalDays?: number | null
     isRequired?: boolean
+    recommendedSpecies?: string | null
+    recommendedAge?: string | null
+    contraindications?: string | null
+    reminderRules?: string | null
   }) {
     const { data: row, error } = await supabase
       .from('catalog_vaccine_extensions')
@@ -364,6 +396,10 @@ export default {
         protocol_course: data.protocolCourse ?? 1,
         interval_days: data.intervalDays ?? null,
         is_required: data.isRequired ?? false,
+        recommended_species: data.recommendedSpecies ?? null,
+        recommended_age: data.recommendedAge ?? null,
+        contraindications: data.contraindications ?? null,
+        reminder_rules: data.reminderRules ?? null,
       })
       .select()
       .single()
@@ -384,6 +420,61 @@ export default {
     storeId: string
     categoryCode?: string
   }) => api.post('catalog/migrate-to-store', data),
+
+  /**
+   * 目录项跨类目批量迁移(B-R-1,走 Hono Command + catalog_items_bulk_migrate RPC)
+   * 将多个目录项从来源类目批量改归类到目标类目,事务内校验同租户归属
+   */
+  migrateItems: (data: {
+    tenantId: string
+    sourceCategoryId: string
+    itemIds: string[]
+    targetCategoryId: string
+  }) => api.post('catalog/items/migrate', data),
+
+  /**
+   * 目录导出 CSV(B-R-3)
+   * 按当前筛选条件(类目/关键词/收费类型)导出,服务端生成 CSV 并写审计;
+   * 直接 fetch 下载,避免 axios JSON 拦截器干扰 Blob 响应。
+   */
+  async exportItems(params: {
+    tenantId: string
+    categoryId?: string
+    keyword?: string
+    billingType?: string
+  }) {
+    const accountStore = useAppAccountStore()
+    const tenantStore = useAppTenantStore()
+    const qs = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') {
+        qs.set(k, String(v))
+      }
+    })
+    const base = api.defaults.baseURL ?? ''
+    const url = `${base.replace(/\/$/, '')}/catalog/export?${qs.toString()}`
+    const res = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${accountStore.token}`,
+        'Token': accountStore.token,
+        'X-Tenant-Id': tenantStore.currentTenantId,
+        'X-Store-Id': tenantStore.currentStoreId,
+      },
+    })
+    if (!res.ok) {
+      throw new Error('导出失败,请检查权限后重试')
+    }
+    const blob = await res.blob()
+    const disposition = res.headers.get('Content-Disposition') ?? ''
+    const match = /filename="?([^";]+)"?/.exec(disposition)
+    const filename = match?.[1] ?? `catalog-export-${Date.now()}.csv`
+    const objectUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = objectUrl
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(objectUrl)
+  },
 
   // ==================== 问诊问题库(MXQ-6007,走后端) ====================
 
@@ -441,6 +532,9 @@ export default {
 
   // ==================== 检验 panel/analyte(MXQ-6009,走后端) ====================
 
+  /**
+   * 检验 panel 列表(联表返回关联收费目录项信息,B-R-5)
+   */
   listLabPanels: (params: {
     tenantId: string
     category?: string
@@ -449,18 +543,26 @@ export default {
     pageSize?: number
   }) => api.get('catalog/lab-panels', { params }),
 
+  /**
+   * 创建检验 panel(catalogItemId:关联收费目录项,panel 组合的收费入口,B-R-5)
+   */
   createLabPanel: (data: {
     tenantId: string
     code: string
     name: string
     category?: string
     sampleType?: string
+    catalogItemId?: string | null
   }) => api.post('catalog/lab-panels', data),
 
+  /**
+   * 更新检验 panel(支持修改关联收费目录项,B-R-5)
+   */
   updateLabPanel: (id: string, data: {
     name?: string
     category?: string
     sampleType?: string
+    catalogItemId?: string | null
     isActive?: boolean
   }) => api.patch(`catalog/lab-panels/${id}`, data),
 
@@ -468,6 +570,9 @@ export default {
 
   listLabAnalytes: (params: { panelId: string }) => api.get('catalog/lab-analytes', { params }),
 
+  /**
+   * 创建检验 analyte(reportTemplate:报告模板;isOutsourced:是否外送检测,G-R-4)
+   */
   createLabAnalyte: (data: {
     panelId: string
     code: string
@@ -477,9 +582,14 @@ export default {
     refRangeHigh?: number
     refRangeText?: string
     isCritical?: boolean
+    reportTemplate?: string
+    isOutsourced?: boolean
     sortOrder?: number
   }) => api.post('catalog/lab-analytes', data),
 
+  /**
+   * 更新检验 analyte(支持报告模板/外送标记,G-R-4)
+   */
   updateLabAnalyte: (id: string, data: {
     name?: string
     unit?: string
@@ -487,6 +597,8 @@ export default {
     refRangeHigh?: number
     refRangeText?: string
     isCritical?: boolean
+    reportTemplate?: string
+    isOutsourced?: boolean
     sortOrder?: number
   }) => api.patch(`catalog/lab-analytes/${id}`, data),
 

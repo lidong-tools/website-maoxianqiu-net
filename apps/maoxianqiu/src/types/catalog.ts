@@ -13,7 +13,7 @@ export type CatalogCategoryCode
     | 'consumable'
 
 /** 收费类型(MXQ-6010):收费时按目录项引用的分类 */
-export type BillingType = 'service' | 'product' | 'drug' | 'vaccine' | 'exam'
+export type BillingType = 'service' | 'product' | 'drug' | 'vaccine' | 'exam' | 'hospitalization' | 'boarding'
 
 /** 药品剂型(MXQ-6004) */
 export type DrugForm = 'tablet' | 'capsule' | 'liquid' | 'injection' | 'other'
@@ -59,6 +59,14 @@ export interface CatalogItem {
   is_active: boolean
   tags: string[]
   billing_type: BillingType
+  /** 通用条码(商品/服务均可维护,B-R-6) */
+  barcode: string | null
+  /** 通用厂商(商品/服务均可维护,B-R-6) */
+  manufacturer: string | null
+  /** 名称全拼(拼音码检索,D-R-4) */
+  pinyin: string | null
+  /** 名称拼音首字母(拼音码检索,D-R-4) */
+  pinyin_short: string | null
   created_at: string
   updated_at: string
 }
@@ -100,6 +108,18 @@ export interface CatalogDrugExtension {
   is_controlled: boolean
   storage_condition: string | null
   shelf_life_days: number | null
+  /** 批准文号(国药准字等,B-R-4) */
+  approval_number: string | null
+  /** 通用名/成分(B-R-4) */
+  generic_name: string | null
+  /** 用药单位(如 mg/ml/粒,B-R-4) */
+  dosage_unit: string | null
+  /** 库存单位(如 盒/瓶/支,B-R-4) */
+  stock_unit: string | null
+  /** 换算率(用药单位 与 库存单位 换算,B-R-4) */
+  conversion_rate: number | null
+  /** 是否处方药(B-R-4) */
+  is_rx: boolean
   created_at: string
   updated_at: string
 }
@@ -113,6 +133,14 @@ export interface CatalogVaccineExtension {
   protocol_course: number
   interval_days: number | null
   is_required: boolean
+  /** 推荐物种(犬/猫/其他,B-R-9) */
+  recommended_species: string | null
+  /** 推荐年龄(如 8周龄以上,B-R-9) */
+  recommended_age: string | null
+  /** 接种禁忌(B-R-9) */
+  contraindications: string | null
+  /** 提醒规则(如 每年加强一针,B-R-9) */
+  reminder_rules: string | null
   created_at: string
   updated_at: string
 }
@@ -150,6 +178,8 @@ export interface LabPanel {
   name: string
   category: LabPanelCategory
   sample_type: string | null
+  /** 关联收费目录项(billing_type=exam),panel 组合的收费入口(B-R-5) */
+  catalog_item_id: string | null
   is_active: boolean
   created_at: string
   updated_at: string
@@ -166,14 +196,19 @@ export interface LabAnalyte {
   ref_range_high: number | null
   ref_range_text: string | null
   is_critical: boolean
+  /** 报告模板(G-R-4) */
+  report_template: string | null
+  /** 是否外送检测(G-R-4) */
+  is_outsourced: boolean
   sort_order: number
   created_at: string
   updated_at: string
 }
 
-/** 检验 panel 含 analyte 列表(联表查询结果) */
+/** 检验 panel 含 analyte 列表与关联收费项(联表查询结果) */
 export interface LabPanelWithAnalytes extends LabPanel {
   analytes?: LabAnalyte[]
+  catalog_item?: Pick<CatalogItem, 'id' | 'code' | 'name'> | null
 }
 
 /** 批量迁移请求(MXQ-6005,走 Hono Command + RPC) */
@@ -187,6 +222,24 @@ export interface MigrateCatalogToStoreInput {
 /** 批量迁移响应 */
 export interface MigrateCatalogToStoreResult {
   insertedCount: number
+  skippedCount: number
+  totalCount: number
+}
+
+/** 目录项跨类目批量迁移请求(B-R-1,走 Hono Command + catalog_items_bulk_migrate RPC) */
+export interface BulkMigrateItemsInput {
+  tenantId: string
+  /** 来源类目 id(项目当前所属类目) */
+  sourceCategoryId: string
+  /** 待迁移项目 id 列表 */
+  itemIds: string[]
+  /** 目标类目 id */
+  targetCategoryId: string
+}
+
+/** 目录项跨类目批量迁移响应(B-R-1) */
+export interface BulkMigrateItemsResult {
+  migratedCount: number
   skippedCount: number
   totalCount: number
 }
@@ -224,6 +277,8 @@ export const BILLING_TYPE_LABELS: Record<BillingType, string> = {
   drug: '药品',
   vaccine: '疫苗',
   exam: '检验',
+  hospitalization: '住院费',
+  boarding: '寄养费',
 }
 
 /** 药品剂型标签映射(UI 显示用) */

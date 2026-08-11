@@ -415,15 +415,24 @@ onMounted(load)
 </script>
 
 <template>
-  <div>
+  <!-- 最外层固定高度容器,撑满视口 -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(储值账户) -->
+    <!--
     <EntityPageHeader compact title="储值账户">
       <template #description>
         客户储值账户、充值(本金+赠送)、消费扣款、退款返还、人工调整与冻结的统一管理;
         余额由服务端原子记账维护,流水不可修改。收银结算时可选储值支付方式。
       </template>
     </EntityPageHeader>
-    <FaPageMain>
-      <div class="mb-3 flex gap-2 items-center">
+    -->
+
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <!-- 主内容白底卡片 -->
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 卡片顶部筛选区(左筛选右按钮) -->
+        <div class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 flex flex-wrap gap-3 items-center">
         <FaInput v-model="keyword" placeholder="按客户姓名/手机号搜索" class="w-64" @keyup.enter="onSearch" />
         <FaSelect
           v-model="statusFilter"
@@ -439,23 +448,25 @@ onMounted(load)
           <FaIcon name="i-ri:search-line" />
           查询
         </FaButton>
-        <div class="flex-1" />
-        <PermissionButton permission="wallet.recharge" size="sm" @click="openOpenDialog">
-          <FaIcon name="i-ri:add-line" />
-          开户
-        </PermissionButton>
-      </div>
+            <div class="flex-1" />
+            <PermissionButton permission="wallet.recharge" size="sm" @click="openOpenDialog">
+              <FaIcon name="i-ri:add-line" />
+              开户
+            </PermissionButton>
+          </div>
+        </div>
 
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="accountColumns"
-        :data="accounts"
-        empty-text="暂无储值账户"
-      >
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="accountColumns"
+            :data="accounts"
+            empty-text="暂无储值账户"
+          >
         <template #cell-operation="{ row }">
           <div class="flex-center gap-1">
             <PermissionButton permission="wallet.recharge" variant="outline" size="sm" @click="openRechargeDialog(row.original)">
@@ -486,17 +497,19 @@ onMounted(load)
               流水
             </FaButton>
           </div>
-        </template>
-      </FaTable>
-      <FaPagination
-        :page="page"
-        :size="pageSize"
-        :total="total"
-        class="mt-2 px-4 pb-3"
-        @page-change="p => { page = p; loadAccounts() }"
-        @size-change="s => { pageSize = s; page = 1; loadAccounts() }"
-      />
-    </FaPageMain>
+          </template>
+        </FaTable>
+        </div>
+        <FaPagination
+          :page="page"
+          :size="pageSize"
+          :total="total"
+          class="mt-2 px-4 pb-3 shrink-0"
+          @page-change="p => { page = p; loadAccounts() }"
+          @size-change="s => { pageSize = s; page = 1; loadAccounts() }"
+        />
+        </div>
+      </div>
 
     <!-- 开户 -->
     <FaModal v-model="openVisible" title="储值开户" :show-cancel="true" confirm-text="开户" :loading="openSaving" @confirm="submitOpen">

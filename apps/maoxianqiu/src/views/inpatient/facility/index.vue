@@ -430,7 +430,7 @@ const cageColumns = computed<TableColumn<Cage>[]>(() => [
     </div>
 
     <!-- 房间新增/编辑弹窗 -->
-    <FaModal v-model:visible="roomModalVisible" :title="editingRoom ? '编辑房间' : '新增房间'" :loading="submitting" @confirm="onSaveRoom">
+    <FaModal v-model="roomModalVisible" :title="editingRoom ? '编辑房间' : '新增房间'" :loading="submitting" @confirm="onSaveRoom">
       <div class="space-y-3">
         <FaLabel label="房间名称" required>
           <FaInput v-model="roomForm.name" placeholder="如:住院一区" class="w-full" />
@@ -460,7 +460,7 @@ const cageColumns = computed<TableColumn<Cage>[]>(() => [
     </FaModal>
 
     <!-- 笼位新增/编辑弹窗 -->
-    <FaModal v-model:visible="cageModalVisible" :title="editingCage ? '编辑笼位' : '新增笼位'" :loading="submitting" @confirm="onSaveCage">
+    <FaModal v-model="cageModalVisible" :title="editingCage ? '编辑笼位' : '新增笼位'" :loading="submitting" @confirm="onSaveCage">
       <div class="space-y-3">
         <FaLabel label="笼位名称" required>
           <FaInput v-model="cageForm.name" placeholder="如:A-01" class="w-full" />

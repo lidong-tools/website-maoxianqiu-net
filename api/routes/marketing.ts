@@ -1072,14 +1072,35 @@ marketingRoutes.post('/campaigns/:id/publish', async (c) => {
     throw err.internal(`发布活动失败: ${rpcError.message}`)
   }
 
+  // F-R-3:发布后触发投递生成(dispatch_campaign_run 按 Audience + 模板渲染生成 queued 投递,
+  // 真实发送由 F-R-2 cron 统一消费 queued → engine.retryDelivery 完成)
+  const result: Record<string, unknown> = { ...(data ?? {}) }
+  const runId = (data as { run_id?: string } | null)?.run_id
+  if (runId) {
+    const { data: dispatchData, error: dispatchErr } = await service.rpc('dispatch_campaign_run', {
+      p_run_id: runId,
+    })
+    if (dispatchErr) {
+      // 投递生成失败不影响发布本身(模板配置问题由创建时校验与 cron 兜底),附加错误信息便于排查
+      result.dispatch_error = `生成投递失败: ${dispatchErr.message}`
+      result.dispatch_count = 0
+    }
+    else {
+      Object.assign(result, dispatchData ?? {})
+    }
+  }
+  else {
+    result.dispatch_count = 0
+  }
+
   await writeAudit(c, {
     action: 'campaign.publish',
     entityType: 'marketing_campaign',
     entityId: campaignId,
     tenantId: input.tenantId,
-    metadata: data,
+    metadata: result,
   })
-  return ok(c, data)
+  return ok(c, result)
 })
 
 // GET /marketing/campaigns/:id/audience-preview Audience 预览

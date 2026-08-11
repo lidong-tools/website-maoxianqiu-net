@@ -291,7 +291,7 @@ const tableColumns = computed<TableColumn<ProgressNoteRow>[]>(() => [
     </div>
 
     <!-- 记录病程弹窗 -->
-    <FaModal v-model:visible="createVisible" title="记录病程" :loading="creating" @confirm="onCreate">
+    <FaModal v-model="createVisible" title="记录病程" :loading="creating" @confirm="onCreate">
       <div class="space-y-3">
         <FaLabel label="住院记录" required>
           <BusinessAdmissionPicker v-model="createForm.admissionId" status="admitted" placeholder="搜索选择在院记录" class="w-full" />

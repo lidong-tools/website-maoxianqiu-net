@@ -14,6 +14,7 @@ import catalogRoutes from './routes/catalog.js'
 import clinicalRoutes from './routes/clinical.js'
 import closingRoutes from './routes/closing.js'
 import complianceRoutes from './routes/compliance.js'
+import cronRoutes from './routes/cron.js'
 import crmGrowthRoutes from './routes/crm-growth.js'
 import customersRoutes from './routes/customers.js'
 import diagnosticsRoutes from './routes/diagnostics.js'
@@ -150,6 +151,8 @@ app.route('/documents', documentsRoutes)
 // 注意:webhook 回调入口必须挂在 /messaging 之前,避免被 messaging 前缀路由吞掉
 app.route('/messaging/webhook', messagingWebhookRoutes)
 app.route('/messaging', messagingRoutes)
+// F-R-2:定时/自动触达闭环(Vercel Cron 调用;鉴权走 CRON_SECRET,见 vercel.json crons)
+app.route('/cron', cronRoutes)
 // Stage04-08:C 端门户(身份/预约/报告/会员权益)
 app.route('/portal', portalRoutes)
 // MXQ-7001~7011:Clinical 预约/候诊/就诊/病历签署/修订/处方/护士任务

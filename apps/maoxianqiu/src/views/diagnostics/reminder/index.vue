@@ -23,7 +23,11 @@ interface ReminderRow {
 const tenantStore = useAppTenantStore()
 const loading = ref(false)
 const scanning = ref(false)
+const sending = ref(false)
 const dataList = ref<ReminderRow[]>([])
+
+/** F-R-1:勾选待发送的提醒行(批量发送) */
+const selectionRows = ref<ReminderRow[]>([])
 
 const search = ref({
   status: '',
@@ -31,6 +35,12 @@ const search = ref({
 })
 
 const tableColumns = computed<TableColumn<ReminderRow>[]>(() => [
+  // F-R-1:多选列(批量发送所选)
+  {
+    type: 'selection',
+    fixed: 'left',
+    width: 48,
+  },
   {
     accessorKey: 'pet_id',
     header: '宠物 ID',
@@ -134,6 +144,44 @@ async function onScan() {
   }
 }
 
+/**
+ * 批量发送所选提醒(F-R-1:3.8.1-01 疫苗提醒一体化发送)
+ * 走 Hono Command(api/routes/diagnostics.ts#/reminders/send):
+ * Hono 以 service role 复用 engine.ts sendMessage 真实发送(scene=vaccine_reminder),
+ * 成功回写 diag_reminders.status='sent'、sent_at;非 pending/无手机号/失败计入 failures 不中断
+ */
+function onSendSelected() {
+  const rows = selectionRows.value.filter(r => r.status === 'pending')
+  if (!rows.length) {
+    useFaToast().warning('请先勾选「待发送」状态的提醒')
+    return
+  }
+  useFaModal().confirm({
+    title: '批量发送提醒',
+    content: `确认为选中的 ${rows.length} 条提醒发送短信吗?发送后状态更新为「已发送」。`,
+    onConfirm: async () => {
+      sending.value = true
+      try {
+        const res = await apiDiagnostics.sendReminders(rows.map(r => r.id))
+        const result = res.data
+        const parts = [`成功 ${result.sentCount} 条`]
+        if (result.failedCount > 0) {
+          parts.push(`失败 ${result.failedCount} 条`)
+        }
+        useFaToast().success(`发送完成:${parts.join(', ')}`)
+        selectionRows.value = []
+        await loadReminders()
+      }
+      catch {
+        // 错误已由全局拦截器提示
+      }
+      finally {
+        sending.value = false
+      }
+    },
+  })
+}
+
 /** 取消提醒(仅 pending 状态) */
 function onCancel(row: ReminderRow) {
   if (row.status !== 'pending') {
@@ -167,41 +215,47 @@ useStoreScopedPage({
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="到期提醒" description="疫苗/驱虫到期提醒;扫描走 scan_diag_reminders RPC,幂等生成;支持取消待发送提醒" />
-    <FaPageMain>
-      <FaSearchBar :show-toggle="false">
-        <template #default>
-          <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-            <FaLabel label="类型" class="col-span-1">
-              <FaSelect
-                v-model="search.reminderType"
-                :options="[
-                  { label: '全部', value: '' },
-                  { label: '疫苗', value: 'vaccine' },
-                  { label: '驱虫', value: 'deworming' },
-                ]"
-                class="w-full"
-                @change="loadReminders()"
-              />
-            </FaLabel>
-            <FaLabel label="状态" class="col-span-1">
-              <FaSelect
-                v-model="search.status"
-                :options="[
-                  { label: '全部', value: '' },
-                  { label: '待发送', value: 'pending' },
-                  { label: '已发送', value: 'sent' },
-                  { label: '已取消', value: 'cancelled' },
-                ]"
-                class="w-full"
-                @change="loadReminders()"
-              />
-            </FaLabel>
-            <div class="flex gap-2 col-end--1 justify-end">
+    -->
+
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 筛选区:左为筛选控件,右为功能按钮 -->
+        <div class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 flex flex-wrap gap-3 items-center">
+            <FaSelect
+              v-model="search.reminderType"
+              :options="[
+                { label: '全部', value: '' },
+                { label: '疫苗', value: 'vaccine' },
+                { label: '驱虫', value: 'deworming' },
+              ]"
+              class="w-40"
+              @change="loadReminders()"
+            />
+            <FaSelect
+              v-model="search.status"
+              :options="[
+                { label: '全部', value: '' },
+                { label: '待发送', value: 'pending' },
+                { label: '已发送', value: 'sent' },
+                { label: '已取消', value: 'cancelled' },
+              ]"
+              class="w-40"
+              @change="loadReminders()"
+            />
+            <div class="ml-auto flex gap-2 items-center">
               <FaButton type="primary" :loading="scanning" @click="onScan">
                 <FaIcon name="i-ri:radar-line" />
                 扫描到期提醒(RPC)
+              </FaButton>
+              <!-- F-R-1:批量发送所选(engine.ts 真实发送) -->
+              <FaButton type="success" :loading="sending" :disabled="!selectionRows.length" @click="onSendSelected">
+                <FaIcon name="i-ri:send-plane-line" />
+                发送所选({{ selectionRows.length }})
               </FaButton>
               <FaButton @click="loadReminders">
                 <FaIcon name="i-ri:refresh-line" />
@@ -209,33 +263,38 @@ useStoreScopedPage({
               </FaButton>
             </div>
           </div>
-        </template>
-      </FaSearchBar>
-      <div class="mx--4 my-3 border-t border-t-dashed" />
+        </div>
 
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="tableColumns"
-        :data="dataList"
-      >
-        <template #cell-operation="{ row }">
-          <div class="flex-center gap-2">
-            <FaButton
-              v-if="row.original.status === 'pending'"
-              variant="destructive"
-              size="sm"
-              @click="onCancel(row.original)"
-            >
-              <FaIcon name="i-ri:close-line" />
-              取消
-            </FaButton>
-          </div>
-        </template>
-      </FaTable>
-    </FaPageMain>
+        <!-- 表格区 -->
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            selectable
+            multiple
+            stripe
+            border
+            :columns="tableColumns"
+            :data="dataList"
+            @selection-change="selectionRows = $event"
+          >
+            <template #cell-operation="{ row }">
+              <div class="flex-center gap-2">
+                <FaButton
+                  v-if="row.original.status === 'pending'"
+                  variant="destructive"
+                  size="sm"
+                  @click="onCancel(row.original)"
+                >
+                  <FaIcon name="i-ri:close-line" />
+                  取消
+                </FaButton>
+              </div>
+            </template>
+          </FaTable>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

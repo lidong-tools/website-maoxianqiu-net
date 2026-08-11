@@ -564,16 +564,19 @@ function onPrintNow() {
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="打印中心" description="收据/处方/病历/标签批量打印;走 Hono Command + create_print_job RPC,审计可追溯" />
-    <FaPageMain>
-      <FaSearchBar :show-toggle="false">
-        <template #default>
-          <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-            <FaLabel label="门店" class="col-span-1">
+    -->
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <div class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 flex flex-wrap gap-3 items-center">
+            <FaLabel label="门店" class="w-44">
               <FaSelect v-model="search.storeId" :options="storeOptions" class="w-full" @change="onSearch" />
             </FaLabel>
-            <FaLabel label="状态" class="col-span-1">
+            <FaLabel label="状态" class="w-44">
               <FaSelect
                 v-model="search.status"
                 :options="[
@@ -586,7 +589,11 @@ function onPrintNow() {
                 @change="onSearch"
               />
             </FaLabel>
-            <div class="flex gap-2 col-end--1 justify-end">
+            <FaButton @click="onCreate">
+              <FaIcon name="i-ri:printer-line" />
+              新建打印
+            </FaButton>
+            <div class="ml-auto flex gap-2 items-center">
               <FaButton variant="outline" @click="onReset">
                 重置
               </FaButton>
@@ -596,148 +603,144 @@ function onPrintNow() {
               </FaButton>
             </div>
           </div>
-        </template>
-      </FaSearchBar>
-      <div class="mx--4 my-3 border-t border-t-dashed" />
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="tableColumns"
-        :data="dataList"
-      >
-        <template #toolbar>
-          <FaButton @click="onCreate">
-            <FaIcon name="i-ri:printer-line" />
-            新建打印
-          </FaButton>
-        </template>
-        <template #cell-operation="{ row }">
-          <div class="flex-center gap-2">
-            <FaButton variant="outline" size="icon-sm" @click="onView(row.original)">
-              <FaIcon name="i-ri:eye-line" />
-            </FaButton>
-          </div>
-        </template>
-      </FaTable>
-
-      <!-- 新建打印弹窗(MXQ-12007) -->
-      <FaModal
-        v-model="printVisible"
-        title="新建打印"
-        confirm-text="创建任务"
-        :loading="printSubmitting"
-        @confirm="onSubmitPrint"
-      >
-        <div class="space-y-4">
-          <FaLabel label="打印模板">
-            <FaSelect
-              v-model="printForm.templateId"
-              :options="templateOptions.map(t => ({ label: `${t.name}(${PRINT_TEMPLATE_TYPE_LABELS[t.type] ?? t.type})`, value: t.id }))"
-              class="w-full"
-            />
-          </FaLabel>
-          <FaLabel label="业务类型">
-            <FaSelect
-              v-model="printForm.entityType"
-              :options="Object.entries(PRINT_TEMPLATE_TYPE_LABELS).map(([value, label]) => ({ label, value }))"
-              class="w-full"
-            />
-          </FaLabel>
-          <FaLabel label="业务单据">
-            <BusinessInvoicePicker v-if="printForm.entityType === 'invoice'" v-model="printForm.entityId" placeholder="搜索选择发票" />
-            <BusinessEncounterPicker v-else-if="printForm.entityType === 'medical_record' || printForm.entityType === 'prescription'" v-model="printForm.entityId" placeholder="搜索选择就诊记录" />
-            <BusinessDiagnosticOrderPicker v-else-if="printForm.entityType === 'lab_report'" v-model="printForm.entityId" order-type="lab" placeholder="搜索选择检验申请" />
-            <BusinessDiagnosticOrderPicker v-else-if="printForm.entityType === 'vaccine_certificate'" v-model="printForm.entityId" order-type="vaccination" placeholder="搜索选择疫苗记录" />
-            <!-- S30-R06:禁止手填 UUID;label/other 无业务单据选择器,禁用输入 -->
-            <FaInput v-else v-model="printForm.entityId" placeholder="该类型暂不支持选择业务单据" disabled class="w-full" />
-          </FaLabel>
         </div>
-      </FaModal>
 
-      <!-- 详情弹窗 -->
-      <FaModal
-        v-model="detailVisible"
-        title="打印任务详情"
-        :footer="false"
-        width="560px"
-      >
-        <template v-if="detailRow">
-          <div class="space-y-3">
-            <div class="gap-3 grid grid-cols-2">
-              <FaLabel label="任务编号">
-                <span class="text-sm">{{ detailRow.id }}</span>
-              </FaLabel>
-              <FaLabel label="状态">
-                <span class="text-sm">{{ PRINT_JOB_STATUS_LABELS[detailRow.status] ?? detailRow.status }}</span>
-              </FaLabel>
-              <FaLabel label="模板类型">
-                <span class="text-sm">{{ getEntityLabel(detailRow.entity_type) }}</span>
-              </FaLabel>
-              <FaLabel label="实体 ID">
-                <span class="text-sm">{{ detailRow.entity_id || '-' }}</span>
-              </FaLabel>
-              <FaLabel label="模板 ID">
-                <span class="text-sm">{{ detailRow.template_id?.slice(0, 12) ?? '-' }}</span>
-              </FaLabel>
-              <FaLabel label="门店 ID">
-                <span class="text-sm">{{ detailRow.store_id?.slice(0, 12) ?? '-' }}</span>
-              </FaLabel>
-              <FaLabel label="操作员 ID">
-                <span class="text-sm">{{ detailRow.operator_id?.slice(0, 12) ?? '-' }}</span>
-              </FaLabel>
-              <FaLabel label="创建时间">
-                <span class="text-sm">{{ detailRow.created_at ? new Date(detailRow.created_at).toLocaleString('zh-CN') : '-' }}</span>
-              </FaLabel>
-            </div>
-            <div v-if="PREVIEWABLE_TYPES.includes(detailRow.entity_type as PrintTemplateType)" class="pt-3 border-t flex justify-end">
-              <FaButton type="primary" :loading="previewLoading" @click="onPreview">
-                <FaIcon name="i-ri:printer-line" />
-                打印预览
-              </FaButton>
-            </div>
-            <div v-else class="pt-3 border-t">
-              <p class="text-sm text-muted-foreground text-center">
-                该模板类型暂不支持打印预览
-              </p>
-            </div>
-          </div>
-        </template>
-      </FaModal>
-
-      <!-- 打印预览弹窗 -->
-      <FaModal
-        v-model="previewVisible"
-        title="打印预览"
-        :footer="false"
-        width="900px"
-      >
-        <div class="space-y-4">
-          <div class="flex gap-4 items-center">
-            <FaLabel label="纸张规格">
-              <FaSelect v-model="paperSize" :options="PAPER_SIZE_OPTIONS" class="w-48" />
-            </FaLabel>
-            <FaButton type="primary" @click="onPrintNow">
-              <FaIcon name="i-ri:printer-line" />
-              立即打印
-            </FaButton>
-            <span class="text-xs text-muted-foreground">切换纸张规格仅改变预览宽度，打印时请确保打印机纸张匹配</span>
-          </div>
-          <div
-            class="mx-auto border border-gray-300 bg-white shadow overflow-auto"
-            :style="{
-              width: paperSize === 'A4' ? '210mm' : paperSize === 'A5' ? '148mm' : '80mm',
-              minHeight: paperSize === 'A4' ? '297mm' : paperSize === 'A5' ? '210mm' : 'auto',
-              maxHeight: '60vh',
-              transformOrigin: 'top center',
-            }"
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="tableColumns"
+            :data="dataList"
           >
-            <div v-html="previewContent" />
+            <template #cell-operation="{ row }">
+              <div class="flex-center gap-2">
+                <FaButton variant="outline" size="icon-sm" @click="onView(row.original)">
+                  <FaIcon name="i-ri:eye-line" />
+                </FaButton>
+              </div>
+            </template>
+          </FaTable>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新建打印弹窗(MXQ-12007) -->
+    <FaModal
+      v-model="printVisible"
+      title="新建打印"
+      confirm-text="创建任务"
+      :loading="printSubmitting"
+      @confirm="onSubmitPrint"
+    >
+      <div class="space-y-4">
+        <FaLabel label="打印模板">
+          <FaSelect
+            v-model="printForm.templateId"
+            :options="templateOptions.map(t => ({ label: `${t.name}(${PRINT_TEMPLATE_TYPE_LABELS[t.type] ?? t.type})`, value: t.id }))"
+            class="w-full"
+          />
+        </FaLabel>
+        <FaLabel label="业务类型">
+          <FaSelect
+            v-model="printForm.entityType"
+            :options="Object.entries(PRINT_TEMPLATE_TYPE_LABELS).map(([value, label]) => ({ label, value }))"
+            class="w-full"
+          />
+        </FaLabel>
+        <FaLabel label="业务单据">
+          <BusinessInvoicePicker v-if="printForm.entityType === 'invoice'" v-model="printForm.entityId" placeholder="搜索选择发票" />
+          <BusinessEncounterPicker v-else-if="printForm.entityType === 'medical_record' || printForm.entityType === 'prescription'" v-model="printForm.entityId" placeholder="搜索选择就诊记录" />
+          <BusinessDiagnosticOrderPicker v-else-if="printForm.entityType === 'lab_report'" v-model="printForm.entityId" order-type="lab" placeholder="搜索选择检验申请" />
+          <BusinessDiagnosticOrderPicker v-else-if="printForm.entityType === 'vaccine_certificate'" v-model="printForm.entityId" order-type="vaccination" placeholder="搜索选择疫苗记录" />
+          <!-- S30-R06:禁止手填 UUID;label/other 无业务单据选择器,禁用输入 -->
+          <FaInput v-else v-model="printForm.entityId" placeholder="该类型暂不支持选择业务单据" disabled class="w-full" />
+        </FaLabel>
+      </div>
+    </FaModal>
+
+    <!-- 详情弹窗 -->
+    <FaModal
+      v-model="detailVisible"
+      title="打印任务详情"
+      :footer="false"
+      width="560px"
+    >
+      <template v-if="detailRow">
+        <div class="space-y-3">
+          <div class="gap-3 grid grid-cols-2">
+            <FaLabel label="任务编号">
+              <span class="text-sm">{{ detailRow.id }}</span>
+            </FaLabel>
+            <FaLabel label="状态">
+              <span class="text-sm">{{ PRINT_JOB_STATUS_LABELS[detailRow.status] ?? detailRow.status }}</span>
+            </FaLabel>
+            <FaLabel label="模板类型">
+              <span class="text-sm">{{ getEntityLabel(detailRow.entity_type) }}</span>
+            </FaLabel>
+            <FaLabel label="实体 ID">
+              <span class="text-sm">{{ detailRow.entity_id || '-' }}</span>
+            </FaLabel>
+            <FaLabel label="模板 ID">
+              <span class="text-sm">{{ detailRow.template_id?.slice(0, 12) ?? '-' }}</span>
+            </FaLabel>
+            <FaLabel label="门店 ID">
+              <span class="text-sm">{{ detailRow.store_id?.slice(0, 12) ?? '-' }}</span>
+            </FaLabel>
+            <FaLabel label="操作员 ID">
+              <span class="text-sm">{{ detailRow.operator_id?.slice(0, 12) ?? '-' }}</span>
+            </FaLabel>
+            <FaLabel label="创建时间">
+              <span class="text-sm">{{ detailRow.created_at ? new Date(detailRow.created_at).toLocaleString('zh-CN') : '-' }}</span>
+            </FaLabel>
+          </div>
+          <div v-if="PREVIEWABLE_TYPES.includes(detailRow.entity_type as PrintTemplateType)" class="pt-3 border-t flex justify-end">
+            <FaButton type="primary" :loading="previewLoading" @click="onPreview">
+              <FaIcon name="i-ri:printer-line" />
+              打印预览
+            </FaButton>
+          </div>
+          <div v-else class="pt-3 border-t">
+            <p class="text-sm text-muted-foreground text-center">
+              该模板类型暂不支持打印预览
+            </p>
           </div>
         </div>
-      </FaModal>
-    </FaPageMain>
+      </template>
+    </FaModal>
+
+    <!-- 打印预览弹窗 -->
+    <FaModal
+      v-model="previewVisible"
+      title="打印预览"
+      :footer="false"
+      width="900px"
+    >
+      <div class="space-y-4">
+        <div class="flex gap-4 items-center">
+          <FaLabel label="纸张规格">
+            <FaSelect v-model="paperSize" :options="PAPER_SIZE_OPTIONS" class="w-48" />
+          </FaLabel>
+          <FaButton type="primary" @click="onPrintNow">
+            <FaIcon name="i-ri:printer-line" />
+            立即打印
+          </FaButton>
+          <span class="text-xs text-muted-foreground">切换纸张规格仅改变预览宽度，打印时请确保打印机纸张匹配</span>
+        </div>
+        <div
+          class="mx-auto border border-gray-300 bg-white shadow overflow-auto"
+          :style="{
+            width: paperSize === 'A4' ? '210mm' : paperSize === 'A5' ? '148mm' : '80mm',
+            minHeight: paperSize === 'A4' ? '297mm' : paperSize === 'A5' ? '210mm' : 'auto',
+            maxHeight: '60vh',
+            transformOrigin: 'top center',
+          }"
+        >
+          <div v-html="previewContent" />
+        </div>
+      </div>
+    </FaModal>
   </div>
 </template>

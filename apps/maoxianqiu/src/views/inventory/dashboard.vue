@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import type { TableColumn } from '@fantastic-admin/components'
-import type { InventoryBalance, NearExpiryItem, Warehouse } from '@/types/inventory'
-import apiInventory from '@/api/modules/inventory'
+import type { InventoryBalance, NearExpiryItem, Warehouse, WriteOffReasonType } from '@/types/inventory'
+import apiInventory, { generateIdempotencyKey } from '@/api/modules/inventory'
+import BusinessCatalogItemPicker from '@/components/business/CatalogItemPicker/index.vue'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
+import { INVENTORY_PERMISSIONS, WRITE_OFF_REASON_LABELS } from '@/types/inventory'
 
 defineOptions({
   name: 'InventoryDashboard',
 })
 
 const tenantStore = useAppTenantStore()
+const { auth } = useAppAuth()
 const loading = ref(false)
 const warehouses = ref<Warehouse[]>([])
 const selectedWarehouseId = ref('')
@@ -27,7 +30,10 @@ const nearExpiryColumns = computed<TableColumn<NearExpiryItem>[]>(() => [
     accessorKey: 'days_to_expiry',
     header: '剩余天数',
     cell: (info: any) => {
-      const days = info.getValue()
+      const days = Number(info.getValue())
+      if (days < 0) {
+        return h('span', { class: 'text-red-600 font-bold' }, `已过期 ${Math.abs(days)} 天`)
+      }
       if (days <= 7) {
         return h('span', { class: 'text-red-500 font-bold' }, `${days} 天`)
       }
@@ -39,6 +45,13 @@ const nearExpiryColumns = computed<TableColumn<NearExpiryItem>[]>(() => [
   },
   { accessorKey: 'quantity_remaining', header: '剩余数量' },
   { accessorKey: 'supplier', header: '供应商' },
+  {
+    id: 'operation',
+    header: '操作',
+    width: 90,
+    align: 'center',
+    fixed: 'right',
+  },
 ])
 
 async function loadWarehouses() {
@@ -109,6 +122,90 @@ const skuCount = computed(() => new Set(balances.value.map(b => b.catalog_item_i
 const totalOnHand = computed(() => balances.value.reduce((s, b) => s + Number(b.quantity_on_hand), 0))
 const totalReserved = computed(() => balances.value.reduce((s, b) => s + Number(b.quantity_reserved), 0))
 const nearExpiryCount = computed(() => nearExpiryList.value.length)
+
+// ===== 报损/报废/过期登记(B-R-2 / R-15,经 Hono Command + post_inventory_writeoff RPC) =====
+const writeOffVisible = ref(false)
+const writeOffSubmitting = ref(false)
+const writeOffForm = reactive({
+  warehouseId: '',
+})
+
+interface WriteOffItem {
+  catalogItemId: string
+  quantity: number
+  reasonType: WriteOffReasonType
+  reason: string
+  batchId: string
+}
+
+const writeOffItems = ref<WriteOffItem[]>([])
+
+const writeOffReasonOptions = Object.entries(WRITE_OFF_REASON_LABELS).map(([value, label]) => ({ label, value }))
+
+/**
+ * 打开报损登记弹窗
+ * @param row 可选:从近效期列表点击「报损」时带入仓库/商品/数量/批次,原因默认为「过期」
+ */
+function openWriteOff(row?: NearExpiryItem) {
+  writeOffForm.warehouseId = row?.warehouse_id || selectedWarehouseId.value || warehouses.value[0]?.id || ''
+  writeOffItems.value = row
+    ? [{
+        catalogItemId: row.catalog_item_id,
+        quantity: Number(row.quantity_remaining),
+        reasonType: 'expired' as WriteOffReasonType,
+        reason: '',
+        batchId: row.batch_id,
+      }]
+    : [{ catalogItemId: '', quantity: 1, reasonType: 'write_off' as WriteOffReasonType, reason: '', batchId: '' }]
+  writeOffVisible.value = true
+}
+
+function addWriteOffItem() {
+  writeOffItems.value.push({ catalogItemId: '', quantity: 1, reasonType: 'write_off', reason: '', batchId: '' })
+}
+
+function removeWriteOffItem(idx: number) {
+  writeOffItems.value.splice(idx, 1)
+}
+
+/** 提交报损:校验仓库与明细后调用 RPC(幂等) */
+async function onWriteOffSubmit() {
+  if (!writeOffForm.warehouseId) {
+    useFaToast().warning('请选择仓库')
+    return
+  }
+  if (writeOffItems.value.length === 0 || writeOffItems.value.some(i => !i.catalogItemId)) {
+    useFaToast().warning('请添加至少一项有效报损明细')
+    return
+  }
+  if (writeOffItems.value.some(i => Number(i.quantity) <= 0)) {
+    useFaToast().warning('报损数量必须大于 0')
+    return
+  }
+  writeOffSubmitting.value = true
+  try {
+    await apiInventory.postWriteOff({
+      tenantId: tenantStore.currentTenantId,
+      warehouseId: writeOffForm.warehouseId,
+      items: writeOffItems.value.map(i => ({
+        catalogItemId: i.catalogItemId,
+        quantity: Number(i.quantity),
+        reasonType: i.reasonType,
+        reason: i.reason.trim() || undefined,
+        batchId: i.batchId || undefined,
+      })),
+    }, generateIdempotencyKey())
+    useFaToast().success('报损登记成功,库存已扣减')
+    writeOffVisible.value = false
+    await Promise.all([loadNearExpiry(), loadBalances()])
+  }
+  catch {
+    // 错误已由 axios 拦截器统一提示
+  }
+  finally {
+    writeOffSubmitting.value = false
+  }
+}
 
 function onRefresh() {
   Promise.all([loadNearExpiry(), loadBalances()])
@@ -214,10 +311,16 @@ onMounted(async () => {
                 共 {{ filteredNearExpiry.length }} 条近效期
               </span>
             </div>
-            <FaButton size="sm" variant="outline" @click="onRefresh">
-              <FaIcon name="i-lucide:refresh-cw" />
-              刷新
-            </FaButton>
+            <div class="flex gap-2">
+              <FaButton v-if="auth(INVENTORY_PERMISSIONS.writeOff)" size="sm" @click="openWriteOff()">
+                <FaIcon name="i-lucide:package-minus" />
+                报损登记
+              </FaButton>
+              <FaButton size="sm" variant="outline" @click="onRefresh">
+                <FaIcon name="i-lucide:refresh-cw" />
+                刷新
+              </FaButton>
+            </div>
           </div>
         </div>
 
@@ -233,7 +336,15 @@ onMounted(async () => {
             :columns="nearExpiryColumns"
             :data="pagedNearExpiry"
             empty-text="暂无近效期批次"
-          />
+          >
+            <template #cell-operation="{ row }">
+              <div class="flex-center">
+                <FaButton v-if="auth(INVENTORY_PERMISSIONS.writeOff)" size="sm" variant="outline" @click="openWriteOff(row.original)">
+                  报损
+                </FaButton>
+              </div>
+            </template>
+          </FaTable>
         </div>
 
         <!-- 分页区 -->
@@ -247,5 +358,66 @@ onMounted(async () => {
         />
       </div>
     </div>
+
+    <!-- 报损/报废/过期登记 -->
+    <FaModal v-model="writeOffVisible" title="报损登记" :footer="false" :close-on-click-overlay="false" width="860px">
+      <div class="py-2 space-y-4">
+        <div class="gap-x-4 gap-y-3 grid grid-cols-3">
+          <FaLabel label="仓库 *" class="block">
+            <FaSelect
+              v-model="writeOffForm.warehouseId"
+              placeholder="选择仓库"
+              class="w-full"
+              :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
+            />
+          </FaLabel>
+        </div>
+
+        <div class="text-sm font-medium">
+          报损明细
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs text-muted-foreground px-1 gap-2 grid grid-cols-12">
+            <span class="col-span-4">商品</span>
+            <span class="col-span-2">数量</span>
+            <span class="col-span-2">原因类型</span>
+            <span class="col-span-3">原因说明(可选)</span>
+            <span class="col-span-1" />
+          </div>
+          <div v-for="(item, idx) in writeOffItems" :key="idx" class="gap-2 grid grid-cols-12 items-center">
+            <div class="col-span-4">
+              <BusinessCatalogItemPicker v-model="item.catalogItemId" placeholder="搜索选择商品" />
+            </div>
+            <div class="col-span-2">
+              <FaInputNumber v-model="item.quantity" :min="1" class="w-full" />
+            </div>
+            <div class="col-span-2">
+              <FaSelect v-model="item.reasonType" class="w-full" :options="writeOffReasonOptions" />
+            </div>
+            <div class="col-span-3">
+              <FaInput v-model="item.reason" placeholder="原因说明(可选)" class="w-full" />
+            </div>
+            <div class="flex col-span-1 justify-end">
+              <FaButton size="sm" variant="ghost" @click="removeWriteOffItem(idx)">
+                <FaIcon name="i-lucide:trash-2" />
+              </FaButton>
+            </div>
+          </div>
+          <FaButton variant="outline" size="sm" @click="addWriteOffItem">
+            <FaIcon name="i-lucide:plus" />
+            添加商品
+          </FaButton>
+        </div>
+
+        <div class="pt-2 flex gap-2 justify-end">
+          <FaButton variant="outline" @click="writeOffVisible = false">
+            取消
+          </FaButton>
+          <FaButton :loading="writeOffSubmitting" @click="onWriteOffSubmit">
+            确认报损
+          </FaButton>
+        </div>
+      </div>
+    </FaModal>
   </div>
 </template>

@@ -328,7 +328,10 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
+  <!-- 标准布局:外层固定高度 + 白底卡片,Tabs + FaSearchBar 展开为卡片内联布局(左筛选右按钮) -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="审计与安全">
       <template #description>
         审计日志与安全事件只读查询;高风险操作留痕,便于合规审计。
@@ -340,152 +343,157 @@ onMounted(async () => {
         </PermissionButton>
       </template>
     </EntityPageHeader>
-    <FaPageMain>
-      <FaTabs
-        v-model="activeTab" :list="[
-          { label: '审计日志', value: 'audit' },
-          ...(auth('security.view') ? [{ label: '安全事件', value: 'security' }] : []),
-        ]" class="mb-4" @change="onTabChange"
-      />
+    -->
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 顶部:Tabs + 筛选区(收缩) -->
+        <div class="px-4 pt-3 border-b shrink-0">
+          <FaTabs
+            v-model="activeTab" :list="[
+              { label: '审计日志', value: 'audit' },
+              ...(auth('security.view') ? [{ label: '安全事件', value: 'security' }] : []),
+            ]" class="mb-2" @change="onTabChange"
+          />
 
-      <!-- 审计日志 -->
-      <template v-if="activeTab === 'audit'">
-        <FaSearchBar :show-toggle="false">
-          <template #default>
-            <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
-              <FaLabel label="起始日期" class="col-span-1">
-                <FaInput v-model="auditSearch.startAt" type="date" class="w-full" />
-              </FaLabel>
-              <FaLabel label="结束日期" class="col-span-1">
-                <FaInput v-model="auditSearch.endAt" type="date" class="w-full" />
-              </FaLabel>
-              <FaLabel label="门店" class="col-span-1">
-                <BusinessStoreSelector v-model="auditSearch.storeId" include-all all-label="全部门店" clearable />
-              </FaLabel>
-              <FaLabel label="动作" class="col-span-1">
-                <FaInput v-model="auditSearch.action" placeholder="如 invoice.confirm" clearable class="w-full" />
-              </FaLabel>
-              <FaLabel label="资源类型" class="col-span-1">
-                <FaInput v-model="auditSearch.entityType" placeholder="如 invoice" clearable class="w-full" />
-              </FaLabel>
-              <FaLabel label="Request ID" class="col-span-1">
-                <FaInput v-model="auditSearch.requestId" placeholder="完整或前 12 位" clearable class="w-full" />
-              </FaLabel>
-              <div class="flex gap-2 col-end--1 justify-end">
-                <FaButton variant="outline" @click="auditSearchReset">
+          <!-- 审计日志筛选:左筛选控件,右功能按钮 -->
+          <template v-if="activeTab === 'audit'">
+            <div class="pb-3 flex flex-wrap gap-3 items-center">
+              <div class="flex gap-2 items-center">
+                <span class="text-sm text-muted-foreground">起始日期</span>
+                <FaInput v-model="auditSearch.startAt" type="date" class="w-40" />
+              </div>
+              <div class="flex gap-2 items-center">
+                <span class="text-sm text-muted-foreground">结束日期</span>
+                <FaInput v-model="auditSearch.endAt" type="date" class="w-40" />
+              </div>
+              <BusinessStoreSelector v-model="auditSearch.storeId" include-all all-label="全部门店" clearable />
+              <FaInput v-model="auditSearch.action" placeholder="动作" clearable class="w-36" />
+              <FaInput v-model="auditSearch.entityType" placeholder="资源类型" clearable class="w-36" />
+              <FaInput v-model="auditSearch.requestId" placeholder="Request ID" clearable class="w-40" />
+              <div class="ml-auto flex gap-2 items-center">
+                <PermissionButton variant="outline" permission="audit.export" @click="exportAuditCsv">
+                  <FaIcon name="i-ri:download-2-line" class="me-1" />
+                  导出 CSV
+                </PermissionButton>
+                <FaButton size="sm" variant="outline" @click="auditSearchReset">
                   重置
                 </FaButton>
-                <FaButton type="primary" @click="getAuditList">
+                <FaButton size="sm" @click="getAuditList">
                   <FaIcon name="i-ri:search-line" />
                   筛选
                 </FaButton>
               </div>
             </div>
           </template>
-        </FaSearchBar>
-        <div class="mx--4 my-3 border-t border-t-dashed" />
-        <FaTable
-          v-loading="loading"
-          table-root-class="rounded-lg overflow-hidden"
-          row-key="id"
-          stripe
-          border
-          :columns="auditColumns"
-          :data="auditList"
-          empty-text="暂无审计日志"
-          @row-click="openAuditDetail"
-        >
-          <template #cell-operation="{ row }">
-            <FaButton variant="outline" size="icon-sm" @click.stop="openAuditDetail(row.original)">
-              <FaIcon name="i-ri:eye-line" />
-            </FaButton>
-          </template>
-        </FaTable>
-        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2" @page-change="currentChange" @size-change="sizeChange" />
-      </template>
 
-      <!-- 安全事件 -->
-      <template v-else>
-        <div class="mb-4 gap-4 grid grid-cols-3">
-          <div class="p-3 border border-red-200 rounded-lg bg-red-50">
-            <div class="text-2xl text-red-600 font-semibold tabular-nums">
-              {{ severityCounts.critical }}
+          <!-- 安全事件:统计卡片 + 筛选 -->
+          <template v-else>
+            <div class="pb-3 gap-4 grid grid-cols-3">
+              <div class="p-3 border border-red-200 rounded-lg bg-red-50">
+                <div class="text-2xl text-red-600 font-semibold tabular-nums">
+                  {{ severityCounts.critical }}
+                </div>
+                <div class="text-xs text-red-600/70 font-medium">
+                  严重
+                </div>
+              </div>
+              <div class="p-3 border border-amber-200 rounded-lg bg-amber-50">
+                <div class="text-2xl text-amber-600 font-semibold tabular-nums">
+                  {{ severityCounts.warning }}
+                </div>
+                <div class="text-xs text-amber-600/70 font-medium">
+                  警告
+                </div>
+              </div>
+              <div class="p-3 border rounded-lg bg-muted">
+                <div class="text-2xl text-muted-foreground font-semibold tabular-nums">
+                  {{ severityCounts.info }}
+                </div>
+                <div class="text-xs text-muted-foreground/70 font-medium">
+                  信息
+                </div>
+              </div>
             </div>
-            <div class="text-xs text-red-600/70 font-medium">
-              严重
-            </div>
-          </div>
-          <div class="p-3 border border-amber-200 rounded-lg bg-amber-50">
-            <div class="text-2xl text-amber-600 font-semibold tabular-nums">
-              {{ severityCounts.warning }}
-            </div>
-            <div class="text-xs text-amber-600/70 font-medium">
-              警告
-            </div>
-          </div>
-          <div class="p-3 border rounded-lg bg-muted">
-            <div class="text-2xl text-muted-foreground font-semibold tabular-nums">
-              {{ severityCounts.info }}
-            </div>
-            <div class="text-xs text-muted-foreground/70 font-medium">
-              信息
-            </div>
-          </div>
-        </div>
-        <FaSearchBar :show-toggle="false">
-          <template #default>
-            <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
-              <FaLabel label="严重度" class="col-span-1">
+            <div class="pb-3 flex flex-wrap gap-3 items-center">
+              <div class="flex gap-2 items-center">
+                <span class="text-sm text-muted-foreground">严重度</span>
                 <FaSelect
                   v-model="securitySearch.severity" :options="[
                     { label: '全部', value: '' },
                     { label: '严重', value: 'critical' },
                     { label: '警告', value: 'warning' },
                     { label: '信息', value: 'info' },
-                  ]" class="w-full"
+                  ]" class="w-36"
                 />
-              </FaLabel>
-              <FaLabel label="事件类型" class="col-span-1">
+              </div>
+              <div class="flex gap-2 items-center">
+                <span class="text-sm text-muted-foreground">事件类型</span>
                 <FaSelect
                   v-model="securitySearch.eventType" :options="[
                     { label: '全部', value: '' },
                     ...Object.entries(SECURITY_EVENT_TYPE_LABELS).map(([value, label]) => ({ label, value })),
-                  ]" class="w-full"
+                  ]" class="w-40"
                 />
-              </FaLabel>
-              <div class="flex gap-2 col-end--1 justify-end">
-                <FaButton variant="outline" @click="securitySearchReset">
+              </div>
+              <div class="ml-auto flex gap-2 items-center">
+                <FaButton size="sm" variant="outline" @click="securitySearchReset">
                   重置
                 </FaButton>
-                <FaButton type="primary" @click="getSecurityList">
+                <FaButton size="sm" @click="getSecurityList">
                   <FaIcon name="i-ri:search-line" />
                   筛选
                 </FaButton>
               </div>
             </div>
           </template>
-        </FaSearchBar>
-        <div class="mx--4 my-3 border-t border-t-dashed" />
-        <FaTable
-          v-loading="loading"
-          table-root-class="rounded-lg overflow-hidden"
-          row-key="id"
-          stripe
-          border
-          :columns="securityColumns"
-          :data="securityList"
-          empty-text="暂无安全事件"
-          @row-click="openSecurityDetail"
-        >
-          <template #cell-operation="{ row }">
-            <FaButton variant="outline" size="icon-sm" @click.stop="openSecurityDetail(row.original)">
-              <FaIcon name="i-ri:eye-line" />
-            </FaButton>
+        </div>
+
+        <!-- 表格区(flex-1 撑满,内部滚动) -->
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <template v-if="activeTab === 'audit'">
+            <FaTable
+              class="h-full min-h-0"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="auditColumns"
+              :data="auditList"
+              empty-text="暂无审计日志"
+              @row-click="openAuditDetail"
+            >
+              <template #cell-operation="{ row }">
+                <FaButton variant="outline" size="icon-sm" @click.stop="openAuditDetail(row.original)">
+                  <FaIcon name="i-ri:eye-line" />
+                </FaButton>
+              </template>
+            </FaTable>
           </template>
-        </FaTable>
-        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2" @page-change="currentChange" @size-change="sizeChange" />
-      </template>
-    </FaPageMain>
+          <template v-else>
+            <FaTable
+              class="h-full min-h-0"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="securityColumns"
+              :data="securityList"
+              empty-text="暂无安全事件"
+              @row-click="openSecurityDetail"
+            >
+              <template #cell-operation="{ row }">
+                <FaButton variant="outline" size="icon-sm" @click.stop="openSecurityDetail(row.original)">
+                  <FaIcon name="i-ri:eye-line" />
+                </FaButton>
+              </template>
+            </FaTable>
+          </template>
+        </div>
+
+        <!-- 底部固定分页 -->
+        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2 px-4 pb-3 shrink-0" @page-change="currentChange" @size-change="sizeChange" />
+      </div>
+    </div>
 
     <!-- 审计日志详情 -->
     <FaDrawer v-model="auditDetailVisible" title="审计日志详情" width="520px" :footer="false">

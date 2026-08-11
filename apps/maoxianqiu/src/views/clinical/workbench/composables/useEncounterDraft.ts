@@ -4,7 +4,7 @@
  * 负责:病历表单状态、dirty 判定、乐观锁保存、409 冲突三种动作、键盘保存。
  * 覆盖"病历 + 下单草稿"整体未保存保护(下单草稿由 useClinicalPlanDraft 汇总到同一 guard)。
  */
-import type { EncounterRecord, UpdateEncounterInput } from '@/types/clinical'
+import type { EncounterLabResultRef, EncounterRecord, UpdateEncounterInput } from '@/types/clinical'
 import apiClinical from '@/api/modules/clinical'
 
 /** 病历编辑表单字段 */
@@ -15,6 +15,12 @@ export interface EncounterFormState {
   diagnosisText: string
   treatmentPlan: string
   followUpDate: string
+  /** 当前就诊 id(applyEncounter 时填充,供组件发起检验结果引用命令) */
+  encounterId: string
+  /** 当前宠物 id(applyEncounter 时填充,供组件按宠物筛选已发布检验单) */
+  petId: string
+  /** 已引用的检验结果(引用命令成功后追加,仅作组件内关联展示,持久化已由引用命令落库) */
+  labResultRefs: EncounterLabResultRef[]
 }
 
 export function emptyEncounterForm(): EncounterFormState {
@@ -25,6 +31,9 @@ export function emptyEncounterForm(): EncounterFormState {
     diagnosisText: '',
     treatmentPlan: '',
     followUpDate: '',
+    encounterId: '',
+    petId: '',
+    labResultRefs: [],
   }
 }
 
@@ -61,6 +70,10 @@ export function useEncounterDraft(options: { onAutosaveConflict?: () => void } =
     form.diagnosisText = encounter.diagnosis_text ?? ''
     form.treatmentPlan = encounter.treatment_plan ?? ''
     form.followUpDate = encounter.follow_up_date ?? ''
+    // 关联上下文:供组件发起检验结果引用命令(encounterId/petId 不参与 dirty 判定)
+    form.encounterId = encounter.id
+    form.petId = encounter.pet_id
+    form.labResultRefs = []
     baselineEncounter.value = encounter
     lastSavedAt.value = null
   }

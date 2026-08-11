@@ -1,5 +1,6 @@
 import type { DocumentBase, Service } from './types.js'
 import { toNum } from './format.js'
+import { createPresignedDownloadUrl } from '../../lib/r2.js'
 
 /**
  * S32-C 业务文档 —— 通用信息抓取(医院/门店/客户/宠物/医生/操作员)
@@ -24,7 +25,7 @@ export async function fetchDocumentBase(
   opts: FetchBaseOpts,
 ): Promise<DocumentBase> {
   const [tenantRes, storeRes, customerRes, petRes, doctorRes, operatorRes] = await Promise.all([
-    service.from('tenants').select('name, short_name').eq('id', opts.tenantId).maybeSingle(),
+    service.from('tenants').select('name, short_name, logo_file_id').eq('id', opts.tenantId).maybeSingle(),
     opts.storeId
       ? service.from('stores').select('name, code, address, phone').eq('id', opts.storeId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
@@ -49,8 +50,27 @@ export async function fetchDocumentBase(
   const d = doctorRes.data
   const o = operatorRes.data
 
+  // R-C6(3.4.2.3-05):读取 tenants.logo_file_id → files.object_key → 预签名下载 URL
+  // 失败静默(不阻塞文档渲染),未配置 Logo 时 hospital.logo 为空。
+  let hospitalLogo: string | undefined
+  if (t?.logo_file_id) {
+    try {
+      const { data: f, error: fErr } = await service
+        .from('files')
+        .select('object_key')
+        .eq('id', t.logo_file_id)
+        .maybeSingle()
+      if (!fErr && f?.object_key) {
+        hospitalLogo = await createPresignedDownloadUrl(f.object_key)
+      }
+    }
+    catch {
+      hospitalLogo = undefined
+    }
+  }
+
   return {
-    hospital: { name: t?.name ?? '毛线球宠物医院', shortName: t?.short_name ?? undefined },
+    hospital: { name: t?.name ?? '毛线球宠物医院', shortName: t?.short_name ?? undefined, logo: hospitalLogo },
     store: s ? { name: s.name, code: s.code ?? undefined, address: s.address ?? undefined, phone: s.phone ?? undefined } : null,
     customer: c ? { name: c.name, phone: c.phone ?? undefined, gender: c.gender ?? undefined } : null,
     pet: p

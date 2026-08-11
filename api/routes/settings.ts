@@ -32,15 +32,45 @@ const SETTING_REGISTRY: Record<string, z.ZodTypeAny> = {
   'business.inventory.adjust.approval.threshold': z.number().min(0),
   'business.transfer.approval.enabled': z.boolean(),
   'business.near_expiry.reminder.days': z.number().int().min(1).max(3650),
+  // R-3 安全通知:登录提醒开关 + 接收手机号
+  'security.login_alert.enabled': z.boolean(),
+  'security.alert.phone': z.number().int().min(0),
+  // R-4 消费积分:获得比例 / 抵扣开关与上限 / 有效期 / 退款扣回
+  'points.earn.ratio': z.number().min(0).max(100),
+  'points.redeem.enabled': z.boolean(),
+  'points.redeem.max_per_invoice': z.number().min(0),
+  'points.validity.days': z.number().int().min(0).max(36500),
+  'points.refund.revoke': z.boolean(),
 }
 
-/** 业务规则内置系统默认(读取优先级最低) */
-const BUSINESS_RULE_DEFS: Array<{ key: string, label: string, defaultValue: unknown, type: 'percent' | 'number' | 'days' | 'bool' }> = [
-  { key: 'discount.approval.threshold', label: '折扣审批阈值', defaultValue: 0.1, type: 'percent' },
-  { key: 'refund.approval.threshold', label: '高额退款审批阈值(元)', defaultValue: 1000, type: 'number' },
-  { key: 'inventory.adjust.approval.threshold', label: '高额库存调整审批阈值(元)', defaultValue: 5000, type: 'number' },
-  { key: 'transfer.approval.enabled', label: '跨店调拨需审批', defaultValue: true, type: 'bool' },
-  { key: 'near_expiry.reminder.days', label: '近效期提醒天数', defaultValue: 90, type: 'days' },
+/**
+ * 业务规则内置系统默认(读取优先级最低)
+ * namespace 用于 /effective 按命名空间过滤(R-3/R-4 新增 security / points 命名空间)
+ */
+interface BusinessRuleDef {
+  namespace: string
+  key: string
+  label: string
+  defaultValue: unknown
+  type: 'percent' | 'number' | 'days' | 'bool'
+}
+
+const BUSINESS_RULE_DEFS: BusinessRuleDef[] = [
+  // business:既有业务规则
+  { namespace: 'business', key: 'discount.approval.threshold', label: '折扣审批阈值', defaultValue: 0.1, type: 'percent' },
+  { namespace: 'business', key: 'refund.approval.threshold', label: '高额退款审批阈值(元)', defaultValue: 1000, type: 'number' },
+  { namespace: 'business', key: 'inventory.adjust.approval.threshold', label: '高额库存调整审批阈值(元)', defaultValue: 5000, type: 'number' },
+  { namespace: 'business', key: 'transfer.approval.enabled', label: '跨店调拨需审批', defaultValue: true, type: 'bool' },
+  { namespace: 'business', key: 'near_expiry.reminder.days', label: '近效期提醒天数', defaultValue: 90, type: 'days' },
+  // security:安全通知(R-3 登录提醒)
+  { namespace: 'security', key: 'login_alert.enabled', label: '登录提醒短信', defaultValue: false, type: 'bool' },
+  { namespace: 'security', key: 'alert.phone', label: '提醒接收手机号', defaultValue: 0, type: 'number' },
+  // points:消费积分(R-4)
+  { namespace: 'points', key: 'earn.ratio', label: '每元可获得积分', defaultValue: 1, type: 'number' },
+  { namespace: 'points', key: 'redeem.enabled', label: '允许积分抵扣', defaultValue: false, type: 'bool' },
+  { namespace: 'points', key: 'redeem.max_per_invoice', label: '单笔发票抵扣上限(积分)', defaultValue: 1000, type: 'number' },
+  { namespace: 'points', key: 'validity.days', label: '积分有效期(天,0=永久)', defaultValue: 0, type: 'days' },
+  { namespace: 'points', key: 'refund.revoke', label: '退款自动扣回积分', defaultValue: true, type: 'bool' },
 ]
 
 interface SystemSettingRow {
@@ -81,7 +111,9 @@ settingsRoutes.get('/effective', async (c) => {
   const overrideMap = new Map(rows.filter(r => r.store_id === storeId).map(r => [r.key, r.value_json]))
   const tenantMap = new Map(rows.filter(r => r.store_id === null).map(r => [r.key, r.value_json]))
 
-  const items = BUSINESS_RULE_DEFS.map((def) => {
+  const items = BUSINESS_RULE_DEFS
+    .filter(def => def.namespace === namespace)
+    .map((def) => {
     let value: unknown
     let source: 'store' | 'tenant' | 'system' = 'system'
     if (overrideMap.has(def.key)) {
@@ -383,6 +415,13 @@ const printSettingSchema = z.object({
   label: z.string().min(1, '模板名称不能为空').max(50),
   isDefault: z.boolean().optional(),
   isActive: z.boolean().optional(),
+  /**
+   * 显示内容项配置(R-5 3.4.2.3-03)
+   * 开关:showCustomerPhone / showPetInfo / showOperator / showDoctor / showSubtotal(折扣前金额)
+   * 文本:header(抬头) / footer(页脚) / statement(声明)
+   * 序列化存入 print_settings.config jsonb,保留原有份数/边距/水印结构
+   */
+  config: z.record(z.string(), z.unknown()).optional(),
 })
 
 settingsRoutes.get('/print-settings', async (c) => {
@@ -425,6 +464,8 @@ settingsRoutes.put('/print-settings', async (c) => {
     label: input.label,
     is_default: input.isDefault ?? false,
     is_active: input.isActive ?? true,
+    // R-5:显示内容项配置(jsonb,前端传空对象时保持原值不变——编辑场景由 update 按需覆盖)
+    ...(input.config !== undefined ? { config: input.config } : {}),
   }
   if (input.id) {
     const { error } = await service.from('print_settings').update(payload).eq('id', input.id).eq('tenant_id', scope.tenantId)
@@ -444,7 +485,7 @@ settingsRoutes.put('/print-settings', async (c) => {
     entityId: input.id,
     tenantId: input.tenantId,
     storeId: input.storeId,
-    metadata: { paperSize: input.paperSize, label: input.label },
+    metadata: { paperSize: input.paperSize, label: input.label, hasConfig: input.config !== undefined },
   })
   return ok(c, { isSuccess: true, id: input.id ?? undefined })
 })

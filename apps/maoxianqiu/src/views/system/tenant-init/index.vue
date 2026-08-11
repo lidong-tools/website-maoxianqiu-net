@@ -45,6 +45,8 @@ const model = ref({
   ownerName: '',
   ownerPhone: '',
   timezone: 'Asia/Shanghai',
+  address: '',
+  detailAddress: '',
 })
 
 const validationSchema = {
@@ -154,6 +156,9 @@ async function submit() {
       ownerName: model.value.ownerName,
       ownerPhone: model.value.ownerPhone || undefined,
       timezone: model.value.timezone,
+      // R-A1(3.1-04):医院地址(可选,透传后端写入 tenants 与首店)
+      address: model.value.address || undefined,
+      detailAddress: model.value.detailAddress || undefined,
       idempotencyKey: `tenant-init-${selectedTenantId.value || model.value.tenantSlug}-${Date.now()}`,
     }
     await apiTenant.initialize(payload)
@@ -259,6 +264,13 @@ onBeforeUnmount(stopPoll)
                 :options="[{ label: 'Asia/Shanghai(中国大陆)', value: 'Asia/Shanghai' }]"
                 class="w-full"
               />
+            </FaFormItem>
+            <!-- R-A1(3.1-04):医院地址(初始化时透传到 tenants 与首店) -->
+            <FaFormItem name="address" label="医院地址">
+              <FaInput v-model="model.address" placeholder="如 北京市朝阳区XX路XX号(可选)" class="w-full" />
+            </FaFormItem>
+            <FaFormItem name="detailAddress" label="详细地址">
+              <FaInput v-model="model.detailAddress" placeholder="门牌号/楼层等补充信息(可选)" class="w-full" />
             </FaFormItem>
             <div class="pt-2 flex gap-2 justify-end">
               <FaButton type="primary" :loading="submitting" @click="submit">

@@ -5,10 +5,13 @@ import type {
   CageStatusView,
   CageTransfer,
   CageUpsertInput,
+  ChargeRule,
+  ChargeRuleInput,
   CreateHandoverInput,
   CreateProgressNoteInput,
   DischargePatientInput,
   FinalizeSettlementResult,
+  GenerateNursingTasksResult,
   InpatientCharge,
   NursingPlan,
   NursingPlanInput,
@@ -20,6 +23,7 @@ import type {
   ProgressNoteRecord,
   Room,
   RoomUpsertInput,
+  RunDailyBillingResult,
   SettleSettlementResult,
   ShiftHandover,
   TransferCageInput,
@@ -435,6 +439,60 @@ export default {
    */
   generateDailyCharges(targetDate?: string) {
     return api.post('inpatient/charges/generate', { targetDate: targetDate ?? null })
+  },
+
+  // ==================== 自动计费规则(E-R-1, 3.6.2-02) ====================
+
+  /**
+   * 计费规则列表(E-R-1,走 Hono Command,权限:inpatient.view)
+   * @param storeId 门店 id(可选)
+   */
+  async listChargeRules(storeId?: string) {
+    const params: Record<string, unknown> = {}
+    if (storeId) {
+      params.storeId = storeId
+    }
+    const res = await api.get('inpatient/charge-rules', { params })
+    return { status: 1, error: '', data: (res as any).data as { list: ChargeRule[] } }
+  },
+
+  /**
+   * 新增计费规则(E-R-1,走 Hono Command,权限:inpatient.admit)
+   * room_type 默认规则与 cage_id 覆盖规则二选一,price_snapshot 为计费价格快照
+   */
+  async createChargeRule(data: ChargeRuleInput) {
+    const res = await api.post('inpatient/charge-rules', data)
+    return { status: 1, error: '', data: (res as any).data as ChargeRule }
+  },
+
+  /**
+   * 更新计费规则(E-R-1,走 Hono Command,权限:inpatient.admit)
+   * @param id 规则 id
+   * @param patch 待更新字段
+   */
+  async updateChargeRule(id: string, patch: Partial<Omit<ChargeRuleInput, 'tenantId' | 'storeId'>>) {
+    const res = await api.patch(`inpatient/charge-rules/${id}`, patch)
+    return { status: 1, error: '', data: (res as any).data as ChargeRule }
+  },
+
+  /**
+   * 手动执行日切计费(E-R-1,走 Hono Command + run_daily_billing RPC)
+   * 对在住/在养记录按日切规则逐日生成费用,幂等防重(pg_cron 不可用时的兜底触发)
+   * @param targetDate 目标计费日期(可选,默认今日)
+   */
+  async runDailyBilling(targetDate?: string) {
+    const res = await api.post('inpatient/billing/run-daily', { targetDate: targetDate ?? null })
+    return { status: 1, error: '', data: (res as any).data as RunDailyBillingResult }
+  },
+
+  /**
+   * 一键生成护理任务(E-R-4,走 Hono Command + generate_nursing_tasks RPC)
+   * 按护理计划起止日期/频率批量生成 nursing_tasks,重复执行跳过已有任务
+   * @param planId 护理计划 id
+   */
+  async generateNursingTasks(planId: string) {
+    const res = await api.post(`inpatient/nursing-plans/${planId}/generate-tasks`, {})
+    return { status: 1, error: '', data: (res as any).data as GenerateNursingTasksResult }
   },
 
   // ============================================================

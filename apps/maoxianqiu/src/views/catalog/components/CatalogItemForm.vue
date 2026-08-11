@@ -36,20 +36,33 @@ const form = ref({
   description: '',
   tagsText: '',
   isActive: true,
+  // 基础字段(B-R-6):通用条码/厂商
+  barcode: '',
+  manufacturer: '',
   // 药品扩展
   drugForm: 'other' as DrugForm,
   strength: '',
-  manufacturer: '',
-  barcode: '',
+  drugManufacturer: '',
+  drugBarcode: '',
   isControlled: false,
   storageCondition: '',
   shelfLifeDays: undefined as number | undefined,
+  approvalNumber: '',
+  genericName: '',
+  dosageUnit: '',
+  stockUnit: '',
+  conversionRate: undefined as number | undefined,
+  isRx: false,
   // 疫苗扩展
   vaccineType: 'other' as VaccineType,
   vaccineManufacturer: '',
   protocolCourse: 1,
   intervalDays: undefined as number | undefined,
   isRequired: false,
+  recommendedSpecies: '',
+  recommendedAge: '',
+  contraindications: '',
+  reminderRules: '',
 })
 
 const isEdit = computed(() => !!props.id)
@@ -72,16 +85,26 @@ watch(() => props.id, async (id) => {
     form.value.description = (d.description as string) ?? ''
     form.value.tagsText = Array.isArray(d.tags) ? (d.tags as string[]).join(',') : ''
     form.value.isActive = d.is_active !== false
+    // 基础字段(B-R-6):通用条码/厂商
+    form.value.barcode = (d.barcode as string) ?? ''
+    form.value.manufacturer = (d.manufacturer as string) ?? ''
     // 药品扩展
     const drugExt = d.drug_extension as Record<string, unknown> | null
     if (drugExt) {
       form.value.drugForm = (drugExt.drug_form as DrugForm) ?? 'other'
       form.value.strength = (drugExt.strength as string) ?? ''
-      form.value.manufacturer = (drugExt.manufacturer as string) ?? ''
-      form.value.barcode = (drugExt.barcode as string) ?? ''
+      form.value.drugManufacturer = (drugExt.manufacturer as string) ?? ''
+      form.value.drugBarcode = (drugExt.barcode as string) ?? ''
       form.value.isControlled = drugExt.is_controlled === true
       form.value.storageCondition = (drugExt.storage_condition as string) ?? ''
       form.value.shelfLifeDays = drugExt.shelf_life_days ? Number(drugExt.shelf_life_days) : undefined
+      // B-R-4:药品扩展新字段
+      form.value.approvalNumber = (drugExt.approval_number as string) ?? ''
+      form.value.genericName = (drugExt.generic_name as string) ?? ''
+      form.value.dosageUnit = (drugExt.dosage_unit as string) ?? ''
+      form.value.stockUnit = (drugExt.stock_unit as string) ?? ''
+      form.value.conversionRate = drugExt.conversion_rate ? Number(drugExt.conversion_rate) : undefined
+      form.value.isRx = drugExt.is_rx === true
     }
     // 疫苗扩展
     const vaccineExt = d.vaccine_extension as Record<string, unknown> | null
@@ -91,6 +114,11 @@ watch(() => props.id, async (id) => {
       form.value.protocolCourse = Number(vaccineExt.protocol_course) || 1
       form.value.intervalDays = vaccineExt.interval_days ? Number(vaccineExt.interval_days) : undefined
       form.value.isRequired = vaccineExt.is_required === true
+      // B-R-9:疫苗扩展新字段
+      form.value.recommendedSpecies = (vaccineExt.recommended_species as string) ?? ''
+      form.value.recommendedAge = (vaccineExt.recommended_age as string) ?? ''
+      form.value.contraindications = (vaccineExt.contraindications as string) ?? ''
+      form.value.reminderRules = (vaccineExt.reminder_rules as string) ?? ''
     }
   }
   else if (!id) {
@@ -106,18 +134,30 @@ watch(() => props.id, async (id) => {
       description: '',
       tagsText: '',
       isActive: true,
+      barcode: '',
+      manufacturer: '',
       drugForm: 'other',
       strength: '',
-      manufacturer: '',
-      barcode: '',
+      drugManufacturer: '',
+      drugBarcode: '',
       isControlled: false,
       storageCondition: '',
       shelfLifeDays: undefined,
+      approvalNumber: '',
+      genericName: '',
+      dosageUnit: '',
+      stockUnit: '',
+      conversionRate: undefined,
+      isRx: false,
       vaccineType: 'other',
       vaccineManufacturer: '',
       protocolCourse: 1,
       intervalDays: undefined,
       isRequired: false,
+      recommendedSpecies: '',
+      recommendedAge: '',
+      contraindications: '',
+      reminderRules: '',
     }
   }
 }, { immediate: true })
@@ -149,6 +189,9 @@ async function submit(): Promise<boolean> {
         tags,
         billingType: form.value.billingType,
         isActive: form.value.isActive,
+        // B-R-6:通用条码/厂商
+        barcode: form.value.barcode || null,
+        manufacturer: form.value.manufacturer || null,
       })
       // 药品扩展
       if (showDrugExt.value) {
@@ -156,11 +199,18 @@ async function submit(): Promise<boolean> {
           catalogItemId: props.id,
           drugForm: form.value.drugForm,
           strength: form.value.strength || null,
-          manufacturer: form.value.manufacturer || null,
-          barcode: form.value.barcode || null,
+          manufacturer: form.value.drugManufacturer || null,
+          barcode: form.value.drugBarcode || null,
           isControlled: form.value.isControlled,
           storageCondition: form.value.storageCondition || null,
           shelfLifeDays: form.value.shelfLifeDays ?? null,
+          // B-R-4:药品扩展新字段
+          approvalNumber: form.value.approvalNumber || null,
+          genericName: form.value.genericName || null,
+          dosageUnit: form.value.dosageUnit || null,
+          stockUnit: form.value.stockUnit || null,
+          conversionRate: form.value.conversionRate ?? null,
+          isRx: form.value.isRx,
         })
       }
       // 疫苗扩展
@@ -172,6 +222,11 @@ async function submit(): Promise<boolean> {
           protocolCourse: form.value.protocolCourse,
           intervalDays: form.value.intervalDays ?? null,
           isRequired: form.value.isRequired,
+          // B-R-9:疫苗扩展新字段
+          recommendedSpecies: form.value.recommendedSpecies || null,
+          recommendedAge: form.value.recommendedAge || null,
+          contraindications: form.value.contraindications || null,
+          reminderRules: form.value.reminderRules || null,
         })
       }
     }
@@ -187,6 +242,9 @@ async function submit(): Promise<boolean> {
         costPrice: form.value.costPrice,
         tags,
         billingType: form.value.billingType,
+        // B-R-6:通用条码/厂商
+        barcode: form.value.barcode || null,
+        manufacturer: form.value.manufacturer || null,
       })
       const newItemId = (res as any)?.data?.id
       // 药品扩展
@@ -195,11 +253,18 @@ async function submit(): Promise<boolean> {
           catalogItemId: newItemId,
           drugForm: form.value.drugForm,
           strength: form.value.strength || null,
-          manufacturer: form.value.manufacturer || null,
-          barcode: form.value.barcode || null,
+          manufacturer: form.value.drugManufacturer || null,
+          barcode: form.value.drugBarcode || null,
           isControlled: form.value.isControlled,
           storageCondition: form.value.storageCondition || null,
           shelfLifeDays: form.value.shelfLifeDays ?? null,
+          // B-R-4:药品扩展新字段
+          approvalNumber: form.value.approvalNumber || null,
+          genericName: form.value.genericName || null,
+          dosageUnit: form.value.dosageUnit || null,
+          stockUnit: form.value.stockUnit || null,
+          conversionRate: form.value.conversionRate ?? null,
+          isRx: form.value.isRx,
         })
       }
       // 疫苗扩展
@@ -211,6 +276,11 @@ async function submit(): Promise<boolean> {
           protocolCourse: form.value.protocolCourse,
           intervalDays: form.value.intervalDays ?? null,
           isRequired: form.value.isRequired,
+          // B-R-9:疫苗扩展新字段
+          recommendedSpecies: form.value.recommendedSpecies || null,
+          recommendedAge: form.value.recommendedAge || null,
+          contraindications: form.value.contraindications || null,
+          reminderRules: form.value.reminderRules || null,
         })
       }
     }
@@ -293,10 +363,10 @@ defineExpose({ submit })
           <FaInput v-model="form.strength" placeholder="如 5mg" />
         </FaLabel>
         <FaLabel label="生产厂家">
-          <FaInput v-model="form.manufacturer" />
+          <FaInput v-model="form.drugManufacturer" />
         </FaLabel>
         <FaLabel label="条形码">
-          <FaInput v-model="form.barcode" />
+          <FaInput v-model="form.drugBarcode" />
         </FaLabel>
         <FaLabel label="储存条件">
           <FaInput v-model="form.storageCondition" placeholder="如 常温/冷藏" />
@@ -306,6 +376,25 @@ defineExpose({ submit })
         </FaLabel>
         <FaLabel label="管控药品">
           <FaSwitch v-model="form.isControlled" />
+        </FaLabel>
+        <!-- B-R-4:批准文号/通用名/用药单位/库存单位/换算率/是否处方药 -->
+        <FaLabel label="批准文号">
+          <FaInput v-model="form.approvalNumber" placeholder="如 国药准字H..." />
+        </FaLabel>
+        <FaLabel label="通用名">
+          <FaInput v-model="form.genericName" placeholder="通用名/成分" />
+        </FaLabel>
+        <FaLabel label="用药单位">
+          <FaInput v-model="form.dosageUnit" placeholder="如 mg/ml/粒" />
+        </FaLabel>
+        <FaLabel label="库存单位">
+          <FaInput v-model="form.stockUnit" placeholder="如 盒/瓶/支" />
+        </FaLabel>
+        <FaLabel label="换算率">
+          <FaInput v-model="form.conversionRate" type="number" placeholder="如 1盒=10粒 填 10" />
+        </FaLabel>
+        <FaLabel label="处方药">
+          <FaSwitch v-model="form.isRx" />
         </FaLabel>
       </div>
     </div>
@@ -334,6 +423,19 @@ defineExpose({ submit })
         </FaLabel>
         <FaLabel label="必打疫苗">
           <FaSwitch v-model="form.isRequired" />
+        </FaLabel>
+        <!-- B-R-9:推荐物种/推荐年龄/接种禁忌/提醒规则 -->
+        <FaLabel label="推荐物种">
+          <FaInput v-model="form.recommendedSpecies" placeholder="如 犬/猫/其他" />
+        </FaLabel>
+        <FaLabel label="推荐年龄">
+          <FaInput v-model="form.recommendedAge" placeholder="如 8周龄以上" />
+        </FaLabel>
+        <FaLabel label="接种禁忌">
+          <FaInput v-model="form.contraindications" placeholder="如 孕期禁用/过敏禁用" />
+        </FaLabel>
+        <FaLabel label="提醒规则">
+          <FaInput v-model="form.reminderRules" placeholder="如 每年加强一针" />
         </FaLabel>
       </div>
     </div>

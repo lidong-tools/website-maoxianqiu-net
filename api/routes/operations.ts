@@ -4,12 +4,14 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit.js'
 import { ApiError, err } from '../lib/errors.js'
-import { requireScopedPermission } from '../lib/permission.js'
+import { assertTenantAccess, requireScopedPermission } from '../lib/permission.js'
 import { getContext, loadContext } from '../lib/request-context.js'
 import { ok } from '../lib/result.js'
 import { createServiceClient } from '../lib/supabase.js'
 import { parseJsonBody } from '../lib/validation.js'
 import { authMiddleware, loadCaller } from '../middlewares/auth.js'
+import { SmsMessagingProvider } from '../providers/sms.js'
+import { loadMessagingConfig } from '../services/messaging/config.js'
 
 /**
  * Operations 领域 Command 路由(MXQ-12001~12009)
@@ -34,7 +36,27 @@ import { authMiddleware, loadCaller } from '../middlewares/auth.js'
  */
 const operationsRoutes = new Hono<AppEnv>()
 
-operationsRoutes.use('*', authMiddleware(), loadCaller(), loadContext())
+/**
+ * 全局认证中间件(R-3 3.4.2.3-08)
+ * 匿名 POST /security-events(无 Authorization/Token 凭据)豁免认证链:
+ * 登录失败埋点发生在无会话场景,不能要求登录态(事件写入时 user_id 为空、跳过审计);
+ * 其余所有请求走完整认证链 authMiddleware → loadCaller → loadContext。
+ */
+operationsRoutes.use('*', async (c, next) => {
+  const isAnonymousSecurityWrite = c.req.method === 'POST'
+    && c.req.path.endsWith('/security-events')
+    && !c.req.header('Authorization')
+    && !c.req.header('Token')
+  if (isAnonymousSecurityWrite) {
+    await next()
+    return
+  }
+  await authMiddleware()(c, async () => {
+    await loadCaller()(c, async () => {
+      await loadContext()(c, next)
+    })
+  })
+})
 
 // ===== MXQ-12002 调整积分 =====
 const adjustPointsSchema = z.object({
@@ -1049,6 +1071,142 @@ operationsRoutes.get('/security-events', async (c) => {
 
   return ok(c, { list: data ?? [], total: count ?? 0 })
 })
+
+const securityEventSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误').nullable().optional(),
+  eventType: z.enum(['login_failed', 'login_success', 'permission_denied', 'suspicious', 'data_export']),
+  severity: z.enum(['info', 'warning', 'critical']).optional(),
+  description: z.string().max(500).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+})
+
+/**
+ * 写入安全事件(R-3 登录提醒)
+ * - 已登录调用者:写入任意受支持事件类型,tenantId 提供时校验租户归属,缺省取请求上下文租户
+ * - 匿名调用(无凭据,登录失败场景):仅允许 login_failed 且必须提供 tenantId
+ * - 事件落库后,登录类事件且开关 security.login_alert.enabled 开启时,向 security.alert.phone
+ *   发送提醒短信(短信渠道环境变量未配置时仅落库不报错;发送失败不阻断主流程)
+ */
+operationsRoutes.post('/security-events', async (c) => {
+  const input = await parseJsonBody(c, securityEventSchema)
+  const service = createServiceClient()
+  const user = c.get('user') as { id: string, email?: string } | undefined
+  const context = c.get('context')
+  const isAnonymous = !user
+
+  // 匿名写入仅允许 login_failed(登录失败时无会话,其余事件必须由已认证调用者产生);
+  // 匿名时 tenantId 允许为空(前端登录页无租户上下文时仅记录账号/IP),有值则归属到该租户
+  if (isAnonymous && input.eventType !== 'login_failed') {
+    throw err.forbidden('匿名写入仅支持登录失败事件')
+  }
+
+  // 租户归属:已登录且提供 tenantId 时校验作用域;未提供时回退请求上下文/成员关系
+  let tenantId: string | null = input.tenantId ?? null
+  if (!isAnonymous) {
+    if (tenantId) {
+      assertTenantAccess(c, tenantId)
+    }
+    else {
+      tenantId = context?.tenantId ?? context?.memberships[0]?.tenant_id ?? null
+    }
+  }
+
+  const ip = c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? null
+  const userAgent = c.req.header('user-agent') ?? null
+  const severity = input.severity ?? (input.eventType === 'permission_denied' || input.eventType === 'suspicious' ? 'warning' : 'info')
+
+  const { data: inserted, error } = await service
+    .from('security_events')
+    .insert({
+      tenant_id: tenantId,
+      user_id: user?.id ?? null,
+      event_type: input.eventType,
+      severity,
+      description: input.description ?? null,
+      ip,
+      user_agent: userAgent,
+      metadata: input.metadata ?? {},
+    })
+    .select('id, event_type, tenant_id, severity')
+    .single()
+  if (error) {
+    throw err.internal(`写入安全事件失败: ${error.message}`)
+  }
+
+  // 登录类事件:开关开启 + 短信渠道已配置 → 发送提醒短信(未配置渠道仅落库)
+  if (tenantId && (input.eventType === 'login_failed' || input.eventType === 'login_success')) {
+    await sendLoginAlertSms(service, tenantId, input.eventType, input.metadata ?? {})
+  }
+
+  // 匿名调用无请求上下文,跳过审计(事件本身已落库)
+  if (!isAnonymous) {
+    await writeAudit(c, {
+      action: 'security.events.write',
+      entityType: 'security_event',
+      entityId: inserted?.id,
+      tenantId: tenantId ?? undefined,
+      metadata: { eventType: input.eventType, severity },
+    })
+  }
+
+  return ok(c, { isSuccess: true, id: inserted?.id })
+})
+
+/**
+ * 登录提醒短信发送(R-3,best-effort)
+ * 开关 security.login_alert.enabled=true 且配置 security.alert.phone 后,
+ * 短信渠道环境变量(MESSAGING_SMS_API_URL/API_KEY/SIGN)存在时才真正发送;
+ * 渠道未配置或发送失败均仅记日志,不阻断主流程、不伪造投递。
+ */
+async function sendLoginAlertSms(
+  service: ReturnType<typeof createServiceClient>,
+  tenantId: string,
+  eventType: 'login_failed' | 'login_success',
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const { data: enabled } = await service.rpc('get_effective_setting', {
+      p_tenant_id: tenantId,
+      p_store_id: null,
+      p_namespace: 'security',
+      p_key: 'login_alert.enabled',
+      p_default: false,
+    })
+    if (enabled !== true) {
+      return
+    }
+    const { data: phoneJson } = await service.rpc('get_effective_setting', {
+      p_tenant_id: tenantId,
+      p_store_id: null,
+      p_namespace: 'security',
+      p_key: 'alert.phone',
+      p_default: '',
+    })
+    const phone = typeof phoneJson === 'string'
+      ? phoneJson.trim()
+      : typeof phoneJson === 'number' && phoneJson > 0
+        ? String(phoneJson)
+        : ''
+    if (!phone) {
+      return
+    }
+    // 短信渠道未配置(环境变量缺失):仅落库不发送,维持 PROVIDER_NOT_CONFIGURED 语义不 mock 伪造
+    const cfg = loadMessagingConfig()
+    if (!cfg.sms.apiUrl || !cfg.sms.apiKey || !cfg.sms.sign) {
+      return
+    }
+    const account = typeof metadata.account === 'string' ? metadata.account : ''
+    const text = eventType === 'login_failed'
+      ? `【安全提醒】您的医院账号${account ? `(${account})` : ''}登录失败,请确认是否本人操作。`
+      : `【安全提醒】您的医院账号${account ? `(${account})` : ''}刚刚登录成功。`
+    const provider = new SmsMessagingProvider(cfg.sms)
+    await provider.send({ channel: 'sms', recipient: phone, text })
+  }
+  catch (e) {
+    // 短信提醒失败不阻断事件落库(best-effort)
+    console.error('[security-alert] 登录提醒短信发送失败', e)
+  }
+}
 
 // ============================================================
 // 会员中心产品化(Agent-02 S3.1)

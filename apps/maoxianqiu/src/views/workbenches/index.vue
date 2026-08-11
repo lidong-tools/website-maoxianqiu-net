@@ -242,7 +242,7 @@ async function confirmVoid() {
       />
 
       <!-- 收银异议作废 -->
-      <FaModal v-model:visible="voidVisible" title="作废待付款条目" :loading="voidLoading" @confirm="confirmVoid">
+      <FaModal v-model="voidVisible" title="作废待付款条目" :loading="voidLoading" @confirm="confirmVoid">
         <div class="space-y-3">
           <div class="text-sm text-amber-800 p-3 rounded-md bg-amber-50">
             该操作不会删除条目。系统将保留原金额、来源医嘱、作废原因、收银员身份和操作时间。

@@ -165,106 +165,113 @@ function openDetail(row: TenantItem) {
 </script>
 
 <template>
-  <div>
+  <!-- 标准布局:外层固定高度 + 白底卡片,FaSearchBar 展开为卡片内联布局(左筛选右按钮) -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="平台租户" description="平台管理员管理全部医院租户;停用后该租户新业务将无法继续,历史数据保留" />
-    <FaPageMain>
-      <FaSearchBar :show-toggle="false">
-        <template #default>
-          <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">
-            <FaLabel label="关键词" class="col-span-1">
-              <FaInput
-                v-model="search.keyword"
-                placeholder="医院名称/简称/ID"
-                clearable
-                class="w-full"
-                @keydown.enter="getDataList"
-                @clear="getDataList"
-              />
-            </FaLabel>
-            <FaLabel label="状态" class="col-span-1">
+    -->
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 筛选区:左筛选控件,右功能按钮 -->
+        <div class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 flex flex-wrap gap-3 items-center">
+            <FaInput
+              v-model="search.keyword"
+              placeholder="医院名称/简称/ID"
+              class="w-56"
+              clearable
+              @keydown.enter="getDataList"
+              @clear="getDataList"
+            />
+            <div class="flex gap-2 items-center">
+              <span class="text-sm text-muted-foreground">状态</span>
               <FaSelect
                 v-model="search.status" :options="[
                   { label: '全部', value: '' },
                   { label: '启用', value: 'active' },
                   { label: '试用', value: 'trial' },
                   { label: '已停用', value: 'suspended' },
-                ]" class="w-full" @change="getDataList"
+                ]" class="w-32" @change="getDataList"
               />
-            </FaLabel>
-            <FaLabel label="试用状态" class="col-span-1">
+            </div>
+            <div class="flex gap-2 items-center">
+              <span class="text-sm text-muted-foreground">试用状态</span>
               <FaSelect
                 v-model="search.trial" :options="[
                   { label: '全部', value: '' },
                   { label: '试用中', value: 'active' },
                   { label: '已过期', value: 'expired' },
-                ]" class="w-full" @change="getDataList"
+                ]" class="w-32" @change="getDataList"
               />
-            </FaLabel>
-            <div class="flex gap-2 col-end--1 justify-end">
-              <FaButton variant="outline" @click="search.keyword = ''; search.status = ''; search.trial = ''; getDataList()">
+            </div>
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton size="sm" variant="outline" @click="search.keyword = ''; search.status = ''; search.trial = ''; getDataList()">
                 重置
               </FaButton>
-              <FaButton type="primary" @click="getDataList">
+              <FaButton size="sm" @click="getDataList">
                 <FaIcon name="i-ri:search-line" />
                 筛选
               </FaButton>
             </div>
           </div>
-        </template>
-      </FaSearchBar>
-      <div class="mx--4 my-3 border-t border-t-dashed" />
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="tableColumns"
-        :data="dataList"
-      >
-        <template #cell-name="{ row }">
-          <div class="flex flex-col gap-0.5">
-            <span class="font-medium">{{ row.original.name }}</span>
-            <span v-if="row.original.shortName" class="text-xs text-muted-foreground">
-              {{ row.original.shortName }}
-            </span>
-          </div>
-        </template>
-        <template #cell-status="{ row }">
-          <FaTag :variant="STATUS_VARIANT[row.original.status] ?? 'secondary'">
-            {{ STATUS_LABEL[row.original.status] ?? row.original.status }}
-          </FaTag>
-        </template>
-        <template #cell-employeeCount="{ row }">
-          {{ row.original.activeEmployeeCount }} / {{ row.original.employeeCount }}
-        </template>
-        <template #cell-trialEndsAt="{ row }">
-          {{ formatTime(row.original.trialEndsAt) }}
-        </template>
-        <template #cell-createdAt="{ row }">
-          {{ formatTime(row.original.createdAt) }}
-        </template>
-        <template #cell-operation="{ row }">
-          <div class="flex-center gap-2">
-            <FaButton variant="outline" size="sm" @click="openDetail(row.original)">
-              <FaIcon name="i-ri:eye-line" />
-              查看
-            </FaButton>
-            <FaDropdown
-              :items="[[
-                row.original.status === 'suspended'
-                  ? { label: '恢复', handle: () => openResume(row.original) }
-                  : { label: '停用', variant: 'destructive', handle: () => openSuspend(row.original) },
-              ]]"
-            >
-              <FaButton variant="outline" size="icon-sm">
-                <FaIcon name="i-ri:more-line" />
-              </FaButton>
-            </FaDropdown>
-          </div>
-        </template>
-      </FaTable>
-    </FaPageMain>
+        </div>
+        <!-- 表格区(flex-1 撑满,内部滚动) -->
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="tableColumns"
+            :data="dataList"
+          >
+            <template #cell-name="{ row }">
+              <div class="flex flex-col gap-0.5">
+                <span class="font-medium">{{ row.original.name }}</span>
+                <span v-if="row.original.shortName" class="text-xs text-muted-foreground">
+                  {{ row.original.shortName }}
+                </span>
+              </div>
+            </template>
+            <template #cell-status="{ row }">
+              <FaTag :variant="STATUS_VARIANT[row.original.status] ?? 'secondary'">
+                {{ STATUS_LABEL[row.original.status] ?? row.original.status }}
+              </FaTag>
+            </template>
+            <template #cell-employeeCount="{ row }">
+              {{ row.original.activeEmployeeCount }} / {{ row.original.employeeCount }}
+            </template>
+            <template #cell-trialEndsAt="{ row }">
+              {{ formatTime(row.original.trialEndsAt) }}
+            </template>
+            <template #cell-createdAt="{ row }">
+              {{ formatTime(row.original.createdAt) }}
+            </template>
+            <template #cell-operation="{ row }">
+              <div class="flex-center gap-2">
+                <FaButton variant="outline" size="sm" @click="openDetail(row.original)">
+                  <FaIcon name="i-ri:eye-line" />
+                  查看
+                </FaButton>
+                <FaDropdown
+                  :items="[[
+                    row.original.status === 'suspended'
+                      ? { label: '恢复', handle: () => openResume(row.original) }
+                      : { label: '停用', variant: 'destructive', handle: () => openSuspend(row.original) },
+                  ]]"
+                >
+                  <FaButton variant="outline" size="icon-sm">
+                    <FaIcon name="i-ri:more-line" />
+                  </FaButton>
+                </FaDropdown>
+              </div>
+            </template>
+          </FaTable>
+        </div>
+      </div>
+    </div>
 
     <!-- 停用/恢复确认 -->
     <FaModal v-model="statusModal" :title="statusAction === 'suspend' ? '停用租户' : '恢复租户'" :footer="false" :close-on-click-overlay="false">

@@ -439,45 +439,74 @@ const reportOptions = computed(() => [
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="报表中心" description="收入/退款/库存/客户/医疗报表;快照走 Hono Command + generate_report_snapshot RPC,实时明细走统一报表真源(Hono 服务端聚合),前端只负责渲染" />
-    <FaPageMain>
-      <FaTabs v-model="tabActive" :list="[{ label: '报表定义', value: 'definitions' }, { label: '历史快照', value: 'snapshots' }]">
-        <template #definitions>
-          <FaSearchBar :show-toggle="false">
-            <template #default>
-              <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-                <FaLabel label="分类" class="col-span-1">
-                  <FaSelect
-                    v-model="filters.category"
-                    :options="[
-                      { label: '全部', value: '' },
-                      { label: '收入', value: 'revenue' },
-                      { label: '退款', value: 'refund' },
-                      { label: '库存', value: 'inventory' },
-                      { label: '客户', value: 'customer' },
-                      { label: '医疗', value: 'medical' },
-                    ]"
-                    class="w-full"
-                    @change="onSearchDefs"
-                  />
-                </FaLabel>
-                <div class="flex gap-2 col-end--1 justify-end">
-                  <FaButton variant="outline" @click="onResetDefs">
-                    重置
-                  </FaButton>
-                  <FaButton type="primary" @click="onSearchDefs">
-                    <FaIcon name="i-ri:search-line" />
-                    筛选
-                  </FaButton>
-                </div>
-              </div>
-            </template>
-          </FaSearchBar>
-          <div class="mx--4 my-3 border-t border-t-dashed" />
+    -->
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <div class="px-4 pt-3 border-b shrink-0">
+          <FaTabs
+            v-model="tabActive"
+            :list="[{ label: '报表定义', value: 'definitions' }, { label: '历史快照', value: 'snapshots' }]"
+            class="mb-2"
+          />
+          <!-- 报表定义筛选 -->
+          <div v-if="tabActive === 'definitions'" class="pb-3 flex flex-wrap gap-3 items-center">
+            <FaLabel label="分类" class="w-44">
+              <FaSelect
+                v-model="filters.category"
+                :options="[
+                  { label: '全部', value: '' },
+                  { label: '收入', value: 'revenue' },
+                  { label: '退款', value: 'refund' },
+                  { label: '库存', value: 'inventory' },
+                  { label: '客户', value: 'customer' },
+                  { label: '医疗', value: 'medical' },
+                ]"
+                class="w-full"
+                @change="onSearchDefs"
+              />
+            </FaLabel>
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton variant="outline" @click="onResetDefs">
+                重置
+              </FaButton>
+              <FaButton type="primary" @click="onSearchDefs">
+                <FaIcon name="i-ri:search-line" />
+                筛选
+              </FaButton>
+            </div>
+          </div>
+          <!-- 历史快照筛选 -->
+          <div v-else class="pb-3 flex flex-wrap gap-3 items-center">
+            <FaLabel label="报表" class="w-44">
+              <FaSelect v-model="selectedReportId" :options="reportOptions" class="w-full" @change="onSearchSnapshots" />
+            </FaLabel>
+            <FaLabel label="起始日期" class="w-44">
+              <FaInput v-model="filters.periodStart" type="date" class="w-full" placeholder="YYYY-MM-DD" />
+            </FaLabel>
+            <FaLabel label="结束日期" class="w-44">
+              <FaInput v-model="filters.periodEnd" type="date" class="w-full" placeholder="YYYY-MM-DD" />
+            </FaLabel>
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton variant="outline" @click="onResetSnapshots">
+                重置
+              </FaButton>
+              <FaButton type="primary" @click="onSearchSnapshots">
+                <FaIcon name="i-ri:search-line" />
+                筛选
+              </FaButton>
+            </div>
+          </div>
+        </div>
+
+        <!-- 报表定义表格 -->
+        <div v-if="tabActive === 'definitions'" v-loading="defLoading" class="flex-1 min-h-0 overflow-hidden">
           <FaTable
-            v-loading="defLoading"
-            table-root-class="rounded-lg overflow-hidden"
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
             row-key="id"
             stripe
             border
@@ -497,36 +526,12 @@ const reportOptions = computed(() => [
               </div>
             </template>
           </FaTable>
-        </template>
-        <template #snapshots>
-          <FaSearchBar :show-toggle="false">
-            <template #default>
-              <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-                <FaLabel label="报表" class="col-span-1">
-                  <FaSelect v-model="selectedReportId" :options="reportOptions" class="w-full" @change="onSearchSnapshots" />
-                </FaLabel>
-                <FaLabel label="起始日期" class="col-span-1">
-                  <FaInput v-model="filters.periodStart" type="date" class="w-full" placeholder="YYYY-MM-DD" />
-                </FaLabel>
-                <FaLabel label="结束日期" class="col-span-1">
-                  <FaInput v-model="filters.periodEnd" type="date" class="w-full" placeholder="YYYY-MM-DD" />
-                </FaLabel>
-                <div class="flex gap-2 col-end--1 justify-end">
-                  <FaButton variant="outline" @click="onResetSnapshots">
-                    重置
-                  </FaButton>
-                  <FaButton type="primary" @click="onSearchSnapshots">
-                    <FaIcon name="i-ri:search-line" />
-                    筛选
-                  </FaButton>
-                </div>
-              </div>
-            </template>
-          </FaSearchBar>
-          <div class="mx--4 my-3 border-t border-t-dashed" />
+        </div>
+        <!-- 历史快照表格 -->
+        <div v-else v-loading="snapshotLoading" class="flex-1 min-h-0 overflow-hidden">
           <FaTable
-            v-loading="snapshotLoading"
-            table-root-class="rounded-lg overflow-hidden"
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
             row-key="id"
             stripe
             border
@@ -541,56 +546,56 @@ const reportOptions = computed(() => [
               </div>
             </template>
           </FaTable>
-        </template>
-      </FaTabs>
-
-      <!-- 快照详情弹窗 -->
-      <FaModal
-        v-model="snapshotDetailVisible"
-        :title="snapshotDetailTitle"
-        width="80%"
-        :footer="false"
-      >
-        <FaTable
-          v-loading="snapshotDetailLoading"
-          table-root-class="rounded-lg overflow-hidden"
-          row-key="id"
-          stripe
-          border
-          :columns="snapshotDetailColumns"
-          :data="snapshotDetailData"
-        />
-        <div v-if="!snapshotDetailLoading && snapshotDetailData.length === 0" class="text-gray-400 py-8 text-center">
-          暂无数据
         </div>
-      </FaModal>
+      </div>
+    </div>
 
-      <!-- 实时报表数据弹窗 -->
-      <FaModal
-        v-model="reportDataVisible"
-        :title="reportDataTitle"
-        width="80%"
-        :footer="false"
-      >
-        <template #header-extra>
-          <FaButton variant="outline" size="sm" @click="exportCSV()">
-            <FaIcon name="i-ri:file-download-line" />
-            导出 CSV
-          </FaButton>
-        </template>
-        <FaTable
-          v-loading="reportDataLoading"
-          table-root-class="rounded-lg overflow-hidden"
-          row-key="id"
-          stripe
-          border
-          :columns="reportDataColumns"
-          :data="reportDataList"
-        />
-        <div v-if="!reportDataLoading && reportDataList.length === 0" class="text-gray-400 py-8 text-center">
-          暂无数据
-        </div>
-      </FaModal>
-    </FaPageMain>
+    <!-- 快照详情弹窗 -->
+    <FaModal
+      v-model="snapshotDetailVisible"
+      :title="snapshotDetailTitle"
+      width="80%"
+      :footer="false"
+    >
+      <FaTable
+        v-loading="snapshotDetailLoading"
+        table-root-class="rounded-lg overflow-hidden"
+        row-key="id"
+        stripe
+        border
+        :columns="snapshotDetailColumns"
+        :data="snapshotDetailData"
+      />
+      <div v-if="!snapshotDetailLoading && snapshotDetailData.length === 0" class="text-gray-400 py-8 text-center">
+        暂无数据
+      </div>
+    </FaModal>
+
+    <!-- 实时报表数据弹窗 -->
+    <FaModal
+      v-model="reportDataVisible"
+      :title="reportDataTitle"
+      width="80%"
+      :footer="false"
+    >
+      <template #header-extra>
+        <FaButton variant="outline" size="sm" @click="exportCSV()">
+          <FaIcon name="i-ri:file-download-line" />
+          导出 CSV
+        </FaButton>
+      </template>
+      <FaTable
+        v-loading="reportDataLoading"
+        table-root-class="rounded-lg overflow-hidden"
+        row-key="id"
+        stripe
+        border
+        :columns="reportDataColumns"
+        :data="reportDataList"
+      />
+      <div v-if="!reportDataLoading && reportDataList.length === 0" class="text-gray-400 py-8 text-center">
+        暂无数据
+      </div>
+    </FaModal>
   </div>
 </template>

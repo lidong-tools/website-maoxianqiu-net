@@ -311,89 +311,94 @@ const tableColumns = computed<TableColumn<LabSampleRow>[]>(() => [
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="标本流转" description="S3.1 标本闭环:planned→collected→received→testing→completed;任意非终态可拒收(须原因)" />
-    <FaPageMain>
-      <FaSearchBar :show-toggle="false">
-        <template #default>
-          <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-            <FaLabel label="门店" class="col-span-1">
-              <FaSelect v-model="search.storeId" :options="storeOptions" class="w-full" @change="currentChange()" />
-            </FaLabel>
-            <FaLabel label="状态" class="col-span-1">
-              <FaSelect
-                v-model="search.status"
-                :options="[
-                  { label: '全部', value: '' },
-                  { label: '待采集', value: 'planned' },
-                  { label: '已采集', value: 'collected' },
-                  { label: '已签收', value: 'received' },
-                  { label: '检测中', value: 'testing' },
-                  { label: '已完成', value: 'completed' },
-                  { label: '已拒收', value: 'rejected' },
-                ]"
-                class="w-full"
-                @change="currentChange()"
-              />
-            </FaLabel>
-            <div class="flex gap-2 col-end--1 justify-end">
-              <FaButton variant="outline" @click="searchReset()">
+    -->
+
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 筛选区:左为筛选控件与新建按钮,右为功能按钮 -->
+        <div class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 flex flex-wrap gap-3 items-center">
+            <FaSelect v-model="search.storeId" :options="storeOptions" class="w-40" @change="currentChange()" />
+            <FaSelect
+              v-model="search.status"
+              :options="[
+                { label: '全部', value: '' },
+                { label: '待采集', value: 'planned' },
+                { label: '已采集', value: 'collected' },
+                { label: '已签收', value: 'received' },
+                { label: '检测中', value: 'testing' },
+                { label: '已完成', value: 'completed' },
+                { label: '已拒收', value: 'rejected' },
+              ]"
+              class="w-40"
+              @change="currentChange()"
+            />
+            <FaButton size="sm" @click="openCreate()">
+              <FaIcon name="i-ri:add-line" />
+              新建标本
+            </FaButton>
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton size="sm" variant="outline" @click="searchReset()">
                 重置
               </FaButton>
-              <FaButton type="primary" @click="currentChange()">
+              <FaButton size="sm" type="primary" @click="currentChange()">
                 <FaIcon name="i-ri:search-line" />
                 筛选
               </FaButton>
             </div>
           </div>
-        </template>
-      </FaSearchBar>
-      <div class="mx--4 my-3 border-t border-t-dashed" />
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="tableColumns"
-        :data="dataList"
-      >
-        <template #toolbar>
-          <FaButton @click="openCreate()">
-            <FaIcon name="i-ri:add-line" />
-            新建标本
-          </FaButton>
-        </template>
-        <template #cell-operation="{ row }">
-          <div class="flex-center flex-wrap gap-1">
-            <FaButton v-if="row.original.status === 'planned'" variant="outline" size="sm" @click="openTransition(row.original, 'collected')">
-              采集
-            </FaButton>
-            <FaButton v-if="row.original.status === 'collected'" variant="outline" size="sm" @click="openTransition(row.original, 'received')">
-              签收
-            </FaButton>
-            <FaButton v-if="row.original.status === 'received'" variant="outline" size="sm" @click="openTransition(row.original, 'testing')">
-              检测
-            </FaButton>
-            <FaButton v-if="row.original.status === 'testing'" variant="outline" size="sm" @click="openTransition(row.original, 'completed')">
-              完成
-            </FaButton>
-            <FaButton
-              v-if="row.original.status !== 'completed' && row.original.status !== 'rejected'"
-              variant="outline"
-              size="sm"
-              type="danger"
-              @click="openReject(row.original)"
-            >
-              拒收
-            </FaButton>
-          </div>
-        </template>
-      </FaTable>
-      <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2" @page-change="currentChange" @size-change="sizeChange" />
+        </div>
+
+        <!-- 表格区 -->
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="tableColumns"
+            :data="dataList"
+          >
+              <template #cell-operation="{ row }">
+                <div class="flex-center flex-wrap gap-1">
+                  <FaButton v-if="row.original.status === 'planned'" variant="outline" size="sm" @click="openTransition(row.original, 'collected')">
+                    采集
+                  </FaButton>
+                  <FaButton v-if="row.original.status === 'collected'" variant="outline" size="sm" @click="openTransition(row.original, 'received')">
+                    签收
+                  </FaButton>
+                  <FaButton v-if="row.original.status === 'received'" variant="outline" size="sm" @click="openTransition(row.original, 'testing')">
+                    检测
+                  </FaButton>
+                  <FaButton v-if="row.original.status === 'testing'" variant="outline" size="sm" @click="openTransition(row.original, 'completed')">
+                    完成
+                  </FaButton>
+                  <FaButton
+                    v-if="row.original.status !== 'completed' && row.original.status !== 'rejected'"
+                    variant="outline"
+                    size="sm"
+                    type="danger"
+                    @click="openReject(row.original)"
+                  >
+                    拒收
+                  </FaButton>
+                </div>
+              </template>
+          </FaTable>
+        </div>
+
+        <!-- 底部固定分页 -->
+        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2 px-4 pb-3 shrink-0" @page-change="currentChange" @size-change="sizeChange" />
+      </div>
+    </div>
 
       <!-- 新建标本弹窗 -->
-      <FaModal v-model:visible="createVisible" title="新建标本" :loading="creating" @confirm="onCreate">
+      <FaModal v-model="createVisible" title="新建标本" :loading="creating" @confirm="onCreate">
         <div class="space-y-3">
           <FaLabel label="检验申请" required>
             <FaSelect v-model="createForm.labOrderId" :options="labOrderOptions" class="w-full" placeholder="选择检验申请" />
@@ -426,14 +431,14 @@ const tableColumns = computed<TableColumn<LabSampleRow>[]>(() => [
       </FaModal>
 
       <!-- 状态流转弹窗 -->
-      <FaModal v-model:visible="transitionVisible" title="标本状态流转" :loading="transitioning" @confirm="onTransition">
+      <FaModal v-model="transitionVisible" title="标本状态流转" :loading="transitioning" @confirm="onTransition">
         <FaAlert type="info" :closable="false">
           标本"{{ transitionTarget?.sample_no }}"将流转为"{{ LAB_SAMPLE_STATUS_LABELS[transitionForm.toStatus] }}"
         </FaAlert>
       </FaModal>
 
       <!-- 拒收弹窗 -->
-      <FaModal v-model:visible="rejectVisible" title="拒收标本" :loading="rejecting" @confirm="onReject">
+      <FaModal v-model="rejectVisible" title="拒收标本" :loading="rejecting" @confirm="onReject">
         <div class="space-y-3">
           <FaAlert type="warning" :closable="false">
             标本"{{ rejectTarget?.sample_no }}"将被拒收,且需填写原因
@@ -443,6 +448,5 @@ const tableColumns = computed<TableColumn<LabSampleRow>[]>(() => [
           </FaLabel>
         </div>
       </FaModal>
-    </FaPageMain>
   </div>
 </template>

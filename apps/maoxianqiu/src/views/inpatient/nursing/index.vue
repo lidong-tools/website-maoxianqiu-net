@@ -109,6 +109,13 @@ const planColumns = computed<TableColumn<NursingPlan>[]>(() => [
     header: '启用',
     cell: info => info.getValue() ? '是' : '否',
   },
+  {
+    id: 'operation',
+    header: '操作',
+    width: 140,
+    align: 'center',
+    fixed: 'right',
+  },
 ])
 
 const taskColumns = computed<TableColumn<NursingTask>[]>(() => [
@@ -259,6 +266,27 @@ async function onCreateTask() {
     newTask.description = ''
     newTask.scheduledAt = ''
     newTask.assignedTo = ''
+    await loadData()
+  }
+  catch {
+    // 错误已由全局拦截器提示
+  }
+  finally {
+    submitting.value = false
+  }
+}
+
+/**
+ * 一键生成护理任务(E-R-4)
+ * 按护理计划的起止日期/频率批量生成 nursing_tasks,重复执行跳过已生成任务(幂等)
+ * @param plan 护理计划
+ */
+async function onGenerateTasks(plan: NursingPlan) {
+  submitting.value = true
+  try {
+    const res = await apiInpatient.generateNursingTasks(plan.id)
+    const { generatedCount = 0, skippedCount = 0 } = res.data ?? {}
+    useFaToast().success(`已生成 ${generatedCount} 条任务${skippedCount ? `,跳过重复 ${skippedCount} 条` : ''}`)
     await loadData()
   }
   catch {
@@ -430,7 +458,21 @@ useStoreScopedPage({
             border
             :columns="planColumns"
             :data="plans"
-          />
+          >
+            <template #cell-operation="{ row }">
+              <div class="flex-center gap-2">
+                <FaButton
+                  variant="outline"
+                  size="sm"
+                  :loading="submitting"
+                  @click="onGenerateTasks(row.original)"
+                >
+                  <FaIcon name="i-ri:magic-line" />
+                  一键生成
+                </FaButton>
+              </div>
+            </template>
+          </FaTable>
         </div>
 
         <!-- 新建护理任务 -->

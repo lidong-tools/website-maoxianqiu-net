@@ -418,7 +418,7 @@ const tableColumns = computed<TableColumn<MedicalOrderRow>[]>(() => [
     </div>
 
     <!-- 开立医嘱弹窗 -->
-    <FaModal v-model:visible="createVisible" title="开立医嘱" :loading="creating" @confirm="onCreate">
+    <FaModal v-model="createVisible" title="开立医嘱" :loading="creating" @confirm="onCreate">
       <div class="space-y-3">
         <FaLabel label="宠物" required>
           <BusinessPetPicker v-model="createForm.petId" placeholder="搜索选择宠物" />
@@ -465,7 +465,7 @@ const tableColumns = computed<TableColumn<MedicalOrderRow>[]>(() => [
     </FaModal>
 
     <!-- 取消医嘱弹窗 -->
-    <FaModal v-model:visible="cancelVisible" title="取消医嘱" :loading="cancelling" @confirm="onCancel">
+    <FaModal v-model="cancelVisible" title="取消医嘱" :loading="cancelling" @confirm="onCancel">
       <div class="space-y-3">
         <FaAlert type="warning" :closable="false">
           医嘱"{{ cancelTarget?.item_name }}"将被取消,未执行的护士任务同步取消,已执行任务永久保留

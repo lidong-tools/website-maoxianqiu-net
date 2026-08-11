@@ -70,7 +70,8 @@ async function searchItems(keyword: string) {
       .from('catalog_items')
       .select('id, name, default_price, billing_type, unit, is_active, store_items:store_catalog_items(custom_price, is_active, store_id)')
       .eq('is_active', true)
-      .or(`name.ilike.%${keyword.trim()}%,code.ilike.%${keyword.trim()}%`)
+      // D-R-4:检索条件扩展拼音码(name/code/pinyin/pinyin_short 四路模糊匹配)
+      .or(`name.ilike.%${keyword.trim()}%,code.ilike.%${keyword.trim()}%,pinyin.ilike.%${keyword.trim()}%,pinyin_short.ilike.%${keyword.trim()}%`)
 
     if (props.billingType) {
       query = query.eq('billing_type', props.billingType)

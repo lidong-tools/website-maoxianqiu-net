@@ -110,41 +110,50 @@ function onDel(row: RoleItem) {
 </script>
 
 <template>
-  <div>
+  <!-- 标准布局:外层固定高度 + 白底卡片(无筛选/分页,保留表格工具栏) -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="角色管理" description="配置角色与权限;内置角色(店长/店员/收银员等)不可删除" />
-    <FaPageMain>
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="tableColumns"
-        :data="dataList"
-      >
-        <template #toolbar>
-          <FaButton @click="onCreate">
-            新增角色
-          </FaButton>
-        </template>
-        <template #cell-operation="{ row }">
-          <div class="flex-center gap-2">
-            <FaButton variant="outline" size="icon-sm" @click="onEdit(row.original)">
-              <FaIcon name="i-ri:edit-line" />
-            </FaButton>
-            <FaDropdown
-              v-if="!row.original.is_system"
-              :items="[[
-                { label: '删除', variant: 'destructive', handle: () => onDel(row.original) },
-              ]]"
-            >
-              <FaButton variant="outline" size="icon-sm">
-                <FaIcon name="i-ri:more-line" />
+    -->
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 表格区(flex-1 撑满,内部滚动) -->
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="tableColumns"
+            :data="dataList"
+          >
+            <template #toolbar>
+              <FaButton @click="onCreate">
+                新增角色
               </FaButton>
-            </FaDropdown>
-          </div>
-        </template>
-      </FaTable>
-    </FaPageMain>
+            </template>
+            <template #cell-operation="{ row }">
+              <div class="flex-center gap-2">
+                <FaButton variant="outline" size="icon-sm" @click="onEdit(row.original)">
+                  <FaIcon name="i-ri:edit-line" />
+                </FaButton>
+                <FaDropdown
+                  v-if="!row.original.is_system"
+                  :items="[[
+                    { label: '删除', variant: 'destructive', handle: () => onDel(row.original) },
+                  ]]"
+                >
+                  <FaButton variant="outline" size="icon-sm">
+                    <FaIcon name="i-ri:more-line" />
+                  </FaButton>
+                </FaDropdown>
+              </div>
+            </template>
+          </FaTable>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

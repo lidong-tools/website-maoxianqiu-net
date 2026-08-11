@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { EncounterRecord, EncounterRevisionRecord, PrescriptionItemInput, PrescriptionRecord } from '@/types/clinical'
+import type { EncounterLabResultRef, EncounterRecord, EncounterRevisionRecord, PrescriptionItemInput, PrescriptionRecord } from '@/types/clinical'
 import type { MedicalRecordAmendmentRecord } from '@/types/compliance'
 import type { PetRecord } from '@/types/customer'
 import type { StatusVariant } from '@/utils/status'
@@ -30,6 +30,53 @@ const revisions = ref<EncounterRevisionRecord[]>([])
 const prescriptions = ref<PrescriptionRecord[]>([])
 const prescriptionItemsByRx = ref<Record<string, any[]>>({})
 const amendments = ref<MedicalRecordAmendmentRecord[]>([])
+/** 已引用到病历的检验结果(G-3.9 R-2,含结果快照,只读展示/删除) */
+const labResultRefs = ref<EncounterLabResultRef[]>([])
+
+/** 引用目标字段显示名(snake_case → 中文) */
+const REF_TARGET_FIELD_LABELS: Record<string, string> = {
+  chief_complaint: '主诉',
+  history_present: '现病史',
+  exam_findings: '检查发现',
+  diagnosis_text: '诊断',
+  treatment_plan: '治疗方案',
+}
+
+/** 按快照文本+目标字段去重后的引用块(一次引用操作会生成多条结果项记录,展示时合并为一块;同一检验单插入到不同字段视为不同引用块) */
+const labResultRefGroups = computed(() => {
+  const seen = new Set<string>()
+  const groups: EncounterLabResultRef[] = []
+  for (const ref of labResultRefs.value) {
+    const key = `${ref.snapshot?.text ?? ref.id}|${ref.target_field}`
+    if (seen.has(key)) { continue }
+    seen.add(key)
+    groups.push(ref)
+  }
+  return groups
+})
+
+/**
+ * 删除检验结果引用(移除同一快照文本+目标字段对应的全部引用记录,仅删引用不影响原检验报告)
+ * @param ref 引用记录(用于定位快照文本与目标字段)
+ */
+function onRemoveLabResultRef(ref: EncounterLabResultRef) {
+  const key = `${ref.snapshot?.text ?? ref.id}|${ref.target_field}`
+  useFaModal().confirm({
+    title: '删除引用',
+    content: '确认从病历中删除该检验结果引用吗?仅移除引用,不影响原检验报告。',
+    onConfirm: async () => {
+      try {
+        const targets = labResultRefs.value.filter(r => `${r.snapshot?.text ?? r.id}|${r.target_field}` === key)
+        await Promise.all(targets.map(t => apiClinical.deleteEncounterLabResultRef(encounterId.value, t.id)))
+        labResultRefs.value = labResultRefs.value.filter(r => `${r.snapshot?.text ?? r.id}|${r.target_field}` !== key)
+        useFaToast().success('引用已删除')
+      }
+      catch (e: any) {
+        useFaToast().error(e?.message || '删除失败')
+      }
+    },
+  })
+}
 
 /** 病历编辑表单 */
 const form = reactive({
@@ -242,6 +289,10 @@ async function loadData() {
     const rxRes: any = await apiClinical.listPrescriptions({ encounterId: encounterId.value })
     prescriptions.value = rxRes.data.list
     await loadPrescriptionItems(prescriptions.value.map(rx => rx.id))
+
+    // G-3.9 R-2:加载病历已引用的检验结果(含快照,供病历展示区追溯)
+    const refRes: any = await apiClinical.listEncounterLabResultRefs(encounterId.value)
+    labResultRefs.value = refRes.data?.list ?? []
 
     // 归档后加载修订申请列表(直连,RLS 兜底)
     if (encounter.value.archive_status === 'archived') {
@@ -682,6 +733,32 @@ onMounted(loadData)
             </FaLabel>
           </div>
 
+          <!-- 检验结果引用(G-3.9 R-2:发布后医生一键引用到病历,这里展示引用块供追溯) -->
+          <div v-if="labResultRefGroups.length" class="px-4 pb-4">
+            <div class="mb-2 flex items-center justify-between">
+              <span class="text-sm font-medium">检验结果引用({{ labResultRefGroups.length }})</span>
+              <span class="text-xs text-muted-foreground">删除仅移除病历引用,不影响原检验报告</span>
+            </div>
+            <div class="space-y-2">
+              <div v-for="ref in labResultRefGroups" :key="ref.id" class="p-2.5 border rounded-md bg-muted/30">
+                <div class="flex gap-2 items-center justify-between">
+                  <span class="text-xs font-medium">{{ ref.lab_orders?.order_no ?? '检验单' }}</span>
+                  <div class="flex gap-2 items-center">
+                    <span class="text-xs text-muted-foreground">
+                      插入至 {{ REF_TARGET_FIELD_LABELS[ref.target_field] ?? ref.target_field }}
+                    </span>
+                    <FaButton v-if="!isSigned" variant="ghost" size="icon-sm" @click="onRemoveLabResultRef(ref)">
+                      <FaIcon name="i-lucide:trash-2" />
+                    </FaButton>
+                  </div>
+                </div>
+                <div class="text-muted-foreground text-xs mt-1 whitespace-pre-wrap">
+                  {{ ref.snapshot?.text }}
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- 处方区域 -->
           <div class="px-4 py-3 border-t">
             <div class="mb-2 flex items-center justify-between">
@@ -834,7 +911,7 @@ onMounted(loadData)
     </WorkflowFixedBar>
 
     <!-- 签署弹窗(S30-R04:签署人固定为当前登录用户,无手选) -->
-    <FaModal v-model:visible="signVisible" title="签署病历" @confirm="onSign">
+    <FaModal v-model="signVisible" title="签署病历" @confirm="onSign">
       <div class="space-y-3">
         <p class="text-sm text-gray-600">
           签署后病历将变为终态,不可直接修改,如需修改请使用修订功能。
@@ -846,7 +923,7 @@ onMounted(loadData)
     </FaModal>
 
     <!-- 修订弹窗 -->
-    <FaModal v-model:visible="reviseVisible" title="修订病历" @confirm="onRevise">
+    <FaModal v-model="reviseVisible" title="修订病历" @confirm="onRevise">
       <div class="space-y-3">
         <p class="text-sm text-gray-600">
           修订将创建新版本,原文保留。请先修改上方表单内容,再填写修订原因。
@@ -858,7 +935,7 @@ onMounted(loadData)
     </FaModal>
 
     <!-- 修订申请弹窗(归档后) -->
-    <FaModal v-model:visible="amendmentRequestVisible" title="修订申请" @confirm="onSubmitAmendmentRequest">
+    <FaModal v-model="amendmentRequestVisible" title="修订申请" @confirm="onSubmitAmendmentRequest">
       <div class="space-y-3">
         <p class="text-sm text-gray-600">
           提交后将进入审批流程,审批通过后方可执行修订。
@@ -870,7 +947,7 @@ onMounted(loadData)
     </FaModal>
 
     <!-- 拒绝修订弹窗 -->
-    <FaModal v-model:visible="rejectVisible" title="拒绝修订" @confirm="onSubmitReject">
+    <FaModal v-model="rejectVisible" title="拒绝修订" @confirm="onSubmitReject">
       <div class="space-y-3">
         <FaLabel label="拒绝原因">
           <FaInput v-model="rejectReason" placeholder="请填写拒绝原因" class="w-full" />
@@ -879,7 +956,7 @@ onMounted(loadData)
     </FaModal>
 
     <!-- 执行修订弹窗 -->
-    <FaModal v-model:visible="applyVisible" title="执行修订" @confirm="onSubmitApply">
+    <FaModal v-model="applyVisible" title="执行修订" @confirm="onSubmitApply">
       <div class="space-y-3">
         <p class="text-sm text-gray-600">
           修订将覆盖当前病历内容,请确认字段内容。
@@ -903,7 +980,7 @@ onMounted(loadData)
     </FaModal>
 
     <!-- 开具处方弹窗 -->
-    <FaModal v-model:visible="diagnosticVisible" title="开具检查申请" :loading="diagnosticSubmitting" @confirm="onCreateDiagnosticOrder">
+    <FaModal v-model="diagnosticVisible" title="开具检查申请" :loading="diagnosticSubmitting" @confirm="onCreateDiagnosticOrder">
       <div class="space-y-3">
         <FaLabel label="检查类型">
           <FaSelect v-model="diagnosticForm.type" :options="[{ label: '检验', value: 'lab' }, { label: '影像', value: 'imaging' }]" />
@@ -921,7 +998,7 @@ onMounted(loadData)
     </FaModal>
 
     <!-- 开具处方弹窗 -->
-    <FaModal v-model:visible="issueVisible" title="开具处方" @confirm="onSubmitIssue">
+    <FaModal v-model="issueVisible" title="开具处方" @confirm="onSubmitIssue">
       <div class="space-y-3">
         <p class="text-sm text-gray-600">
           开具后处方进入已开具状态,明细将锁定不可编辑。开方人默认为当前登录账号。
@@ -933,7 +1010,7 @@ onMounted(loadData)
     </FaModal>
 
     <!-- 延长有效期弹窗 -->
-    <FaModal v-model:visible="extendVisible" title="延长处方有效期" @confirm="onSubmitExtend">
+    <FaModal v-model="extendVisible" title="延长处方有效期" @confirm="onSubmitExtend">
       <div class="space-y-3">
         <FaLabel label="新的有效期">
           <FaInput v-model="extendForm.newValidUntil" type="datetime-local" class="w-full" />

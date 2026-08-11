@@ -438,71 +438,70 @@ function onRemoveMember(row: DisplayRow) {
 </script>
 
 <template>
-  <div>
+  <!-- 标准布局:外层固定高度 + 白底卡片,FaSearchBar 展开为卡片内联布局(左筛选右按钮) -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="用户管理" description="维护员工档案与门店角色分配;店长管理本店成员,运维管理员可跨门店管理" />
-    <FaPageMain>
-      <FaSearchBar :show-toggle="false">
-        <template #default>
-          <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-            <FaLabel label="门店" class="col-span-1">
-              <FaSelect v-model="currentStoreId" :options="storeOptions" class="w-full" @change="currentChange()" />
-            </FaLabel>
-            <FaLabel label="关键词" class="col-span-1">
-              <FaInput
-                v-model="search.keyword"
-                placeholder="账号/姓名/工号"
-                clearable
-                class="w-full"
-                @keydown.enter="currentChange()"
-                @clear="currentChange()"
-              />
-            </FaLabel>
-            <div class="flex gap-2 col-end--1 justify-end">
-              <FaButton variant="outline" @click="searchReset()">
+    -->
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <div class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 flex flex-wrap gap-3 items-center">
+            <FaSelect v-model="currentStoreId" :options="storeOptions" class="w-44" @change="currentChange()" />
+            <FaInput
+              v-model="search.keyword"
+              placeholder="账号/姓名/工号"
+              class="w-64"
+              clearable
+              @keydown.enter="currentChange()"
+              @clear="currentChange()"
+            />
+            <FaButton size="sm" @click="onCreate">
+              新增用户
+            </FaButton>
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton size="sm" variant="outline" @click="searchReset()">
                 重置
               </FaButton>
-              <FaButton type="primary" @click="currentChange()">
+              <FaButton size="sm" @click="currentChange()">
                 <FaIcon name="i-ri:search-line" />
                 筛选
               </FaButton>
             </div>
           </div>
-        </template>
-      </FaSearchBar>
-      <div class="mx--4 my-3 border-t border-t-dashed" />
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="tableColumns"
-        :data="dataList.map(displayRow)"
-      >
-        <template #toolbar>
-          <FaButton @click="onCreate">
-            新增用户
-          </FaButton>
-        </template>
-        <template #cell-operation="{ row }">
-          <div class="flex-center gap-2">
-            <FaDropdown
-              :items="[[
-                { label: '编辑资料', handle: () => onEditUser(row.original) },
-                { label: '修改角色', handle: () => onChangeRole(row.original) },
-                { label: '重置密码', handle: () => onResetPassword(row.original) },
-                { label: row.original.status === 'active' ? '停用账号' : '启用账号', handle: () => onToggleStatus(row.original) },
-                { label: '移出门店', variant: 'destructive', handle: () => onRemoveMember(row.original) },
-              ]]"
-            >
-              <FaButton variant="outline" size="icon-sm">
-                <FaIcon name="i-ri:more-line" />
-              </FaButton>
-            </FaDropdown>
-          </div>
-        </template>
-      </FaTable>
-      <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2" @page-change="currentChange" @size-change="sizeChange" />
-    </FaPageMain>
+        </div>
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="tableColumns"
+            :data="dataList.map(displayRow)"
+          >
+            <template #cell-operation="{ row }">
+              <div class="flex-center gap-2">
+                <FaDropdown
+                  :items="[[
+                    { label: '编辑资料', handle: () => onEditUser(row.original) },
+                    { label: '修改角色', handle: () => onChangeRole(row.original) },
+                    { label: '重置密码', handle: () => onResetPassword(row.original) },
+                    { label: row.original.status === 'active' ? '停用账号' : '启用账号', handle: () => onToggleStatus(row.original) },
+                    { label: '移出门店', variant: 'destructive', handle: () => onRemoveMember(row.original) },
+                  ]]"
+                >
+                  <FaButton variant="outline" size="icon-sm">
+                    <FaIcon name="i-ri:more-line" />
+                  </FaButton>
+                </FaDropdown>
+              </div>
+            </template>
+          </FaTable>
+        </div>
+        <FaPagination :page="pagination.page" :size="pagination.size" :total="pagination.total" class="mt-2 px-4 pb-3 shrink-0" @page-change="currentChange" @size-change="sizeChange" />
+      </div>
+    </div>
   </div>
 </template>

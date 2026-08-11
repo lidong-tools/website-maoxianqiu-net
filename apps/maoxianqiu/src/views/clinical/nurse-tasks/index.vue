@@ -475,7 +475,7 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
     </div>
 
     <!-- 新建任务弹窗 -->
-    <FaModal v-model:visible="createVisible" title="新建护士任务" :loading="creating" @confirm="onCreate">
+    <FaModal v-model="createVisible" title="新建护士任务" :loading="creating" @confirm="onCreate">
       <div class="space-y-3">
         <FaLabel label="宠物">
           <BusinessPetPicker v-model="createForm.petId" placeholder="搜索选择宠物" />
@@ -503,7 +503,7 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
     </FaModal>
 
     <!-- 标记失败弹窗(S3.1-C) -->
-    <FaModal v-model:visible="failVisible" title="标记任务失败" :loading="failing" @confirm="onFail">
+    <FaModal v-model="failVisible" title="标记任务失败" :loading="failing" @confirm="onFail">
       <div class="space-y-3">
         <FaAlert type="warning" :closable="false">
           任务"{{ failTarget?.description }}"将标记为失败,且需填写失败原因
@@ -515,7 +515,7 @@ const tableColumns = computed<TableColumn<NurseTaskRow>[]>(() => [
     </FaModal>
 
     <!-- 取消任务弹窗(S3.1-C) -->
-    <FaModal v-model:visible="cancelVisible" title="取消任务" :loading="cancelling" @confirm="onCancel">
+    <FaModal v-model="cancelVisible" title="取消任务" :loading="cancelling" @confirm="onCancel">
       <div class="space-y-3">
         <FaAlert type="warning" :closable="false">
           任务"{{ cancelTarget?.description }}"将被取消,已执行任务不可取消(永久保留)

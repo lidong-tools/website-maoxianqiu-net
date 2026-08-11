@@ -22,6 +22,7 @@ import type {
   LabOrderListParams,
   LabOrderRecord,
   LabResultReview,
+  LabResultVersion,
   LabSampleListParams,
   LabSampleRecord,
   LabSpecimen,
@@ -29,8 +30,11 @@ import type {
   LabWorkbenchListResult,
   NotifyChannel,
   PublishLabResultsInput,
+  ReviseLabResultsInput,
+  ReviseLabResultsResult,
   ReviewLabResultsInput,
   ScanRemindersResult,
+  SendRemindersResult,
   TransitionLabSampleInput,
   UpdateDewormingInput,
   UpdateLabSpecimenInput,
@@ -457,6 +461,20 @@ export default {
   },
 
   /**
+   * 批量发送诊断提醒(F-R-1:3.8.1-01 疫苗提醒一体化发送)
+   * 走 Hono Command(api/routes/diagnostics.ts#/reminders/send):
+   * Hono 以 service role 复用 engine.ts sendMessage 真实发送(scene=vaccine_reminder),
+   * 按 reminder_type 匹配模板 code(vaccine_reminder/deworming_reminder),
+   * 成功回写 diag_reminders.status='sent'、sent_at;非 pending/无手机号/失败计入 failures 不中断
+   * @param reminderIds 选中的提醒 id 列表
+   */
+  async sendReminders(reminderIds: string[]) {
+    const res = await api.post('diagnostics/reminders/send', { reminderIds })
+
+    return { status: 1, error: '', data: (res as any).data as SendRemindersResult }
+  },
+
+  /**
    * 取消提醒(浏览器直连,RLS 须 diag_reminder.view 权限)
    */
   async cancelReminder(id: string) {
@@ -842,6 +860,45 @@ export default {
     })
 
     return { status: 1, error: '', data: (res as any).data as LabResultReview }
+  },
+
+  // ============================================================
+  // 结果修订 G-R-3(3.9.2-05,版本化修订,走 RPC)
+  // ============================================================
+
+  /**
+   * 修订检验结果(G-R-3:3.9.2-05 结果修订机制,跨表事务 RPC)
+   * 走 Hono Command(api/routes/diagnostics.ts#/lab-orders/:id/revise):
+   * Hono 以 service role 调 revise_lab_results RPC:仅已发布可修订(须存在 approved 审核)+
+   * change_reason 必填 + 双签(修订人≠结果录入人)+ 复制当前值为新版本行 + 更新当前值 + 审计
+   * @param input 修订入参(含 labOrderId、修订结果项数组、必填变更原因)
+   */
+  async reviseLabResults(input: ReviseLabResultsInput) {
+    const res = await api.post(`diagnostics/lab-orders/${input.labOrderId}/revise`, {
+      results: input.results,
+      changeReason: input.changeReason,
+    })
+
+    return { status: 1, error: '', data: (res as any).data as ReviseLabResultsResult }
+  },
+
+  /**
+   * 检验结果版本历史列表(G-R-3,浏览器直连,RLS 跟随 lab_orders 只读)
+   * lab_result_versions 表:每次修订复制当前结果为新版本行(旧值可追溯)
+   * @param labOrderId 检验申请 id
+   */
+  async listLabResultVersions(labOrderId: string) {
+    const { data, error } = await supabase
+      .from('lab_result_versions')
+      .select('*')
+      .eq('lab_order_id', labOrderId)
+      .order('version', { ascending: false })
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    return { status: 1, error: '', data: { list: (data ?? []) as LabResultVersion[] } }
   },
 
   // ============================================================

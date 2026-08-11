@@ -514,6 +514,217 @@ inpatientRoutes.post('/charges/generate', async (c) => {
   return ok(c, data)
 })
 
+// ============================================================
+// 自动计费规则(E-R-1, 3.6.2-02)
+//   - inpatient_charge_rules CRUD(migration 20260811000052)
+//   - 手动"执行日切计费"端点(run_daily_billing RPC 兜底,pg_cron 不可用场景)
+// ============================================================
+
+const chargeRuleQuerySchema = z.object({
+  tenantId: z.string().uuid().optional(),
+  storeId: z.string().uuid().optional(),
+})
+
+/**
+ * 计费规则列表(E-R-1)
+ * - 权限:inpatient.view(规则同时服务住院/寄养,住院域视图权限可读)
+ * - 行为:按 tenant/store 过滤返回 inpatient_charge_rules
+ */
+inpatientRoutes.get('/charge-rules', async (c) => {
+  const input = chargeRuleQuerySchema.parse(c.req.query())
+  const tenantId = resolveRequestedTenant(c, input.tenantId)
+  if (!tenantId) {
+    throw err.forbidden('无法确定租户作用域')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'inpatient.view',
+    tenantId,
+    storeId: input.storeId,
+  })
+
+  const service = createServiceClient()
+  let query = service.from('inpatient_charge_rules').select('*').eq('tenant_id', scope.tenantId)
+  if (input.storeId) {
+    query = query.eq('store_id', input.storeId)
+  }
+  const { data, error } = await query.order('created_at', { ascending: true })
+  if (error) {
+    throw err.internal(`查询计费规则失败: ${error.message}`)
+  }
+
+  return ok(c, { list: data ?? [] })
+})
+
+const createChargeRuleSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid('门店 id 格式错误'),
+  name: z.string().min(1, '规则名称必填').max(100),
+  catalogItemId: z.string().uuid().optional().nullable(),
+  billingUnit: z.enum(['day', 'night', 'stay']).default('day'),
+  cutoffTime: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/, '日切时间格式应为 HH:MM').optional(),
+  graceMinutes: z.number().int().nonnegative('宽限分钟不能为负').default(0),
+  status: z.enum(['active', 'inactive']).default('active'),
+  roomType: z.string().max(50).optional().nullable(),
+  cageId: z.string().uuid().optional().nullable(),
+  priceSnapshot: z.number().nonnegative('价格快照不能为负').default(0),
+  description: z.string().max(500).optional().nullable(),
+})
+
+/**
+ * 新增计费规则(E-R-1)
+ * - 权限:inpatient.admit(住院/寄养收费配置,系统管理员/门店管理者)
+ * - 行为:直连写入 inpatient_charge_rules(RLS 兜底),room_type 默认规则与 cage_id 覆盖规则二选一
+ */
+inpatientRoutes.post('/charge-rules', async (c) => {
+  const input = await parseJsonBody(c, createChargeRuleSchema)
+  if (!input.roomType && !input.cageId) {
+    throw err.badRequest('房间类型与笼位至少填写其一')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'inpatient.admit',
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+  })
+
+  const service = createServiceClient()
+  const { data, error } = await service.from('inpatient_charge_rules').insert({
+    tenant_id: scope.tenantId,
+    store_id: scope.storeId ?? input.storeId,
+    name: input.name,
+    catalog_item_id: input.catalogItemId ?? null,
+    billing_unit: input.billingUnit,
+    cutoff_time: input.cutoffTime ?? '00:00:00',
+    grace_minutes: input.graceMinutes,
+    status: input.status,
+    room_type: input.roomType ?? null,
+    cage_id: input.cageId ?? null,
+    price_snapshot: input.priceSnapshot,
+    description: input.description ?? null,
+  }).select().single()
+  if (error) {
+    throw err.internal(`创建计费规则失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'inpatient.createChargeRule',
+    entityType: 'inpatient_charge_rule',
+    entityId: (data as { id?: string })?.id,
+    tenantId: input.tenantId,
+    storeId: input.storeId,
+    metadata: {
+      name: input.name,
+      roomType: input.roomType,
+      cageId: input.cageId,
+      priceSnapshot: input.priceSnapshot,
+    },
+  })
+
+  return ok(c, data)
+})
+
+const updateChargeRuleSchema = createChargeRuleSchema
+  .omit({ tenantId: true, storeId: true })
+  .partial()
+
+/**
+ * 更新计费规则(E-R-1)
+ * - 权限:inpatient.admit
+ * - 行为:按 id 更新规则字段(price_snapshot 为下次计费生效的新快照)
+ */
+inpatientRoutes.patch('/charge-rules/:id', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, updateChargeRuleSchema)
+  if (input.roomType !== undefined && input.cageId !== undefined
+    && !input.roomType && !input.cageId) {
+    throw err.badRequest('房间类型与笼位至少保留其一')
+  }
+  const service = createServiceClient()
+
+  // 读取规则归属门店做权限校验
+  const { data: rule, error: ruleErr } = await service
+    .from('inpatient_charge_rules')
+    .select('id, tenant_id, store_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (ruleErr || !rule) {
+    throw err.notFound('计费规则不存在')
+  }
+  await requireScopedPermission(c, { code: 'inpatient.admit', tenantId: rule.tenant_id, storeId: rule.store_id ?? undefined })
+
+  const patch: Record<string, unknown> = {}
+  if (input.name !== undefined) patch.name = input.name
+  if (input.catalogItemId !== undefined) patch.catalog_item_id = input.catalogItemId
+  if (input.billingUnit !== undefined) patch.billing_unit = input.billingUnit
+  if (input.cutoffTime !== undefined) patch.cutoff_time = input.cutoffTime
+  if (input.graceMinutes !== undefined) patch.grace_minutes = input.graceMinutes
+  if (input.status !== undefined) patch.status = input.status
+  if (input.roomType !== undefined) patch.room_type = input.roomType
+  if (input.cageId !== undefined) patch.cage_id = input.cageId
+  if (input.priceSnapshot !== undefined) patch.price_snapshot = input.priceSnapshot
+  if (input.description !== undefined) patch.description = input.description
+
+  const { data, error } = await service
+    .from('inpatient_charge_rules')
+    .update(patch)
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) {
+    throw err.internal(`更新计费规则失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'inpatient.updateChargeRule',
+    entityType: 'inpatient_charge_rule',
+    entityId: id,
+    tenantId: rule.tenant_id,
+    storeId: rule.store_id,
+    metadata: { ...patch },
+  })
+
+  return ok(c, data)
+})
+
+const runDailyBillingSchema = z.object({
+  targetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式应为 YYYY-MM-DD').optional().nullable(),
+})
+
+/**
+ * 手动执行日切计费(E-R-1)
+ * - 权限:inpatient.admit(通常为定时任务调用,前端"执行日切"按钮兜底)
+ * - 行为:调 run_daily_billing RPC,对在住/在养记录按日切规则逐日生成费用,幂等防重
+ * - 说明:pg_cron 可用时每日 00:10 自动执行,本端点用于手动补跑/平台无 pg_cron 场景
+ */
+inpatientRoutes.post('/billing/run-daily', async (c) => {
+  const input = await parseJsonBody(c, runDailyBillingSchema)
+
+  // 日切计费为系统级操作,取调用者默认租户做作用域授权(可由超管/定时任务触发)
+  const tenantId = getContext(c).tenantId ?? getContext(c).memberships[0]?.tenant_id ?? ''
+  await requireScopedPermission(c, { code: 'inpatient.admit', tenantId })
+
+  const service = createServiceClient()
+  const { data, error } = await service.rpc('run_daily_billing', {
+    p_target_date: input.targetDate ?? null,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inpatient.runDailyBilling',
+    entityType: 'inpatient_charges',
+    entityId: undefined,
+    tenantId,
+    metadata: {
+      targetDate: input.targetDate ?? new Date().toISOString().slice(0, 10),
+      generatedInpatientCount: (data as { generatedInpatientCount?: number })?.generatedInpatientCount,
+      generatedBoardingCount: (data as { generatedBoardingCount?: number })?.generatedBoardingCount,
+    },
+  })
+
+  return ok(c, data)
+})
+
 /**
  * 房态看板(MXQ-11002)
  * - 权限:inpatient.view
@@ -1459,6 +1670,56 @@ inpatientRoutes.post('/boarding/:id/checkout', async (c) => {
     metadata: {
       totalCharge: (data as { totalCharge?: number })?.totalCharge,
       idempotencyKey,
+    },
+  })
+
+  return ok(c, data)
+})
+
+// ============================================================
+// 护理计划 → 护理任务批量生成(E-R-4, 3.7.2-01)
+//   - generate_nursing_tasks RPC(migration 20260811000054)
+//   - 幂等:同一计划同一执行时间不重复生成(source_type=plan_generated 唯一键)
+// ============================================================
+
+/**
+ * 一键生成护理任务(E-R-4)
+ * - 权限:nursing.manage
+ * - 行为:按护理计划起止日期/频率批量生成 nursing_tasks,重复执行跳过已有任务
+ */
+inpatientRoutes.post('/nursing-plans/:id/generate-tasks', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  // 读取护理计划归属门店做权限校验
+  const { data: plan, error: planErr } = await service
+    .from('nursing_plans')
+    .select('id, tenant_id, store_id, is_active')
+    .eq('id', id)
+    .maybeSingle()
+  if (planErr || !plan) {
+    throw err.notFound('护理计划不存在')
+  }
+  await requireScopedPermission(c, { code: 'nursing.manage', tenantId: plan.tenant_id, storeId: plan.store_id ?? undefined })
+
+  const user = c.get('user')
+  const { data, error } = await service.rpc('generate_nursing_tasks', {
+    p_plan_id: id,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'nursing.generateTasks',
+    entityType: 'nursing_plan',
+    entityId: id,
+    tenantId: plan.tenant_id,
+    storeId: plan.store_id,
+    metadata: {
+      generatedCount: (data as { generatedCount?: number })?.generatedCount,
+      skippedCount: (data as { skippedCount?: number })?.skippedCount,
     },
   })
 

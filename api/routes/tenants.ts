@@ -32,6 +32,9 @@ const initializeSchema = z.object({
   ownerName: z.string().min(1, '所有者姓名不能为空'),
   ownerPhone: z.string().optional(),
   timezone: z.string().default('Asia/Shanghai'),
+  // R-A1(3.1-04):医院地址(初始化时透传到 tenants 与首店)
+  address: z.string().max(200, '医院地址不能超过 200 字').optional(),
+  detailAddress: z.string().max(200, '详细地址不能超过 200 字').optional(),
   idempotencyKey: z.string().optional(),
 }).refine(
   data => data.tenantId || (data.tenantSlug && data.tenantName),
@@ -64,6 +67,9 @@ tenantRoutes.post('/initialize', async (c) => {
         slug: tenantSlug,
         name: input.tenantName,
         timezone: input.timezone,
+        // R-A1:新建租户写入医院地址
+        address: input.address ?? null,
+        detail_address: input.detailAddress ?? null,
       })
       .select('id, slug')
       .single()
@@ -99,6 +105,9 @@ tenantRoutes.post('/initialize', async (c) => {
     p_owner_name: input.ownerName,
     p_owner_phone: input.ownerPhone ?? null,
     p_timezone: input.timezone,
+    // R-A1:医院地址透传到初始化 RPC(写入 tenants 与首店)
+    p_address: input.address ?? null,
+    p_detail_address: input.detailAddress ?? null,
     p_operator_id: user.id,
     p_idempotency_key: input.idempotencyKey,
   })
@@ -135,6 +144,9 @@ const updateTenantSchema = z.object({
   timezone: z.string().max(64).optional(),
   currency: z.string().max(16).optional(),
   locale: z.string().max(16).optional(),
+  address: z.string().max(200, '医院地址不能超过 200 字').optional(),
+  detailAddress: z.string().max(200, '详细地址不能超过 200 字').optional(),
+  logoFileId: z.string().uuid('Logo 文件参数无效').optional(),
 })
 
 /**
@@ -195,6 +207,17 @@ tenantRoutes.patch('/:id', async (c) => {
   }
   if (input.locale !== undefined) {
     patch.locale = input.locale
+  }
+  // R-A1(3.1-04):医院地址
+  if (input.address !== undefined) {
+    patch.address = input.address || null
+  }
+  if (input.detailAddress !== undefined) {
+    patch.detail_address = input.detailAddress || null
+  }
+  // R-C6(3.4.2.3-05):Logo 文件(空字符串清除,保持 null 原值)
+  if (input.logoFileId !== undefined) {
+    patch.logo_file_id = input.logoFileId || null
   }
 
   const { error } = await service.from('tenants').update(patch).eq('id', id)

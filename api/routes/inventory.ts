@@ -92,6 +92,34 @@ function mapRpcError(error: { message: string }) {
   if (msg.includes('INVALID_RECEIVED_QTY')) {
     return err.badRequest('实收数量须在 0 与订购数量之间')
   }
+  // 单据状态机错误映射(R-1/R-7/R-9/R-11/R-13)
+  if (msg.includes('GOODS_RECEIPT_NOT_FOUND')) {
+    return err.notFound('入库单不存在')
+  }
+  if (msg.includes('STOCK_COUNT_NOT_FOUND')) {
+    return err.notFound('盘点单不存在')
+  }
+  if (msg.includes('TRANSFER_NOT_FOUND')) {
+    return err.notFound('调拨单不存在')
+  }
+  if (msg.includes('CATALOG_ITEM_NOT_FOUND')) {
+    return err.notFound('商品不存在或不属于当前租户')
+  }
+  if (msg.includes('STORE_ITEM_INACTIVE')) {
+    return err.conflict('该商品未在调入门店目录中或已停用,无法调拨')
+  }
+  if (msg.includes('SELF_APPROVAL_FORBIDDEN')) {
+    return err.conflict('禁止审核自己提交的单据')
+  }
+  if (msg.includes('UNCOUNTED_ITEMS')) {
+    return err.badRequest('尚有商品未录入实盘数量,无法提交')
+  }
+  if (msg.includes('INVALID_SCOPE') || msg.includes('INVALID_CATEGORY') || msg.includes('INVALID_REASON_TYPE')) {
+    return err.badRequest(msg.replace(/^ERROR:\s*/, ''))
+  }
+  if (msg.includes('BATCH_NOT_FOUND')) {
+    return err.notFound('批次不存在或已耗尽')
+  }
   // 不透传底层 DB 错误消息,避免泄露内部信息(保留业务码由 HTTP 状态映射)
   return err.internal('库存操作失败')
 }
@@ -1434,6 +1462,921 @@ inventoryRoutes.post('/purchase-orders/post', async (c) => {
     metadata: {
       poNo: po.po_no,
       postedTotal: (data as { postedTotal?: number })?.postedTotal,
+      idempotencyKey,
+    },
+  })
+
+  return ok(c, data)
+})
+
+// ============================================================
+// 入库单状态机(R-1/R-2/R-3):goods_receipts 单据
+//   draft → submitted → approved → posted;draft/submitted 可取消
+// ============================================================
+
+const goodsReceiptItemSchema = z.object({
+  catalogItemId: z.string().uuid('商品 id 格式错误'),
+  quantity: z.number().positive('数量必须大于 0'),
+  unitCost: z.number().nonnegative().optional(),
+  batchNo: z.string().max(100).optional(),
+  expiresAt: z.string().optional(),
+})
+
+const goodsReceiptCreateSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid('门店 id 格式错误'),
+  warehouseId: z.string().uuid('仓库 id 格式错误'),
+  supplier: z.string().max(200).optional(),
+  note: z.string().max(1000).optional(),
+  items: z.array(goodsReceiptItemSchema).min(1, '至少一项商品'),
+})
+
+const goodsReceiptActionSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  grId: z.string().uuid('入库单 id 格式错误'),
+})
+
+/** 查入库单取 store_id 做作用域授权(流转操作共用) */
+async function resolveGoodsReceipt(c: Context<AppEnv>, tenantId: string, grId: string) {
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('goods_receipts')
+    .select('id, tenant_id, store_id, warehouse_id, status, gr_no')
+    .eq('id', grId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+  if (error || !data) {
+    throw err.notFound('入库单不存在')
+  }
+  return data
+}
+
+/**
+ * 创建入库单草稿(R-1)
+ * - 权限:inventory.receive
+ * - 行为:调 create_goods_receipt RPC,仅建单据,不增库存
+ */
+inventoryRoutes.post('/goods-receipts', async (c) => {
+  const input = await parseJsonBody(c, goodsReceiptCreateSchema)
+  const service = createServiceClient()
+
+  // 查仓库获取 store_id 做权限校验
+  const { data: wh, error: whErr } = await service
+    .from('warehouses')
+    .select('id, tenant_id, store_id, is_active')
+    .eq('id', input.warehouseId)
+    .eq('tenant_id', input.tenantId)
+    .maybeSingle()
+  if (whErr || !wh) {
+    throw err.notFound('仓库不存在')
+  }
+  if (!wh.is_active) {
+    throw err.conflict('仓库已停用')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.receive',
+    tenantId: wh.tenant_id,
+    storeId: wh.store_id ?? undefined,
+  })
+
+  const user = c.get('user')
+
+  const { data, error } = await service.rpc('create_goods_receipt', {
+    p_tenant_id: scope.tenantId,
+    p_store_id: input.storeId,
+    p_warehouse_id: input.warehouseId,
+    p_supplier: input.supplier ?? null,
+    p_note: input.note ?? null,
+    p_items: input.items.map(i => ({
+      catalog_item_id: i.catalogItemId,
+      quantity: i.quantity,
+      unit_cost: i.unitCost ?? 0,
+      batch_no: i.batchNo ?? null,
+      expires_at: i.expiresAt ?? null,
+    })),
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.goodsReceiptCreate',
+    entityType: 'goods_receipt',
+    entityId: (data as { id?: string })?.id,
+    tenantId: input.tenantId,
+    storeId: wh.store_id,
+    metadata: {
+      warehouseId: input.warehouseId,
+      itemCount: input.items.length,
+    },
+  })
+
+  return ok(c, data)
+})
+
+/** 提交入库单(draft → submitted,权限 inventory.receive) */
+inventoryRoutes.post('/goods-receipts/submit', async (c) => {
+  const input = await parseJsonBody(c, goodsReceiptActionSchema)
+  const gr = await resolveGoodsReceipt(c, input.tenantId, input.grId)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.receive',
+    tenantId: gr.tenant_id,
+    storeId: gr.store_id,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('submit_goods_receipt', {
+    p_tenant_id: scope.tenantId,
+    p_gr_id: input.grId,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.goodsReceiptSubmit',
+    entityType: 'goods_receipt',
+    entityId: input.grId,
+    tenantId: input.tenantId,
+    storeId: gr.store_id,
+    metadata: { grNo: gr.gr_no },
+  })
+
+  return ok(c, data)
+})
+
+/** 审核入库单(submitted → approved,禁止自审,权限 inventory.receive) */
+inventoryRoutes.post('/goods-receipts/approve', async (c) => {
+  const input = await parseJsonBody(c, goodsReceiptActionSchema)
+  const gr = await resolveGoodsReceipt(c, input.tenantId, input.grId)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.receive',
+    tenantId: gr.tenant_id,
+    storeId: gr.store_id,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('approve_goods_receipt', {
+    p_tenant_id: scope.tenantId,
+    p_gr_id: input.grId,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.goodsReceiptApprove',
+    entityType: 'goods_receipt',
+    entityId: input.grId,
+    tenantId: input.tenantId,
+    storeId: gr.store_id,
+    metadata: { grNo: gr.gr_no },
+  })
+
+  return ok(c, data)
+})
+
+/** 过账入库单(approved → posted,过账才增库存,幂等,权限 inventory.receive) */
+inventoryRoutes.post('/goods-receipts/post', async (c) => {
+  const input = await parseJsonBody(c, goodsReceiptActionSchema)
+  const gr = await resolveGoodsReceipt(c, input.tenantId, input.grId)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.receive',
+    tenantId: gr.tenant_id,
+    storeId: gr.store_id,
+  })
+  const user = c.get('user')
+  const idempotencyKey = resolveIdempotencyKey(c)
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('post_goods_receipt_doc', {
+    p_tenant_id: scope.tenantId,
+    p_gr_id: input.grId,
+    p_operator_id: user.id,
+    p_idempotency_key: idempotencyKey,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.goodsReceiptPost',
+    entityType: 'goods_receipt',
+    entityId: input.grId,
+    tenantId: input.tenantId,
+    storeId: gr.store_id,
+    metadata: {
+      grNo: gr.gr_no,
+      postedTotal: (data as { postedTotal?: number })?.postedTotal,
+      idempotencyKey,
+    },
+  })
+
+  return ok(c, data)
+})
+
+/** 取消入库单(draft/submitted → cancelled,权限 inventory.receive) */
+inventoryRoutes.post('/goods-receipts/cancel', async (c) => {
+  const input = await parseJsonBody(c, goodsReceiptActionSchema)
+  const gr = await resolveGoodsReceipt(c, input.tenantId, input.grId)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.receive',
+    tenantId: gr.tenant_id,
+    storeId: gr.store_id,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('cancel_goods_receipt', {
+    p_tenant_id: scope.tenantId,
+    p_gr_id: input.grId,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.goodsReceiptCancel',
+    entityType: 'goods_receipt',
+    entityId: input.grId,
+    tenantId: input.tenantId,
+    storeId: gr.store_id,
+    metadata: { grNo: gr.gr_no },
+  })
+
+  return ok(c, data)
+})
+
+// ============================================================
+// 盘点单状态机(R-5/R-6/R-7/R-8):stock_counts 单据
+//   draft → counting → submitted → approved → posted;draft/counting/submitted 可取消
+// ============================================================
+
+const stockCountCreateSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid('门店 id 格式错误'),
+  warehouseId: z.string().uuid('仓库 id 格式错误'),
+  scope: z.enum(['all', 'category', 'item'], '盘点范围仅支持 all/category/item'),
+  categoryId: z.string().uuid('品类 id 格式错误').optional(),
+  itemIds: z.array(z.string().uuid('商品 id 格式错误')).optional(),
+  note: z.string().max(1000).optional(),
+})
+
+const stockCountCountingSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  countId: z.string().uuid('盘点单 id 格式错误'),
+  items: z.array(stockCountItemSchema).min(1, '至少一项盘点'),
+})
+
+const stockCountActionSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  countId: z.string().uuid('盘点单 id 格式错误'),
+})
+
+/** 查盘点单取 store_id 做作用域授权(流转操作共用) */
+async function resolveStockCount(c: Context<AppEnv>, tenantId: string, countId: string) {
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('stock_counts')
+    .select('id, tenant_id, store_id, warehouse_id, status, count_no')
+    .eq('id', countId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+  if (error || !data) {
+    throw err.notFound('盘点单不存在')
+  }
+  return data
+}
+
+/**
+ * 创建盘点单草稿(R-5,含账面快照与盘点范围)
+ * - 权限:inventory.count
+ * - 行为:调 create_stock_count RPC,按 scope 快照余额生成盘点行,不调整库存
+ */
+inventoryRoutes.post('/stock-counts', async (c) => {
+  const input = await parseJsonBody(c, stockCountCreateSchema)
+  const service = createServiceClient()
+
+  const { data: wh, error: whErr } = await service
+    .from('warehouses')
+    .select('id, tenant_id, store_id, is_active')
+    .eq('id', input.warehouseId)
+    .eq('tenant_id', input.tenantId)
+    .maybeSingle()
+  if (whErr || !wh) {
+    throw err.notFound('仓库不存在')
+  }
+  if (!wh.is_active) {
+    throw err.conflict('仓库已停用')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.count',
+    tenantId: wh.tenant_id,
+    storeId: wh.store_id ?? undefined,
+  })
+
+  const user = c.get('user')
+
+  const { data, error } = await service.rpc('create_stock_count', {
+    p_tenant_id: scope.tenantId,
+    p_store_id: input.storeId,
+    p_warehouse_id: input.warehouseId,
+    p_scope: input.scope,
+    p_category_id: input.categoryId ?? null,
+    p_item_ids: input.itemIds ? input.itemIds.map(id => ({ catalog_item_id: id })) : '[]',
+    p_note: input.note ?? null,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.stockCountCreate',
+    entityType: 'stock_count',
+    entityId: (data as { id?: string })?.id,
+    tenantId: input.tenantId,
+    storeId: wh.store_id,
+    metadata: {
+      warehouseId: input.warehouseId,
+      scope: input.scope,
+      categoryId: input.categoryId,
+    },
+  })
+
+  return ok(c, data)
+})
+
+/** 录入实盘数量(draft/counting → counting,权限 inventory.count) */
+inventoryRoutes.post('/stock-counts/counting', async (c) => {
+  const input = await parseJsonBody(c, stockCountCountingSchema)
+  const sc = await resolveStockCount(c, input.tenantId, input.countId)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.count',
+    tenantId: sc.tenant_id,
+    storeId: sc.store_id,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('update_stock_count_counting', {
+    p_tenant_id: scope.tenantId,
+    p_count_id: input.countId,
+    p_items: input.items.map(i => ({ catalog_item_id: i.catalogItemId, counted_quantity: i.countedQuantity })),
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.stockCountCounting',
+    entityType: 'stock_count',
+    entityId: input.countId,
+    tenantId: input.tenantId,
+    storeId: sc.store_id,
+    metadata: { countNo: sc.count_no, itemCount: input.items.length },
+  })
+
+  return ok(c, data)
+})
+
+/** 提交盘点单(counting/draft → submitted,权限 inventory.count) */
+inventoryRoutes.post('/stock-counts/submit', async (c) => {
+  const input = await parseJsonBody(c, stockCountActionSchema)
+  const sc = await resolveStockCount(c, input.tenantId, input.countId)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.count',
+    tenantId: sc.tenant_id,
+    storeId: sc.store_id,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('submit_stock_count', {
+    p_tenant_id: scope.tenantId,
+    p_count_id: input.countId,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.stockCountSubmit',
+    entityType: 'stock_count',
+    entityId: input.countId,
+    tenantId: input.tenantId,
+    storeId: sc.store_id,
+    metadata: { countNo: sc.count_no },
+  })
+
+  return ok(c, data)
+})
+
+/** 审核盘点单(submitted → approved,禁止自审,权限 inventory.count) */
+inventoryRoutes.post('/stock-counts/approve', async (c) => {
+  const input = await parseJsonBody(c, stockCountActionSchema)
+  const sc = await resolveStockCount(c, input.tenantId, input.countId)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.count',
+    tenantId: sc.tenant_id,
+    storeId: sc.store_id,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('approve_stock_count', {
+    p_tenant_id: scope.tenantId,
+    p_count_id: input.countId,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.stockCountApprove',
+    entityType: 'stock_count',
+    entityId: input.countId,
+    tenantId: input.tenantId,
+    storeId: sc.store_id,
+    metadata: { countNo: sc.count_no },
+  })
+
+  return ok(c, data)
+})
+
+/** 过账盘点单(approved → posted,按实盘调整余额写盘盈/盘亏流水,幂等,权限 inventory.count) */
+inventoryRoutes.post('/stock-counts/post', async (c) => {
+  const input = await parseJsonBody(c, stockCountActionSchema)
+  const sc = await resolveStockCount(c, input.tenantId, input.countId)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.count',
+    tenantId: sc.tenant_id,
+    storeId: sc.store_id,
+  })
+  const user = c.get('user')
+  const idempotencyKey = resolveIdempotencyKey(c)
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('post_stock_count_doc', {
+    p_tenant_id: scope.tenantId,
+    p_count_id: input.countId,
+    p_operator_id: user.id,
+    p_idempotency_key: idempotencyKey,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.stockCountPost',
+    entityType: 'stock_count',
+    entityId: input.countId,
+    tenantId: input.tenantId,
+    storeId: sc.store_id,
+    metadata: {
+      countNo: sc.count_no,
+      itemCount: (data as { items?: unknown[] })?.items?.length ?? 0,
+      idempotencyKey,
+    },
+  })
+
+  return ok(c, data)
+})
+
+/** 取消盘点单(draft/counting/submitted → cancelled,权限 inventory.count) */
+inventoryRoutes.post('/stock-counts/cancel', async (c) => {
+  const input = await parseJsonBody(c, stockCountActionSchema)
+  const sc = await resolveStockCount(c, input.tenantId, input.countId)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.count',
+    tenantId: sc.tenant_id,
+    storeId: sc.store_id,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('cancel_stock_count', {
+    p_tenant_id: scope.tenantId,
+    p_count_id: input.countId,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.stockCountCancel',
+    entityType: 'stock_count',
+    entityId: input.countId,
+    tenantId: input.tenantId,
+    storeId: sc.store_id,
+    metadata: { countNo: sc.count_no },
+  })
+
+  return ok(c, data)
+})
+
+// ============================================================
+// 调拨单状态机(R-9/R-10/R-11/R-12/R-13):transfers 单据
+//   draft → submitted → approved → outbound → received/partially_received
+//   ;draft/submitted 可取消
+// ============================================================
+
+const transferItemSchema = z.object({
+  catalogItemId: z.string().uuid('商品 id 格式错误'),
+  quantity: z.number().positive('数量必须大于 0'),
+})
+
+const transferCreateSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  storeId: z.string().uuid('门店 id 格式错误'),
+  fromWarehouseId: z.string().uuid('源仓库 id 格式错误'),
+  toWarehouseId: z.string().uuid('目标仓库 id 格式错误'),
+  note: z.string().max(1000).optional(),
+  items: z.array(transferItemSchema).min(1, '至少一项商品'),
+})
+
+const transferActionSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  transferId: z.string().uuid('调拨单 id 格式错误'),
+})
+
+const transferReceiveSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  transferId: z.string().uuid('调拨单 id 格式错误'),
+  items: z.array(z.object({
+    id: z.string().uuid('明细 id 格式错误'),
+    receivedQuantity: z.number().min(0, '实收数量不能为负'),
+    batchNo: z.string().max(100).optional(),
+    expiresAt: z.string().optional(),
+  })).min(1, '至少一项收货'),
+})
+
+/** 查调拨单取 store_id 做作用域授权(流转操作共用) */
+async function resolveTransfer(c: Context<AppEnv>, tenantId: string, transferId: string) {
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('transfers')
+    .select('id, tenant_id, store_id, from_warehouse_id, to_warehouse_id, status, transfer_no')
+    .eq('id', transferId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+  if (error || !data) {
+    throw err.notFound('调拨单不存在')
+  }
+  return data
+}
+
+/**
+ * 创建调拨单草稿(R-9 + R-13 目录约束)
+ * - 权限:inventory.transfer
+ * - 行为:调 create_transfer RPC,校验两仓同租户/不同/商品同租户/调入门店目录,仅建单据不扣库存
+ */
+inventoryRoutes.post('/transfers', async (c) => {
+  const input = await parseJsonBody(c, transferCreateSchema)
+  const service = createServiceClient()
+
+  if (input.fromWarehouseId === input.toWarehouseId) {
+    throw err.badRequest('源仓库与目标仓库不能相同')
+  }
+
+  // 校验源仓库
+  const { data: fromWh, error: fromErr } = await service
+    .from('warehouses')
+    .select('id, tenant_id, store_id, is_active')
+    .eq('id', input.fromWarehouseId)
+    .eq('tenant_id', input.tenantId)
+    .maybeSingle()
+  if (fromErr || !fromWh) {
+    throw err.notFound('源仓库不存在')
+  }
+  if (!fromWh.is_active) {
+    throw err.conflict('源仓库已停用')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.transfer',
+    tenantId: fromWh.tenant_id,
+    storeId: fromWh.store_id ?? undefined,
+  })
+
+  // 校验目标仓库
+  const { data: toWh, error: toErr } = await service
+    .from('warehouses')
+    .select('id, tenant_id, store_id, is_active')
+    .eq('id', input.toWarehouseId)
+    .eq('tenant_id', input.tenantId)
+    .maybeSingle()
+  if (toErr || !toWh) {
+    throw err.notFound('目标仓库不存在')
+  }
+  if (!toWh.is_active) {
+    throw err.conflict('目标仓库已停用')
+  }
+  await requireScopedPermission(c, {
+    code: 'inventory.transfer',
+    tenantId: toWh.tenant_id,
+    storeId: toWh.store_id ?? undefined,
+  })
+
+  const user = c.get('user')
+
+  const { data, error } = await service.rpc('create_transfer', {
+    p_tenant_id: scope.tenantId,
+    p_store_id: input.storeId,
+    p_from_warehouse_id: input.fromWarehouseId,
+    p_to_warehouse_id: input.toWarehouseId,
+    p_note: input.note ?? null,
+    p_items: input.items.map(i => ({ catalog_item_id: i.catalogItemId, quantity: i.quantity })),
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.transferCreate',
+    entityType: 'transfer',
+    entityId: (data as { id?: string })?.id,
+    tenantId: input.tenantId,
+    storeId: fromWh.store_id,
+    metadata: {
+      fromWarehouseId: input.fromWarehouseId,
+      toWarehouseId: input.toWarehouseId,
+      itemCount: input.items.length,
+    },
+  })
+
+  return ok(c, data)
+})
+
+/** 提交调拨单(draft → submitted,权限 inventory.transfer) */
+inventoryRoutes.post('/transfers/submit', async (c) => {
+  const input = await parseJsonBody(c, transferActionSchema)
+  const tf = await resolveTransfer(c, input.tenantId, input.transferId)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.transfer',
+    tenantId: tf.tenant_id,
+    storeId: tf.store_id,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('submit_transfer', {
+    p_tenant_id: scope.tenantId,
+    p_transfer_id: input.transferId,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.transferSubmit',
+    entityType: 'transfer',
+    entityId: input.transferId,
+    tenantId: input.tenantId,
+    storeId: tf.store_id,
+    metadata: { transferNo: tf.transfer_no },
+  })
+
+  return ok(c, data)
+})
+
+/** 审核调拨单(submitted → approved,禁止自审,权限 inventory.transfer) */
+inventoryRoutes.post('/transfers/approve', async (c) => {
+  const input = await parseJsonBody(c, transferActionSchema)
+  const tf = await resolveTransfer(c, input.tenantId, input.transferId)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.transfer',
+    tenantId: tf.tenant_id,
+    storeId: tf.store_id,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('approve_transfer', {
+    p_tenant_id: scope.tenantId,
+    p_transfer_id: input.transferId,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.transferApprove',
+    entityType: 'transfer',
+    entityId: input.transferId,
+    tenantId: input.tenantId,
+    storeId: tf.store_id,
+    metadata: { transferNo: tf.transfer_no },
+  })
+
+  return ok(c, data)
+})
+
+/** 取消调拨单(draft/submitted → cancelled,权限 inventory.transfer) */
+inventoryRoutes.post('/transfers/cancel', async (c) => {
+  const input = await parseJsonBody(c, transferActionSchema)
+  const tf = await resolveTransfer(c, input.tenantId, input.transferId)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.transfer',
+    tenantId: tf.tenant_id,
+    storeId: tf.store_id,
+  })
+  const user = c.get('user')
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('cancel_transfer', {
+    p_tenant_id: scope.tenantId,
+    p_transfer_id: input.transferId,
+    p_operator_id: user.id,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.transferCancel',
+    entityType: 'transfer',
+    entityId: input.transferId,
+    tenantId: input.tenantId,
+    storeId: tf.store_id,
+    metadata: { transferNo: tf.transfer_no },
+  })
+
+  return ok(c, data)
+})
+
+/** 发货(approved → outbound,FEFO 扣源仓批次写 transfer_out 流水,幂等,权限 inventory.transfer) */
+inventoryRoutes.post('/transfers/ship', async (c) => {
+  const input = await parseJsonBody(c, transferActionSchema)
+  const tf = await resolveTransfer(c, input.tenantId, input.transferId)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.transfer',
+    tenantId: tf.tenant_id,
+    storeId: tf.store_id,
+  })
+  const user = c.get('user')
+  const idempotencyKey = resolveIdempotencyKey(c)
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('ship_transfer', {
+    p_tenant_id: scope.tenantId,
+    p_transfer_id: input.transferId,
+    p_operator_id: user.id,
+    p_idempotency_key: idempotencyKey,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.transferShip',
+    entityType: 'transfer',
+    entityId: input.transferId,
+    tenantId: input.tenantId,
+    storeId: tf.store_id,
+    metadata: {
+      transferNo: tf.transfer_no,
+      itemCount: (data as { items?: unknown[] })?.items?.length ?? 0,
+      idempotencyKey,
+    },
+  })
+
+  return ok(c, data)
+})
+
+/** 收货(outbound/partially_received → received/partially_received,权限 inventory.transfer) */
+inventoryRoutes.post('/transfers/receive', async (c) => {
+  const input = await parseJsonBody(c, transferReceiveSchema)
+  const tf = await resolveTransfer(c, input.tenantId, input.transferId)
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.transfer',
+    tenantId: tf.tenant_id,
+    storeId: tf.store_id,
+  })
+  const user = c.get('user')
+  const idempotencyKey = resolveIdempotencyKey(c)
+  const service = createServiceClient()
+
+  const { data, error } = await service.rpc('receive_transfer', {
+    p_tenant_id: scope.tenantId,
+    p_transfer_id: input.transferId,
+    p_items: input.items.map(i => ({
+      id: i.id,
+      received_quantity: i.receivedQuantity,
+      batch_no: i.batchNo ?? null,
+      expires_at: i.expiresAt ?? null,
+    })),
+    p_operator_id: user.id,
+    p_idempotency_key: idempotencyKey,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.transferReceive',
+    entityType: 'transfer',
+    entityId: input.transferId,
+    tenantId: input.tenantId,
+    storeId: tf.store_id,
+    metadata: {
+      transferNo: tf.transfer_no,
+      status: (data as { status?: string })?.status,
+      itemCount: input.items.length,
+      idempotencyKey,
+    },
+  })
+
+  return ok(c, data)
+})
+
+// ============================================================
+// 报损/报废/过期(B-R-2 / R-15):post_inventory_writeoff
+// ============================================================
+
+const writeOffItemSchema = z.object({
+  catalogItemId: z.string().uuid('商品 id 格式错误'),
+  quantity: z.number().positive('数量必须大于 0'),
+  reasonType: z.enum(['write_off', 'scrap', 'expired']).optional(),
+  reason: z.string().max(500).optional(),
+  batchId: z.string().uuid('批次 id 格式错误').optional(),
+})
+
+const writeOffSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  warehouseId: z.string().uuid('仓库 id 格式错误'),
+  items: z.array(writeOffItemSchema).min(1, '至少一项报损'),
+  idempotencyKey: z.string().max(200).optional(),
+})
+
+/**
+ * 报损/报废/过期登记(B-R-2/R-15)
+ * - 权限:inventory.write_off
+ * - 行为:调 post_inventory_writeoff RPC,FEFO 扣减批次写负向流水,幂等键强制
+ */
+inventoryRoutes.post('/write-off', async (c) => {
+  const input = await parseJsonBody(c, writeOffSchema)
+  const service = createServiceClient()
+
+  const { data: wh, error: whErr } = await service
+    .from('warehouses')
+    .select('id, tenant_id, store_id, is_active')
+    .eq('id', input.warehouseId)
+    .eq('tenant_id', input.tenantId)
+    .maybeSingle()
+  if (whErr || !wh) {
+    throw err.notFound('仓库不存在')
+  }
+  if (!wh.is_active) {
+    throw err.conflict('仓库已停用')
+  }
+  const scope = await requireScopedPermission(c, {
+    code: 'inventory.write_off',
+    tenantId: wh.tenant_id,
+    storeId: wh.store_id ?? undefined,
+  })
+
+  const user = c.get('user')
+  const idempotencyKey = resolveIdempotencyKey(c, input.idempotencyKey)
+
+  const { data, error } = await service.rpc('post_inventory_writeoff', {
+    p_tenant_id: scope.tenantId,
+    p_warehouse_id: input.warehouseId,
+    p_items: input.items.map(i => ({
+      catalog_item_id: i.catalogItemId,
+      quantity: i.quantity,
+      reason_type: i.reasonType ?? 'write_off',
+      reason: i.reason ?? null,
+      batch_id: i.batchId ?? null,
+    })),
+    p_operator_id: user.id,
+    p_idempotency_key: idempotencyKey,
+  })
+  if (error) {
+    throw mapRpcError(error)
+  }
+
+  await writeAudit(c, {
+    action: 'inventory.writeOff',
+    entityType: 'inventory_movement',
+    entityId: (data as { items?: { movementId?: string }[] })?.['items']?.[0]?.movementId,
+    tenantId: input.tenantId,
+    storeId: wh.store_id,
+    metadata: {
+      warehouseId: input.warehouseId,
+      itemCount: input.items.length,
       idempotencyKey,
     },
   })

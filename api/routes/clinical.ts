@@ -1777,4 +1777,359 @@ clinicalRoutes.post('/nurse-tasks/scan-overdue', async (c) => {
   return ok(c, data)
 })
 
+// ============================================================
+// 检验结果引用病历(G-3.9 R-2:发布后医生可一键引用检验结果到病历)
+// ============================================================
+
+/** 引用目标字段:camelCase(前端) → snake_case(encounters 表列) */
+const LAB_RESULT_TARGET_FIELD_MAP: Record<string, string> = {
+  chiefComplaint: 'chief_complaint',
+  historyPresent: 'history_present',
+  examFindings: 'exam_findings',
+  diagnosisText: 'diagnosis_text',
+  treatmentPlan: 'treatment_plan',
+}
+
+/** 引用目标字段白名单(防止任意字段名注入) */
+const LAB_RESULT_TARGET_FIELDS = new Set(Object.keys(LAB_RESULT_TARGET_FIELD_MAP))
+
+/**
+ * 把 lab_order_analytes 行包装为快照结果项(联查 lab_analytes 带出名称/单位/参考范围)
+ * @param analyte lab_order_analytes 行
+ * @param defMap lab_analytes 元数据映射(analyte_id → 定义)
+ * @returns 快照结果项
+ */
+function toLabResultSnapshotItem(
+  analyte: {
+    id: string
+    analyte_id: string | null
+    result_value: string | null
+    result_numeric: number | null
+    is_abnormal: boolean
+    is_critical: boolean
+    flag: string | null
+    note: string | null
+    resulted_at: string | null
+  },
+  defMap: Map<string, { name: string, unit: string | null, ref_range_text: string | null }>,
+) {
+  const def = analyte.analyte_id ? defMap.get(analyte.analyte_id) : undefined
+  const raw = analyte.result_value ?? (analyte.result_numeric != null ? String(analyte.result_numeric) : null)
+  return {
+    sourceId: analyte.id,
+    analyteId: analyte.analyte_id,
+    name: def?.name ?? '未知项目',
+    resultValue: raw ?? '-',
+    unit: def?.unit ?? null,
+    refRange: def?.ref_range_text ?? null,
+    flag: analyte.flag,
+    isAbnormal: analyte.is_abnormal,
+    isCritical: analyte.is_critical,
+    note: analyte.note,
+    resultedAt: analyte.resulted_at,
+  }
+}
+
+/**
+ * 批量加载 lab_analytes 元数据并构造 analyte_id → 定义 映射
+ * @param service supabase service client
+ * @param analyteIds 需要联查的 lab_analytes.id 集合
+ * @returns 元数据映射
+ */
+async function loadAnalyteDefMap(
+  service: ReturnType<typeof createServiceClient>,
+  analyteIds: Array<string | null>,
+): Promise<Map<string, { name: string, unit: string | null, ref_range_text: string | null }>> {
+  const ids = [...new Set(analyteIds.filter(Boolean) as string[])]
+  if (ids.length === 0) {
+    return new Map()
+  }
+  const { data, error } = await service
+    .from('lab_analytes')
+    .select('id, name, unit, ref_range_text')
+    .in('id', ids)
+  if (error) {
+    throw err.internal(`查询检验项目元数据失败: ${error.message}`)
+  }
+  return new Map((data ?? []).map(d => [d.id, d]))
+}
+
+/**
+ * 校验检验申请为"已发布"(status=completed)且与就诊同租户、同宠物
+ * @param service supabase service client
+ * @param labOrderId 检验申请 id
+ * @param tenantId 就诊租户
+ * @param petId 就诊宠物
+ * @returns lab_orders 行
+ */
+async function assertPublishedLabOrder(
+  service: ReturnType<typeof createServiceClient>,
+  labOrderId: string,
+  tenantId: string,
+  petId: string,
+) {
+  const { data: order, error } = await service
+    .from('lab_orders')
+    .select('id, tenant_id, pet_id, status, order_no, completed_at')
+    .eq('id', labOrderId)
+    .maybeSingle()
+  if (error || !order) {
+    throw err.notFound('检验申请不存在')
+  }
+  if (order.tenant_id !== tenantId) {
+    throw err.forbidden('检验申请不属于当前租户')
+  }
+  if (order.pet_id !== petId) {
+    throw err.conflict('检验申请与当前就诊宠物不一致,不可引用')
+  }
+  if (order.status !== 'completed') {
+    throw err.conflict('仅已发布(completed)的检验结果可引用')
+  }
+  return order
+}
+
+/**
+ * 校验结果项已发布并构造引用快照
+ * @param service supabase service client
+ * @param labOrderId 检验申请 id
+ * @param sourceLabResultIds 选中的 lab_order_analytes.id 列表
+ * @param order lab_orders 行(用于快照元信息)
+ * @returns 快照对象
+ */
+async function buildLabResultSnapshot(
+  service: ReturnType<typeof createServiceClient>,
+  labOrderId: string,
+  sourceLabResultIds: string[],
+  order: { order_no: string, completed_at: string | null },
+) {
+  const { data: rows, error } = await service
+    .from('lab_order_analytes')
+    .select('id, analyte_id, result_value, result_numeric, is_abnormal, is_critical, flag, note, resulted_at')
+    .in('id', sourceLabResultIds)
+    .eq('lab_order_id', labOrderId)
+  if (error) {
+    throw err.internal(`查询检验结果项失败: ${error.message}`)
+  }
+  if (!rows || rows.length === 0) {
+    throw err.notFound('未找到可引用的检验结果项')
+  }
+  const unpublished = rows.filter(r => !r.resulted_at)
+  if (unpublished.length > 0) {
+    throw err.conflict('存在未发布的结果项,不可引用')
+  }
+  const defMap = await loadAnalyteDefMap(service, rows.map(r => r.analyte_id))
+  const items = rows.map(r => toLabResultSnapshotItem(r, defMap))
+  // 拼接快照文本:【检验结果引用 单号】项目: 值(参考范围)[flag]
+  const lines = items.map(i =>
+    `${i.name}: ${i.resultValue}${i.unit ? ` ${i.unit}` : ''}${i.refRange ? `(参考 ${i.refRange})` : ''}${i.flag ? `[${i.flag}]` : ''}${i.isCritical ? '⚠' : i.isAbnormal ? '*' : ''}`,
+  )
+  const text = `【检验结果引用 ${order.order_no}】${lines.join('；')}`
+  return { text, labOrderNo: order.order_no, publishedAt: order.completed_at, items }
+}
+
+const createLabResultRefSchema = z.object({
+  labOrderId: z.string().uuid('检验申请 id 格式错误'),
+  sourceLabResultIds: z.array(z.string().uuid('结果项 id 格式错误')).min(1, '请至少选择一条检验结果').max(200, '单次最多引用 200 条结果'),
+  targetField: z.string().min(1).max(50),
+})
+
+/**
+ * 引用检验结果到病历(G-3.9 R-2)
+ * - 权限:encounter.work(临床权限族)
+ * - 服务端校验:同租户 / 宠物一致 / 仅已发布(completed + 已出结果)结果可引用
+ * - 生成结果快照(snapshot jsonb)落库,保证修订后旧引用内容不受破坏
+ */
+clinicalRoutes.post('/encounters/:id/lab-result-refs', async (c) => {
+  const id = c.req.param('id')
+  const input = await parseJsonBody(c, createLabResultRefSchema)
+  if (!LAB_RESULT_TARGET_FIELDS.has(input.targetField)) {
+    throw err.badRequest('目标字段不合法')
+  }
+
+  const service = createServiceClient()
+  const user = c.get('user')
+
+  // 校验就诊存在并取实体租户/门店作用域
+  const { data: encounter, error: fetchError } = await service
+    .from('encounters')
+    .select('id, tenant_id, store_id, pet_id, status')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchError || !encounter) {
+    throw err.notFound('病历不存在')
+  }
+  // P0-02 scoped:实体租户/门店作用域授权
+  const scope = await requireScopedPermission(c, { code: 'encounter.work', tenantId: encounter.tenant_id, storeId: encounter.store_id ?? undefined })
+
+  // 校验检验申请已发布且与就诊同租户、同宠物
+  const order = await assertPublishedLabOrder(service, input.labOrderId, scope.tenantId, encounter.pet_id)
+  // 校验结果项并构造快照
+  const snapshot = await buildLabResultSnapshot(service, input.labOrderId, input.sourceLabResultIds, order)
+
+  // 批量落库引用记录(sourceLabResultIds 保序,逐条 sort_order 递增)
+  const rows = input.sourceLabResultIds.map((rid, idx) => ({
+    tenant_id: scope.tenantId,
+    store_id: scope.storeId ?? null,
+    encounter_id: id,
+    pet_id: encounter.pet_id,
+    lab_order_id: input.labOrderId,
+    source_lab_result_id: rid,
+    snapshot,
+    target_field: LAB_RESULT_TARGET_FIELD_MAP[input.targetField],
+    sort_order: idx,
+    created_by: user.id,
+  }))
+  const { data: refs, error: insertError } = await service
+    .from('encounter_lab_result_refs')
+    .insert(rows)
+    .select('*')
+  if (insertError) {
+    throw err.internal(`写入检验结果引用失败: ${insertError.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'encounter.labResultRef.create',
+    entityType: 'encounter',
+    entityId: id,
+    tenantId: scope.tenantId,
+    storeId: scope.storeId,
+    metadata: { labOrderId: input.labOrderId, count: rows.length, targetField: input.targetField },
+  })
+
+  // 返回引用记录 + 快照文本(前端将其追加到目标字段)
+  return ok(c, { refs: refs ?? [], text: snapshot.text, targetField: input.targetField })
+})
+
+/**
+ * 病历已引用的检验结果列表(G-3.9 R-2)
+ * - 权限:encounter.view
+ * - 返回引用记录(含快照与来源申请单号)
+ */
+clinicalRoutes.get('/encounters/:id/lab-result-refs', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: encounter, error: fetchError } = await service
+    .from('encounters')
+    .select('id, tenant_id, store_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchError || !encounter) {
+    throw err.notFound('病历不存在')
+  }
+  await requireScopedPermission(c, { code: 'encounter.view', tenantId: encounter.tenant_id, storeId: encounter.store_id ?? undefined })
+
+  const { data: refs, error } = await service
+    .from('encounter_lab_result_refs')
+    .select('*, lab_orders(order_no)')
+    .eq('encounter_id', id)
+    .order('created_at', { ascending: false })
+  if (error) {
+    throw err.internal(`查询检验结果引用失败: ${error.message}`)
+  }
+
+  return ok(c, { list: refs ?? [] })
+})
+
+/**
+ * 列出该宠物已发布、可引用的检验结果(G-3.9 R-2)
+ * - 权限:encounter.view
+ * - 服务端按就诊宠物收敛,仅返回已发布(completed + 已出结果)的检验单及其结果项,
+ *   医生无需 lab.view 权限即可浏览引用来源
+ */
+clinicalRoutes.get('/encounters/:id/lab-result-refs/available', async (c) => {
+  const id = c.req.param('id')
+  const service = createServiceClient()
+
+  const { data: encounter, error: fetchError } = await service
+    .from('encounters')
+    .select('id, tenant_id, store_id, pet_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchError || !encounter) {
+    throw err.notFound('病历不存在')
+  }
+  const scope = await requireScopedPermission(c, { code: 'encounter.view', tenantId: encounter.tenant_id, storeId: encounter.store_id ?? undefined })
+
+  // 该宠物已发布(completed)的检验申请
+  const { data: orders, error: orderErr } = await service
+    .from('lab_orders')
+    .select('id, order_no, requested_at, completed_at')
+    .eq('tenant_id', scope.tenantId)
+    .eq('pet_id', encounter.pet_id)
+    .eq('status', 'completed')
+    .order('requested_at', { ascending: false })
+    .limit(50)
+  if (orderErr) {
+    throw err.internal(`查询已发布检验申请失败: ${orderErr.message}`)
+  }
+
+  const result: Array<{
+    labOrder: { id: string, order_no: string, requested_at: string, completed_at: string | null }
+    analytes: ReturnType<typeof toLabResultSnapshotItem>[]
+  }> = []
+  for (const order of orders ?? []) {
+    // 仅保留已出结果(resulted_at 非空)的结果项
+    const { data: rows, error: analyteErr } = await service
+      .from('lab_order_analytes')
+      .select('id, analyte_id, result_value, result_numeric, is_abnormal, is_critical, flag, note, resulted_at')
+      .eq('lab_order_id', order.id)
+      .not('resulted_at', 'is', null)
+      .order('created_at', { ascending: true })
+    if (analyteErr) {
+      throw err.internal(`查询检验结果项失败: ${analyteErr.message}`)
+    }
+    if (!rows || rows.length === 0) {
+      continue
+    }
+    const defMap = await loadAnalyteDefMap(service, rows.map(r => r.analyte_id))
+    result.push({
+      labOrder: { id: order.id, order_no: order.order_no, requested_at: order.requested_at, completed_at: order.completed_at },
+      analytes: rows.map(r => toLabResultSnapshotItem(r, defMap)),
+    })
+  }
+
+  return ok(c, { list: result })
+})
+
+/**
+ * 删除病历中的检验结果引用(G-3.9 R-2)
+ * - 权限:encounter.work
+ */
+clinicalRoutes.delete('/encounters/:id/lab-result-refs/:refId', async (c) => {
+  const id = c.req.param('id')
+  const refId = c.req.param('refId')
+  const service = createServiceClient()
+
+  const { data: ref, error: fetchError } = await service
+    .from('encounter_lab_result_refs')
+    .select('id, tenant_id, store_id')
+    .eq('id', refId)
+    .eq('encounter_id', id)
+    .maybeSingle()
+  if (fetchError || !ref) {
+    throw err.notFound('检验结果引用不存在')
+  }
+  await requireScopedPermission(c, { code: 'encounter.work', tenantId: ref.tenant_id, storeId: ref.store_id ?? undefined })
+
+  const { error } = await service
+    .from('encounter_lab_result_refs')
+    .delete()
+    .eq('id', refId)
+  if (error) {
+    throw err.internal(`删除检验结果引用失败: ${error.message}`)
+  }
+
+  await writeAudit(c, {
+    action: 'encounter.labResultRef.delete',
+    entityType: 'encounter',
+    entityId: id,
+    tenantId: ref.tenant_id,
+    storeId: ref.store_id ?? undefined,
+    metadata: { refId },
+  })
+
+  return ok(c, { deleted: true })
+})
+
 export default clinicalRoutes

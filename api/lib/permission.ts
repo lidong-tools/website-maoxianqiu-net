@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 import type { AppEnv, RequestContext } from './types.js'
-import { err } from './errors.js'
+import { ApiError, err } from './errors.js'
 import { getContext } from './request-context.js'
 import { createServiceClient } from './supabase.js'
 
@@ -597,10 +597,63 @@ export async function resolveScopedAccess(
  * 带权限校验的授权作用域解析(P0-01)
  * 等价于 resolveScopedAccess,但会先校验 requirement.code 是否在目标作用域内,
  * 不通过时抛 403。所有 service role 路由的 Command 必须使用本函数获取 scope。
+ * R-3(3.4.2.3-08):403/404 类权限拒绝(含越权探测)best-effort 写入 permission_denied 安全事件,
+ * 事件写入失败不阻断原始请求与错误响应。
  */
 export async function requireScopedPermission(
   c: Context<AppEnv>,
   requirement: ScopedRequirement,
 ): Promise<AccessScope> {
-  return resolveScopedAccess(c, requirement)
+  try {
+    return await resolveScopedAccess(c, requirement)
+  }
+  catch (e) {
+    // R-3:权限拒绝分流写安全事件(留痕);仅拦截 403/404(401 未登录非权限校验失败,500 为服务端异常)
+    if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
+      void writePermissionDeniedEvent(c, requirement, e)
+    }
+    throw e
+  }
+}
+
+/**
+ * 写入权限拒绝安全事件(R-3,best-effort)
+ * 解析目标租户:requirement.tenantId → 请求上下文租户 → 调用者首个成员关系;
+ * 插入 event_type='permission_denied'(severity=warning),metadata 记录权限码/门店/错误信息。
+ * @param c 请求上下文
+ * @param requirement 原始授权需求
+ * @param e 被抛出的权限错误
+ */
+async function writePermissionDeniedEvent(
+  c: Context<AppEnv>,
+  requirement: ScopedRequirement,
+  e: ApiError,
+): Promise<void> {
+  try {
+    const context = getContext(c)
+    const tenantId = requirement.tenantId
+      || context?.tenantId
+      || context?.memberships[0]?.tenant_id
+      || null
+    if (!tenantId) {
+      return
+    }
+    const service = createServiceClient()
+    await service.from('security_events').insert({
+      tenant_id: tenantId,
+      user_id: c.get('user')?.id ?? null,
+      event_type: 'permission_denied',
+      severity: 'warning',
+      description: e.message,
+      metadata: {
+        code: requirement.code,
+        storeId: requirement.storeId ?? null,
+        message: e.message,
+      },
+    })
+  }
+  catch (writeErr) {
+    // 事件写入失败不阻断主流程(仅控制台记录,避免安全链路反向影响业务)
+    console.error('[security] 写入权限拒绝事件失败', writeErr)
+  }
 }

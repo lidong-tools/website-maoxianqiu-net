@@ -202,54 +202,60 @@ loadArchives()
 </script>
 
 <template>
-  <div class="p-4">
-    <FaSearchBar :show-toggle="false">
-      <FaSearchItem label="门店">
-        <FaSelect
-          v-model="search.storeId"
-          placeholder="全部门店"
-          clearable
-          class="w-52"
-          :options="storeOptions"
-          @change="loadArchives"
-        />
-      </FaSearchItem>
-      <FaSearchItem label="文档类型">
-        <FaSelect
-          v-model="search.documentType"
-          placeholder="全部类型"
-          clearable
-          class="w-40"
-          :options="DOCUMENT_TYPE_OPTIONS"
-          @change="loadArchives"
-        />
-      </FaSearchItem>
-      <FaSearchItem label="状态">
-        <FaSelect
-          v-model="search.status"
-          placeholder="全部状态"
-          clearable
-          class="w-32"
-          :options="ARCHIVE_STATUS_OPTIONS"
-          @change="loadArchives"
-        />
-      </FaSearchItem>
-      <FaButton type="primary" @click="loadArchives">
-        查询
-      </FaButton>
-    </FaSearchBar>
+  <!-- 最外层固定高度容器,撑满视口 -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <!-- 主内容白底卡片 -->
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 卡片顶部筛选区(左筛选右按钮) -->
+        <div class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 flex flex-wrap gap-3 items-center">
+            <FaLabel label="门店">
+              <FaSelect
+                v-model="search.storeId"
+                placeholder="全部门店"
+                clearable
+                class="w-40"
+                :options="storeOptions"
+                @change="loadArchives"
+              />
+            </FaLabel>
+            <FaLabel label="文档类型">
+              <FaSelect
+                v-model="search.documentType"
+                placeholder="全部类型"
+                clearable
+                class="w-40"
+                :options="DOCUMENT_TYPE_OPTIONS"
+                @change="loadArchives"
+              />
+            </FaLabel>
+            <FaLabel label="状态">
+              <FaSelect
+                v-model="search.status"
+                placeholder="全部状态"
+                clearable
+                class="w-32"
+                :options="ARCHIVE_STATUS_OPTIONS"
+                @change="loadArchives"
+              />
+            </FaLabel>
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton type="primary" @click="loadArchives">
+                查询
+              </FaButton>
+            </div>
+          </div>
+        </div>
 
-    <FaCard>
-      <FaTable
-        row-key="id"
-        :loading="loading"
-        :columns="columns"
-        :data="archives"
-        :total="total"
-        :page="page"
-        :page-size="pageSize"
-        @page-change="(p: number) => { page = p; loadArchives() }"
-      >
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            :columns="columns"
+            :data="archives"
+          >
         <template #cell-actions="{ row }">
           <FaButton type="link" @click="onDownload(row.original)">
             下载
@@ -261,8 +267,18 @@ loadArchives()
             签名记录
           </FaButton>
         </template>
-      </FaTable>
-    </FaCard>
+        </FaTable>
+        </div>
+        <FaPagination
+          :page="page"
+          :size="pageSize"
+          :total="total"
+          class="mt-2 px-4 pb-3 shrink-0"
+          @page-change="(p: number) => { page = p; loadArchives() }"
+          @size-change="(s: number) => { pageSize = s; page = 1; loadArchives() }"
+        />
+      </div>
+    </div>
 
     <!-- 发起签名 -->
     <FaModal v-model="signVisible" title="发起签名请求" width="520px" :footer="false" :close-on-click-overlay="false">

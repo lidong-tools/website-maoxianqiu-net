@@ -1,36 +1,23 @@
 <script setup lang="ts">
-import type { InventoryBalance, Warehouse } from '@/types/inventory'
+import type { TableColumn } from '@fantastic-admin/components'
+import type { TransferItemRow, TransferRow } from '@/api/modules/inventory'
+import type { TransferOrder, Warehouse } from '@/types/inventory'
 import apiInventory, { generateIdempotencyKey } from '@/api/modules/inventory'
+import BusinessCatalogItemPicker from '@/components/business/CatalogItemPicker/index.vue'
 import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
+import { INVENTORY_PERMISSIONS, TRANSFER_STATUS_LABELS } from '@/types/inventory'
 
 defineOptions({
   name: 'InventoryTransfer',
 })
 
 const tenantStore = useAppTenantStore()
+const { auth } = useAppAuth()
 const loading = ref(false)
-const submitting = ref(false)
-const warehouses = ref<Warehouse[]>([])
-const fromBalances = ref<InventoryBalance[]>([])
-const toBalances = ref<InventoryBalance[]>([])
+const list = ref<TransferRow[]>([])
+
 const catalogNameMap = ref<Record<string, string>>({})
-const keyword = ref('')
-const leftSelectedIds = ref<string[]>([])
-const rightSelectedIds = ref<string[]>([])
-
-interface TransferItem {
-  catalogItemId: string
-  quantity: number
-}
-
-const transferItems = ref<TransferItem[]>([])
-
-const form = reactive({
-  fromWarehouseId: '',
-  toWarehouseId: '',
-})
-
 async function enrichCatalog(rows: Array<{ catalog_item_id: string }>) {
   const ids = [...new Set(rows.map(r => r.catalog_item_id).filter(Boolean))]
   if (!ids.length) {
@@ -41,7 +28,6 @@ async function enrichCatalog(rows: Array<{ catalog_item_id: string }>) {
     catalogNameMap.value[c.id] = c.name
   })
 }
-
 function nameOf(id: string | null | undefined): string {
   if (!id) {
     return '-'
@@ -49,475 +35,701 @@ function nameOf(id: string | null | undefined): string {
   return catalogNameMap.value[id] ?? id.slice(0, 8)
 }
 
-async function loadWarehouses() {
+/** 归一化内嵌字段(PostgREST to-one 返回单对象;类型推断可能为数组) */
+function embedName(v: unknown): string {
+  if (Array.isArray(v)) {
+    return (v[0] as { name?: string } | undefined)?.name ?? '-'
+  }
+  return (v as { name?: string } | null)?.name ?? '-'
+}
+
+/** 调拨单状态标签样式 */
+function tfStatusClass(status: TransferOrder['status']): string[] {
+  const base = 'inline-flex items-center rounded-full px-2 py-0.5 text-xs'
+  const map: Record<string, string> = {
+    draft: 'bg-muted text-muted-foreground',
+    submitted: 'bg-blue-500/10 text-blue-600',
+    approved: 'bg-cyan-500/10 text-cyan-600',
+    outbound: 'bg-amber-500/10 text-amber-600',
+    partially_received: 'bg-orange-500/10 text-orange-600',
+    received: 'bg-green-500/10 text-green-600',
+    cancelled: 'bg-red-500/10 text-red-600',
+  }
+  return [base, map[status] ?? 'bg-muted text-muted-foreground']
+}
+
+const columns = computed<TableColumn<TransferRow>[]>(() => [
+  {
+    accessorKey: 'transfer_no',
+    header: '调拨单号',
+    cell: (info: any) => {
+      const row = info.row.original as TransferRow
+      return h('div', { class: 'leading-tight' }, [
+        h('div', { class: 'text-sm font-medium' }, row.transfer_no),
+        h('div', { class: 'text-xs text-muted-foreground' }, embedName(row.stores)),
+      ])
+    },
+  },
+  {
+    accessorKey: 'status',
+    header: '状态',
+    cell: (info: any) => {
+      const status = info.getValue() as TransferOrder['status']
+      return h('span', { class: tfStatusClass(status) }, TRANSFER_STATUS_LABELS[status] ?? status)
+    },
+  },
+  { accessorKey: 'from_warehouses', header: '源仓库', cell: (info: any) => embedName(info.getValue()) },
+  { accessorKey: 'to_warehouses', header: '目标仓库', cell: (info: any) => embedName(info.getValue()) },
+  { accessorKey: 'created_at', header: '创建时间', cell: (info: any) => info.getValue()?.slice(0, 16).replace('T', ' ') },
+  {
+    id: 'operation',
+    header: '操作',
+    width: 90,
+    align: 'center',
+    fixed: 'right',
+  },
+])
+
+async function loadList() {
+  if (!tenantStore.currentStoreId) {
+    list.value = []
+    return
+  }
+  loading.value = true
+  try {
+    list.value = await apiInventory.listTransfers(tenantStore.currentStoreId)
+  }
+  catch (e: any) {
+    useFaToast().error(e?.message || '加载调拨单失败')
+  }
+  finally {
+    loading.value = false
+  }
+}
+
+// 门店作用域:切店后清空并重载
+useStoreScopedPage({
+  load: loadList,
+  reset: () => {
+    list.value = []
+  },
+})
+
+onMounted(loadList)
+
+const keyword = ref('')
+const statusFilter = ref('')
+const page = ref(1)
+const pageSize = ref(20)
+
+/** 状态 + 关键词(单号)过滤调拨单 */
+const filteredList = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  return list.value.filter((row) => {
+    if (statusFilter.value && row.status !== statusFilter.value) {
+      return false
+    }
+    if (!kw) {
+      return true
+    }
+    return row.transfer_no.toLowerCase().includes(kw)
+  })
+})
+/** 当前分页的调拨单(前端分页) */
+const pagedList = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return filteredList.value.slice(start, start + pageSize.value)
+})
+// 过滤条件变化时修正越界页码
+watch(filteredList, () => {
+  const maxPage = Math.max(1, Math.ceil(filteredList.value.length / pageSize.value))
+  if (page.value > maxPage) {
+    page.value = maxPage
+  }
+})
+
+// ===== 详情抽屉 =====
+const detailVisible = ref(false)
+const detailLoading = ref(false)
+const detail = ref<TransferRow | null>(null)
+const detailItems = ref<TransferItemRow[]>([])
+const actionLoading = ref(false)
+
+const detailDescriptions = computed(() => detail.value
+  ? [
+      { label: '调拨单号', value: detail.value.transfer_no },
+      { label: '门店', value: embedName(detail.value.stores) },
+      { label: '源仓库', value: embedName(detail.value.from_warehouses) },
+      { label: '目标仓库', value: embedName(detail.value.to_warehouses) },
+      { label: '备注', value: detail.value.note ?? '-' },
+    ]
+  : [])
+
+/** 调拨单状态时间线(仅展示已发生/当前节点) */
+const timeline = computed(() => {
+  const tf = detail.value
+  if (!tf) {
+    return []
+  }
+  const steps: Array<{ label: string, at: string, active: boolean }> = [
+    { label: '草稿', at: tf.created_at, active: true },
+    { label: '待审核', at: tf.submitted_at ?? '', active: tf.status !== 'draft' },
+    { label: '已审核', at: tf.approved_at ?? '', active: ['approved', 'outbound', 'partially_received', 'received'].includes(tf.status) },
+    { label: '已发货', at: tf.shipped_at ?? '', active: ['outbound', 'partially_received', 'received'].includes(tf.status) },
+    { label: '已收货', at: tf.received_at ?? '', active: tf.status === 'received' },
+  ]
+  if (tf.status === 'cancelled') {
+    return [{ label: '已取消', at: tf.cancelled_at ?? '', active: true }]
+  }
+  return steps
+})
+
+const itemColumns = computed<TableColumn<TransferItemRow>[]>(() => [
+  { id: 'catalog', header: '商品', cell: (info: any) => nameOf((info.row.original as TransferItemRow).catalog_item_id) },
+  { accessorKey: 'quantity', header: '调拨数量' },
+  { accessorKey: 'shipped_qty', header: '已发数量' },
+  { accessorKey: 'received_qty', header: '已收数量' },
+  { accessorKey: 'batch_no', header: '批次号', cell: (info: any) => info.getValue() ?? '-' },
+  { accessorKey: 'expires_at', header: '失效日期', cell: (info: any) => info.getValue() ?? '-' },
+])
+
+async function openDetail(row: TransferRow) {
+  detail.value = row
+  detailVisible.value = true
+  detailLoading.value = true
+  detailItems.value = []
+  try {
+    detailItems.value = await apiInventory.listTransferItems(row.id)
+    await enrichCatalog(detailItems.value)
+  }
+  catch (e: any) {
+    useFaToast().error(e?.message || '加载调拨明细失败')
+  }
+  finally {
+    detailLoading.value = false
+  }
+}
+
+async function reloadDetail() {
+  if (!detail.value) {
+    return
+  }
+  const rows = await apiInventory.listTransfers(detail.value.store_id)
+  const found = rows.find(r => r.id === detail.value?.id) ?? null
+  if (found) {
+    detail.value = found
+  }
+  await loadList()
+}
+
+// ===== 新建调拨单草稿 =====
+const createVisible = ref(false)
+const createSubmitting = ref(false)
+const warehouses = ref<Warehouse[]>([])
+const createForm = reactive({
+  fromWarehouseId: '',
+  toWarehouseId: '',
+  note: '',
+})
+
+interface TfCreateItem {
+  catalogItemId: string
+  quantity: number
+}
+
+const createItems = ref<TfCreateItem[]>([])
+const createTotalQuantity = computed(() => createItems.value.reduce((sum, i) => sum + Number(i.quantity || 0), 0))
+
+async function openCreate() {
+  createForm.fromWarehouseId = ''
+  createForm.toWarehouseId = ''
+  createForm.note = ''
+  createItems.value = []
   try {
     const res = await apiInventory.listWarehouses(tenantStore.currentStoreId || undefined)
     warehouses.value = res.data.list
-    if (warehouses.value.length > 0 && !form.fromWarehouseId) {
-      form.fromWarehouseId = warehouses.value[0].id
+    if (warehouses.value.length > 0) {
+      createForm.fromWarehouseId = warehouses.value[0].id
     }
-    if (warehouses.value.length > 1 && !form.toWarehouseId) {
-      form.toWarehouseId = warehouses.value[1].id
+    if (warehouses.value.length > 1) {
+      createForm.toWarehouseId = warehouses.value[1].id
     }
-    await loadBalances()
   }
   catch (e: any) {
     useFaToast().error(e?.message || '加载仓库失败')
   }
+  createVisible.value = true
 }
 
-async function loadBalances() {
-  const tasks: Promise<void>[] = []
-  if (form.fromWarehouseId) {
-    tasks.push(
-      apiInventory.listBalances(form.fromWarehouseId)
-        .then((res) => { fromBalances.value = res.data.list })
-        .catch((e: any) => { useFaToast().error(e?.message || '加载源仓库余额失败') }),
-    )
-  }
-  else {
-    fromBalances.value = []
-  }
-  if (form.toWarehouseId) {
-    tasks.push(
-      apiInventory.listBalances(form.toWarehouseId)
-        .then((res) => { toBalances.value = res.data.list })
-        .catch((e: any) => { useFaToast().error(e?.message || '加载目标仓库余额失败') }),
-    )
-  }
-  else {
-    toBalances.value = []
-  }
-  loading.value = true
-  await Promise.all(tasks)
-  await enrichCatalog([...fromBalances.value, ...toBalances.value])
-  const sourceCatalogItemIds = new Set(fromBalances.value.map(item => item.catalog_item_id))
-  transferItems.value = transferItems.value.filter(item => sourceCatalogItemIds.has(item.catalogItemId))
-  leftSelectedIds.value = []
-  rightSelectedIds.value = rightSelectedIds.value.filter(id => sourceCatalogItemIds.has(id))
-  loading.value = false
+function addTfItem() {
+  createItems.value.push({ catalogItemId: '', quantity: 1 })
 }
 
-/** 获取指定商品的源仓可用库存 */
-function sourceOnHand(catalogItemId: string) {
-  const bal = fromBalances.value.find(b => b.catalog_item_id === catalogItemId)
-  return bal?.quantity_on_hand ?? 0
+function removeTfItem(idx: number) {
+  createItems.value.splice(idx, 1)
 }
 
-/** 获取指定商品的目标仓当前库存 */
-function targetOnHand(catalogItemId: string) {
-  const bal = toBalances.value.find(b => b.catalog_item_id === catalogItemId)
-  return bal?.quantity_on_hand ?? 0
-}
-
-const totalTransferQuantity = computed(() => transferItems.value.reduce((total, item) => total + item.quantity, 0))
-
-/** 校验并逐项提交多商品调拨 */
-async function onSubmit() {
-  if (!form.fromWarehouseId || !form.toWarehouseId) {
-    useFaToast().warning('请选择源仓库与目标仓库')
+async function onCreateSubmit() {
+  if (!createForm.fromWarehouseId) {
+    useFaToast().warning('请选择源仓库')
     return
   }
-  if (form.fromWarehouseId === form.toWarehouseId) {
+  if (!createForm.toWarehouseId) {
+    useFaToast().warning('请选择目标仓库')
+    return
+  }
+  if (createForm.fromWarehouseId === createForm.toWarehouseId) {
     useFaToast().warning('源仓库与目标仓库不能相同')
     return
   }
-  if (!transferItems.value.length) {
-    useFaToast().warning('请选择待调拨商品')
+  if (createItems.value.length === 0 || createItems.value.some(i => !i.catalogItemId)) {
+    useFaToast().warning('请添加至少一项有效调拨明细')
     return
   }
-  const invalidQuantityItem = transferItems.value.find(item => item.quantity <= 0)
-  if (invalidQuantityItem) {
-    useFaToast().warning(`${nameOf(invalidQuantityItem.catalogItemId)} 的调拨数量必须大于 0`)
+  if (createItems.value.some(i => Number(i.quantity) <= 0)) {
+    useFaToast().warning('调拨数量必须大于 0')
     return
   }
-  const insufficientItem = transferItems.value.find(item => item.quantity > sourceOnHand(item.catalogItemId))
-  if (insufficientItem) {
-    useFaToast().warning(`${nameOf(insufficientItem.catalogItemId)} 库存不足，源仓仅 ${sourceOnHand(insufficientItem.catalogItemId)}`)
-    return
-  }
-  submitting.value = true
-  const succeededIds: string[] = []
+  createSubmitting.value = true
   try {
-    for (const item of transferItems.value) {
-      try {
-        await apiInventory.transfer({
-          tenantId: tenantStore.currentTenantId,
-          fromWarehouseId: form.fromWarehouseId,
-          toWarehouseId: form.toWarehouseId,
-          catalogItemId: item.catalogItemId,
-          quantity: item.quantity,
-        }, generateIdempotencyKey())
-        succeededIds.push(item.catalogItemId)
-      }
-      catch {
-        // 单项失败时继续提交其余商品，失败项保留在待调拨区
-      }
-    }
-    transferItems.value = transferItems.value.filter(item => !succeededIds.includes(item.catalogItemId))
-    rightSelectedIds.value = []
-    if (succeededIds.length) {
-      useFaToast().success(`已成功调拨 ${succeededIds.length} 项商品`)
-    }
-    if (transferItems.value.length) {
-      useFaToast().warning(`${transferItems.value.length} 项商品调拨失败，已保留在待调拨区`)
-    }
-    await loadBalances()
+    await apiInventory.createTransfer({
+      tenantId: tenantStore.currentTenantId,
+      storeId: tenantStore.currentStoreId,
+      fromWarehouseId: createForm.fromWarehouseId,
+      toWarehouseId: createForm.toWarehouseId,
+      note: createForm.note.trim() || undefined,
+      items: createItems.value.map(i => ({
+        catalogItemId: i.catalogItemId,
+        quantity: Number(i.quantity),
+      })),
+    })
+    useFaToast().success('调拨单已创建(草稿)')
+    createVisible.value = false
+    await loadList()
+  }
+  catch {
+    // 错误已由 axios 拦截器统一提示
   }
   finally {
-    submitting.value = false
+    createSubmitting.value = false
   }
 }
 
-// ===== 穿梭选择:源仓库存筛选 + 多商品调拨 =====
-const fromPage = ref(1)
-const fromSize = ref(10)
+// ===== 调拨单流转:提交 / 审核 / 取消 / 发货 =====
+const confirmVisible = ref(false)
+const confirmAction = ref<'approve' | 'cancel' | 'ship'>('approve')
+const confirmTitle = computed(() => {
+  const map = { approve: '审核调拨单', cancel: '取消调拨单', ship: '发货' } as const
+  return map[confirmAction.value]
+})
+const confirmText = computed(() => {
+  const map = {
+    approve: '确认通过该调拨单审核?',
+    cancel: '确认取消该调拨单?(取消后不可恢复)',
+    ship: '发货将按 FEFO 从源仓库扣减库存并生成调拨流水,确认发货?',
+  } as const
+  return map[confirmAction.value]
+})
 
-/** 按商品名称或编号筛选源仓库存 */
-const filteredFromBalances = computed(() => {
-  const transferredCatalogItemIds = new Set(transferItems.value.map(item => item.catalogItemId))
-  const normalizedKeyword = keyword.value.trim().toLowerCase()
-  return fromBalances.value.filter((balance) => {
-    if (transferredCatalogItemIds.has(balance.catalog_item_id)) {
-      return false
+function openConfirm(action: 'approve' | 'cancel' | 'ship') {
+  confirmAction.value = action
+  confirmVisible.value = true
+}
+
+async function onConfirmSubmit() {
+  if (!detail.value) {
+    return
+  }
+  actionLoading.value = true
+  try {
+    if (confirmAction.value === 'approve') {
+      await apiInventory.approveTransfer({ tenantId: tenantStore.currentTenantId, transferId: detail.value.id })
+      useFaToast().success('已审核通过')
     }
-    if (!normalizedKeyword) {
-      return true
+    else if (confirmAction.value === 'cancel') {
+      await apiInventory.cancelTransfer({ tenantId: tenantStore.currentTenantId, transferId: detail.value.id })
+      useFaToast().success('已取消')
     }
-    const catalogItemId = balance.catalog_item_id.toLowerCase()
-    const catalogName = nameOf(balance.catalog_item_id).toLowerCase()
-    return catalogItemId.includes(normalizedKeyword) || catalogName.includes(normalizedKeyword)
-  })
-})
-
-/** 源仓库余额(前端分页) */
-const pagedFromBalances = computed(() => {
-  const start = (fromPage.value - 1) * fromSize.value
-  return filteredFromBalances.value.slice(start, start + fromSize.value)
-})
-
-const leftPageCheckState = computed<boolean | 'indeterminate'>(() => {
-  const pageIds = pagedFromBalances.value.map(item => item.catalog_item_id)
-  const selectedCount = pageIds.filter(id => leftSelectedIds.value.includes(id)).length
-  if (!selectedCount) {
-    return false
+    else {
+      await apiInventory.shipTransfer({ tenantId: tenantStore.currentTenantId, transferId: detail.value.id }, generateIdempotencyKey())
+      useFaToast().success('发货成功,源仓库库存已扣减')
+    }
+    confirmVisible.value = false
+    await reloadDetail()
   }
-  return selectedCount === pageIds.length ? true : 'indeterminate'
-})
-
-const rightCheckState = computed<boolean | 'indeterminate'>(() => {
-  const selectedCount = transferItems.value.filter(item => rightSelectedIds.value.includes(item.catalogItemId)).length
-  if (!selectedCount) {
-    return false
+  catch {
+    // 错误已由 axios 拦截器统一提示
   }
-  return selectedCount === transferItems.value.length ? true : 'indeterminate'
-})
-
-/** 切换左侧商品的勾选状态 */
-function toggleLeftSelection(catalogItemId: string, checked: boolean) {
-  leftSelectedIds.value = checked
-    ? [...new Set([...leftSelectedIds.value, catalogItemId])]
-    : leftSelectedIds.value.filter(id => id !== catalogItemId)
-}
-
-/** 切换右侧商品的勾选状态 */
-function toggleRightSelection(catalogItemId: string, checked: boolean) {
-  rightSelectedIds.value = checked
-    ? [...new Set([...rightSelectedIds.value, catalogItemId])]
-    : rightSelectedIds.value.filter(id => id !== catalogItemId)
-}
-
-/** 全选或取消全选当前页源仓商品 */
-function toggleCurrentSourcePage(checked: boolean) {
-  const pageIds = pagedFromBalances.value.map(item => item.catalog_item_id)
-  leftSelectedIds.value = checked
-    ? [...new Set([...leftSelectedIds.value, ...pageIds])]
-    : leftSelectedIds.value.filter(id => !pageIds.includes(id))
-}
-
-/** 全选或取消全选待调拨商品 */
-function toggleAllTransferItems(checked: boolean) {
-  rightSelectedIds.value = checked ? transferItems.value.map(item => item.catalogItemId) : []
-}
-
-/** 将勾选的源仓商品批量加入待调拨区 */
-function addSelectedItems(catalogItemIds = leftSelectedIds.value) {
-  const existingIds = new Set(transferItems.value.map(item => item.catalogItemId))
-  const newItems = catalogItemIds
-    .filter(id => !existingIds.has(id))
-    .map(catalogItemId => ({ catalogItemId, quantity: 1 }))
-  transferItems.value.push(...newItems)
-  leftSelectedIds.value = leftSelectedIds.value.filter(id => !catalogItemIds.includes(id))
-}
-
-/** 将右侧勾选商品批量移回源仓列表 */
-function removeSelectedItems(catalogItemIds = rightSelectedIds.value) {
-  transferItems.value = transferItems.value.filter(item => !catalogItemIds.includes(item.catalogItemId))
-  rightSelectedIds.value = rightSelectedIds.value.filter(id => !catalogItemIds.includes(id))
-}
-
-// 数据变化时修正越界页码
-watch(filteredFromBalances, () => {
-  const maxPage = Math.max(1, Math.ceil(filteredFromBalances.value.length / fromSize.value))
-  if (fromPage.value > maxPage) {
-    fromPage.value = maxPage
+  finally {
+    actionLoading.value = false
   }
-})
+}
 
-watch(() => [form.fromWarehouseId, form.toWarehouseId], () => {
-  loadBalances()
-})
+async function onSubmit() {
+  if (!detail.value) {
+    return
+  }
+  actionLoading.value = true
+  try {
+    await apiInventory.submitTransfer({ tenantId: tenantStore.currentTenantId, transferId: detail.value.id })
+    useFaToast().success('已提交审核')
+    await reloadDetail()
+  }
+  catch {
+    // 错误已由 axios 拦截器统一提示
+  }
+  finally {
+    actionLoading.value = false
+  }
+}
 
-// P1(审计 25):未保存内容保护 - 待调拨区存在商品时视为 dirty
-const transferGuard = usePageUnsavedGuard('inventory-transfer')
-watch(transferItems, items => transferGuard.setDirty(items.length > 0), { deep: true, immediate: true })
+// ===== 收货(outbound / partially_received):按明细录入实收 =====
+const receiveVisible = ref(false)
+const receiveSubmitting = ref(false)
 
-// P0-06:切店后清空仓库选择并按新门店重载
-useStoreScopedPage({
-  load: loadWarehouses,
-  reset: () => {
-    form.fromWarehouseId = ''
-    form.toWarehouseId = ''
-    leftSelectedIds.value = []
-    rightSelectedIds.value = []
-    transferItems.value = []
-  },
-})
+interface TfReceiveRow {
+  id: string
+  catalogItemId: string
+  shippedQty: number
+  receivedQty: number
+  remaining: number
+  receivedQuantity: number
+  batchNo: string
+  expiresAt: string
+}
 
-onMounted(loadWarehouses)
+const receiveRows = ref<TfReceiveRow[]>([])
+
+/** 打开收货弹窗:预填剩余应收数量,批次/失效日期可选 */
+function openReceive() {
+  receiveRows.value = detailItems.value.map((item) => {
+    const remaining = Math.max(0, Number(item.shipped_qty) - Number(item.received_qty))
+    return {
+      id: item.id,
+      catalogItemId: item.catalog_item_id,
+      shippedQty: Number(item.shipped_qty),
+      receivedQty: Number(item.received_qty),
+      remaining,
+      receivedQuantity: remaining,
+      batchNo: item.batch_no ?? '',
+      expiresAt: item.expires_at ?? '',
+    }
+  }).filter(row => row.remaining > 0)
+  receiveVisible.value = true
+}
+
+async function onReceiveSubmit() {
+  if (!detail.value) {
+    return
+  }
+  const items = receiveRows.value.filter(row => Number(row.receivedQuantity) > 0)
+  if (items.length === 0) {
+    useFaToast().warning('请至少录入一项实收数量')
+    return
+  }
+  if (items.some(row => Number(row.receivedQuantity) > row.remaining)) {
+    useFaToast().warning('实收数量不能超过剩余应收数量')
+    return
+  }
+  receiveSubmitting.value = true
+  try {
+    await apiInventory.receiveTransfer({
+      tenantId: tenantStore.currentTenantId,
+      transferId: detail.value.id,
+      items: items.map(row => ({
+        id: row.id,
+        receivedQuantity: Number(row.receivedQuantity),
+        batchNo: row.batchNo.trim() || undefined,
+        expiresAt: row.expiresAt || undefined,
+      })),
+    }, generateIdempotencyKey())
+    useFaToast().success('收货成功,目标仓库库存已入库')
+    receiveVisible.value = false
+    await reloadDetail()
+    if (detail.value) {
+      await openDetail(detail.value)
+    }
+  }
+  catch {
+    // 错误已由 axios 拦截器统一提示
+  }
+  finally {
+    receiveSubmitting.value = false
+  }
+}
 </script>
 
 <template>
-  <!-- 绝对定位占满父容器,与回访任务等列表页保持内容区高度一致 -->
   <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
     <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
-      <!-- 调拨内容保持为与其他业务列表一致的单块主区域 -->
       <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
-        <!-- 穿梭选择区:左侧筛选源仓商品，右侧编辑待调拨商品 -->
-        <div v-loading="loading" class="p-4 flex flex-1 flex-col gap-3 min-h-0 lg:flex-row">
-          <section class="border rounded-lg flex flex-1 flex-col min-h-[360px] min-w-0 overflow-hidden">
-            <div class="p-3 border-b bg-muted/30 flex gap-3 items-center justify-between">
-              <div class="flex gap-3 items-center">
-                <FaCheckbox
-                  :model-value="leftPageCheckState"
-                  :disabled="pagedFromBalances.length === 0"
-                  @change="checked => toggleCurrentSourcePage(checked === true)"
-                />
-                <div>
-                  <div class="text-sm font-medium">
-                    源仓可调拨商品
-                  </div>
-                  <div class="text-xs text-muted-foreground">
-                    可勾选多个商品批量加入
-                  </div>
-                </div>
-              </div>
-              <span class="text-xs text-muted-foreground">
-                已选 {{ leftSelectedIds.length }} / {{ filteredFromBalances.length }} 项
-              </span>
-            </div>
-            <div class="p-3 border-b">
+        <!-- 工具栏:左筛选/搜索,右功能按钮 -->
+        <div class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 flex items-center justify-between">
+            <div class="flex gap-2 items-center">
+              <FaSelect
+                v-model="statusFilter"
+                :options="[{ label: '全部状态', value: '' }, ...Object.entries(TRANSFER_STATUS_LABELS).map(([value, label]) => ({ label, value }))]"
+                class="w-32"
+                @update:model-value="page = 1"
+              />
               <FaInput
                 v-model="keyword"
-                placeholder="搜索商品名称或编号"
+                placeholder="搜索调拨单号"
                 clearable
-                class="w-full"
-                @update:model-value="fromPage = 1"
-              >
-                <template #start>
-                  <FaIcon name="i-lucide:search" class="text-muted-foreground" />
-                </template>
-              </FaInput>
-            </div>
-            <div class="flex-1 min-h-0 overflow-auto">
-              <div
-                v-for="balance in pagedFromBalances"
-                :key="balance.id"
-                role="button"
-                tabindex="0"
-                class="px-4 py-3 border-b flex cursor-pointer transition-colors items-center hover:bg-muted/50"
-                :class="leftSelectedIds.includes(balance.catalog_item_id) ? 'bg-primary/8' : ''"
-                @click="toggleLeftSelection(balance.catalog_item_id, !leftSelectedIds.includes(balance.catalog_item_id))"
-                @dblclick="addSelectedItems([balance.catalog_item_id])"
-                @keydown.enter="toggleLeftSelection(balance.catalog_item_id, !leftSelectedIds.includes(balance.catalog_item_id))"
-                @keydown.space.prevent="toggleLeftSelection(balance.catalog_item_id, !leftSelectedIds.includes(balance.catalog_item_id))"
-              >
-                <FaCheckbox
-                  :model-value="leftSelectedIds.includes(balance.catalog_item_id)"
-                  class="mr-3 shrink-0"
-                  @click.stop
-                  @change="checked => toggleLeftSelection(balance.catalog_item_id, checked === true)"
-                />
-                <div class="flex-1 min-w-0">
-                  <div class="text-sm font-medium truncate">
-                    {{ nameOf(balance.catalog_item_id) }}
-                  </div>
-                  <div class="text-xs text-muted-foreground">
-                    {{ balance.catalog_item_id.slice(0, 8) }}
-                  </div>
-                </div>
-                <div class="ml-auto pl-4 text-right">
-                  <div class="text-sm font-semibold tabular-nums">
-                    {{ balance.quantity_on_hand }}
-                  </div>
-                  <div class="text-xs text-muted-foreground">
-                    可用库存
-                  </div>
-                </div>
-              </div>
-              <FaEmpty
-                v-if="filteredFromBalances.length === 0"
-                title="暂无可调拨商品"
-                description="请更换源仓库或调整搜索条件"
-                class="py-12"
+                class="w-48"
+                @update:model-value="page = 1"
               />
-            </div>
-            <FaPagination
-              :page="fromPage"
-              :size="fromSize"
-              :total="filteredFromBalances.length"
-              layout="total, sizes, ->, pager"
-              class="p-3 border-t"
-              @page-change="p => { fromPage = p }"
-              @size-change="s => { fromSize = s; fromPage = 1 }"
-            />
-          </section>
-
-          <div class="flex shrink-0 gap-2 items-center justify-center lg:flex-col lg:w-12">
-            <FaButton
-              size="icon-sm"
-              :disabled="leftSelectedIds.length === 0"
-              :title="`加入 ${leftSelectedIds.length} 项商品`"
-              @click="addSelectedItems()"
-            >
-              <FaIcon name="i-lucide:chevron-right" class="hidden lg:block" />
-              <FaIcon name="i-lucide:chevron-down" class="lg:hidden" />
-            </FaButton>
-            <FaButton
-              size="icon-sm"
-              variant="outline"
-              :disabled="rightSelectedIds.length === 0"
-              :title="`移回 ${rightSelectedIds.length} 项商品`"
-              @click="removeSelectedItems()"
-            >
-              <FaIcon name="i-lucide:chevron-left" class="hidden lg:block" />
-              <FaIcon name="i-lucide:chevron-up" class="lg:hidden" />
-            </FaButton>
-          </div>
-
-          <section class="border rounded-lg flex flex-1 flex-col min-h-[360px] min-w-0 overflow-hidden">
-            <div class="p-3 border-b bg-muted/30 flex items-center justify-between">
-              <div class="flex gap-3 items-center">
-                <FaCheckbox
-                  :model-value="rightCheckState"
-                  :disabled="transferItems.length === 0"
-                  @change="checked => toggleAllTransferItems(checked === true)"
-                />
-                <div>
-                  <div class="text-sm font-medium">
-                    待调拨商品
-                  </div>
-                  <div class="text-xs text-muted-foreground">
-                    分别设置本次调拨数量
-                  </div>
-                </div>
-              </div>
-              <span class="text-xs text-muted-foreground">
-                已选 {{ rightSelectedIds.length }} / {{ transferItems.length }} 项
+              <span class="text-sm text-muted-foreground">
+                共 {{ filteredList.length }} 个调拨单
               </span>
             </div>
-
-            <div v-if="transferItems.length" class="flex-1 min-h-0 overflow-auto">
-              <div
-                v-for="item in transferItems"
-                :key="item.catalogItemId"
-                class="p-4 border-b transition-colors"
-                :class="rightSelectedIds.includes(item.catalogItemId) ? 'bg-primary/8' : ''"
-              >
-                <div class="flex gap-3 items-start">
-                  <FaCheckbox
-                    :model-value="rightSelectedIds.includes(item.catalogItemId)"
-                    class="mt-2 shrink-0"
-                    @change="checked => toggleRightSelection(item.catalogItemId, checked === true)"
-                  />
-                  <div class="rounded-md bg-primary/10 flex shrink-0 h-10 w-10 items-center justify-center">
-                    <FaIcon name="i-lucide:package" class="text-primary" />
-                  </div>
-                  <div class="flex-1 min-w-0">
-                    <div class="text-sm font-semibold truncate">
-                      {{ nameOf(item.catalogItemId) }}
-                    </div>
-                    <div class="text-xs text-muted-foreground">
-                      {{ item.catalogItemId.slice(0, 8) }}
-                    </div>
-                  </div>
-                  <FaButton size="icon-sm" variant="ghost" title="移除" @click="removeSelectedItems([item.catalogItemId])">
-                    <FaIcon name="i-lucide:x" />
-                  </FaButton>
-                </div>
-
-                <div class="mt-3 pl-13 gap-3 grid grid-cols-[minmax(0,1fr)_auto] items-end">
-                  <FaLabel label="调拨数量">
-                    <FaInputNumber
-                      v-model="item.quantity"
-                      :min="1"
-                      :max="sourceOnHand(item.catalogItemId)"
-                      class="w-full"
-                    />
-                  </FaLabel>
-                  <div class="text-xs text-muted-foreground pb-2 whitespace-nowrap">
-                    源仓 {{ sourceOnHand(item.catalogItemId) }} · 目标仓 {{ targetOnHand(item.catalogItemId) }}
-                    <span class="text-primary font-medium">→ {{ targetOnHand(item.catalogItemId) + item.quantity }}</span>
-                  </div>
-                </div>
-              </div>
+            <div class="flex gap-2">
+              <FaButton v-if="auth(INVENTORY_PERMISSIONS.transfer)" @click="openCreate">
+                <FaIcon name="i-lucide:plus" />
+                新建调拨单
+              </FaButton>
             </div>
-            <FaEmpty
-              v-else
-              title="尚未选择商品"
-              description="从左侧勾选一个或多个商品加入待调拨区"
-              class="py-12 flex-1"
-            />
-          </section>
+          </div>
         </div>
+        <!-- 表格区 -->
+        <div class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            v-loading="loading"
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="columns"
+            :data="pagedList"
+            empty-text="暂无调拨单"
+            @row-click="openDetail"
+          >
+            <template #cell-operation="{ row }">
+              <div class="flex-center">
+                <FaButton variant="outline" size="icon-sm" @click.stop="openDetail(row.original)">
+                  <FaIcon name="i-ri:eye-line" />
+                </FaButton>
+              </div>
+            </template>
+          </FaTable>
+        </div>
+        <!-- 分页区 -->
+        <FaPagination
+          :page="page"
+          :size="pageSize"
+          :total="filteredList.length"
+          class="mt-2 px-4 pb-3 shrink-0"
+          @page-change="p => { page = p }"
+          @size-change="s => { pageSize = s; page = 1 }"
+        />
       </div>
     </div>
 
-    <WorkflowFixedBar>
-      <template #left>
-        <div class="flex gap-2 items-center">
-          <FaIcon name="i-lucide:warehouse" class="text-muted-foreground" />
-          <span class="text-sm font-medium whitespace-nowrap">源仓库</span>
-          <FaSelect
-            v-model="form.fromWarehouseId"
-            placeholder="选择源仓"
-            class="w-40"
-            :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
+    <!-- 调拨单详情 -->
+    <FaDrawer v-model="detailVisible" :title="detail?.transfer_no ?? '调拨单详情'" width="860px" :footer="false">
+      <template v-if="detail">
+        <FaDescriptions :items="detailDescriptions" label-width="88px" :column="2" />
+
+        <div class="text-sm font-medium mb-2 mt-5">
+          状态进度
+        </div>
+        <div class="p-4 border rounded-lg">
+          <div class="flex flex-wrap gap-2 items-center">
+            <template v-for="(step, idx) in timeline" :key="step.label">
+              <div class="flex gap-2 items-center">
+                <span class="rounded-full bg-green-500 inline-flex size-2" />
+                <span class="text-xs">
+                  {{ step.label }}
+                  <span v-if="step.at" class="text-muted-foreground">
+                    · {{ step.at.slice(0, 16).replace('T', ' ') }}
+                  </span>
+                </span>
+              </div>
+              <span v-if="idx < timeline.length - 1" class="text-xs text-muted-foreground">
+                →
+              </span>
+            </template>
+          </div>
+        </div>
+
+        <div class="text-sm font-medium mb-2 mt-5">
+          调拨明细
+        </div>
+        <div v-loading="detailLoading">
+          <FaTable
+            table-root-class="rounded-lg overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="itemColumns"
+            :data="detailItems"
+            empty-text="暂无明细"
           />
-          <FaIcon name="i-lucide:arrow-right" class="text-primary" />
-          <span class="text-sm font-medium whitespace-nowrap">目标仓库</span>
-          <FaSelect
-            v-model="form.toWarehouseId"
-            placeholder="选择目标仓"
-            class="w-40"
-            :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
-          />
-          <span class="text-sm text-muted-foreground ml-2">
-            待调拨 <span class="text-foreground font-semibold">{{ transferItems.length }}</span> 项
-            <template v-if="transferItems.length"> · 合计 {{ totalTransferQuantity }}</template>
-          </span>
+        </div>
+
+        <!-- 状态流转操作 -->
+        <div class="mt-5 pt-5 border-t flex flex-wrap gap-2 justify-end">
+          <template v-if="detail.status === 'draft'">
+            <FaButton v-if="auth(INVENTORY_PERMISSIONS.transfer)" :disabled="actionLoading" @click="onSubmit">
+              提交审核
+            </FaButton>
+            <FaButton v-if="auth(INVENTORY_PERMISSIONS.transfer)" :disabled="actionLoading" variant="outline" class="text-red-600" @click="openConfirm('cancel')">
+              取消
+            </FaButton>
+          </template>
+          <template v-else-if="detail.status === 'submitted'">
+            <FaButton v-if="auth(INVENTORY_PERMISSIONS.transfer)" :disabled="actionLoading" @click="openConfirm('approve')">
+              审核通过
+            </FaButton>
+            <FaButton v-if="auth(INVENTORY_PERMISSIONS.transfer)" :disabled="actionLoading" variant="outline" class="text-red-600" @click="openConfirm('cancel')">
+              取消
+            </FaButton>
+          </template>
+          <template v-else-if="detail.status === 'approved'">
+            <FaButton v-if="auth(INVENTORY_PERMISSIONS.transfer)" :disabled="actionLoading" @click="openConfirm('ship')">
+              发货
+            </FaButton>
+          </template>
+          <template v-else-if="detail.status === 'outbound' || detail.status === 'partially_received'">
+            <FaButton v-if="auth(INVENTORY_PERMISSIONS.transfer)" :disabled="actionLoading" @click="openReceive">
+              {{ detail.status === 'partially_received' ? '继续收货' : '收货' }}
+            </FaButton>
+          </template>
         </div>
       </template>
-      <template #right>
-        <FaButton size="sm" variant="outline" @click="loadBalances">
-          <FaIcon name="i-lucide:refresh-cw" />
-          刷新库存
-        </FaButton>
-        <FaButton size="sm" :loading="submitting" :disabled="transferItems.length === 0" @click="onSubmit">
-          <FaIcon name="i-lucide:arrow-left-right" />
-          确认调拨（{{ transferItems.length }}）
-        </FaButton>
-      </template>
-    </WorkflowFixedBar>
+    </FaDrawer>
+
+    <!-- 新建调拨单草稿 -->
+    <FaModal v-model="createVisible" title="新建调拨单" :footer="false" :close-on-click-overlay="false" width="860px">
+      <div class="py-2 space-y-4">
+        <div class="gap-x-4 gap-y-3 grid grid-cols-3">
+          <FaLabel label="源仓库 *" class="block">
+            <FaSelect
+              v-model="createForm.fromWarehouseId"
+              placeholder="选择源仓库"
+              class="w-full"
+              :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
+            />
+          </FaLabel>
+          <FaLabel label="目标仓库 *" class="block">
+            <FaSelect
+              v-model="createForm.toWarehouseId"
+              placeholder="选择目标仓库"
+              class="w-full"
+              :options="warehouses.map(w => ({ label: w.name, value: w.id }))"
+            />
+          </FaLabel>
+          <FaLabel label="备注(可选)" class="block">
+            <FaInput v-model="createForm.note" placeholder="备注(可选)" class="w-full" />
+          </FaLabel>
+        </div>
+
+        <div class="text-sm font-medium">
+          调拨明细
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs text-muted-foreground px-1 gap-2 grid grid-cols-12">
+            <span class="col-span-8">商品</span>
+            <span class="col-span-3">数量</span>
+            <span class="col-span-1" />
+          </div>
+          <div v-for="(item, idx) in createItems" :key="idx" class="gap-2 grid grid-cols-12 items-center">
+            <div class="col-span-8">
+              <BusinessCatalogItemPicker v-model="item.catalogItemId" placeholder="搜索选择商品" />
+            </div>
+            <div class="col-span-3">
+              <FaInputNumber v-model="item.quantity" :min="1" class="w-full" />
+            </div>
+            <div class="flex col-span-1 justify-end">
+              <FaButton size="sm" variant="ghost" @click="removeTfItem(idx)">
+                <FaIcon name="i-lucide:trash-2" />
+              </FaButton>
+            </div>
+          </div>
+          <FaButton variant="outline" size="sm" @click="addTfItem">
+            <FaIcon name="i-lucide:plus" />
+            添加商品
+          </FaButton>
+        </div>
+
+        <div class="pt-2 flex items-center justify-between">
+          <span class="text-sm">
+            合计:
+            <span class="font-medium tabular-nums">{{ createTotalQuantity }}</span>
+            件
+          </span>
+          <div class="flex gap-2">
+            <FaButton variant="outline" @click="createVisible = false">
+              取消
+            </FaButton>
+            <FaButton :loading="createSubmitting" @click="onCreateSubmit">
+              创建草稿
+            </FaButton>
+          </div>
+        </div>
+      </div>
+    </FaModal>
+
+    <!-- 收货 -->
+    <FaModal v-model="receiveVisible" title="调拨收货" :footer="false" :close-on-click-overlay="false" width="860px">
+      <div class="py-2 space-y-4">
+        <div class="text-xs text-muted-foreground px-1 gap-2 grid grid-cols-12">
+          <span class="col-span-3">商品</span>
+          <span class="col-span-1">应发</span>
+          <span class="col-span-1">已收</span>
+          <span class="col-span-2">实收数量 *</span>
+          <span class="col-span-3">批次号(可选)</span>
+          <span class="col-span-2">失效日期</span>
+        </div>
+        <div v-for="row in receiveRows" :key="row.id" class="gap-2 grid grid-cols-12 items-center">
+          <span class="col-span-3 text-sm truncate">
+            {{ nameOf(row.catalogItemId) }}
+          </span>
+          <span class="col-span-1 text-sm tabular-nums">
+            {{ row.shippedQty }}
+          </span>
+          <span class="col-span-1 text-sm tabular-nums">
+            {{ row.receivedQty }}
+          </span>
+          <div class="col-span-2">
+            <FaInputNumber v-model="row.receivedQuantity" :min="0" :max="row.remaining" class="w-full" />
+          </div>
+          <div class="col-span-3">
+            <FaInput v-model="row.batchNo" placeholder="批次号(可选)" class="w-full" />
+          </div>
+          <div class="col-span-2">
+            <FaInput v-model="row.expiresAt" type="date" class="w-full" />
+          </div>
+        </div>
+
+        <div class="pt-2 flex gap-2 justify-end">
+          <FaButton variant="outline" @click="receiveVisible = false">
+            取消
+          </FaButton>
+          <FaButton :loading="receiveSubmitting" @click="onReceiveSubmit">
+            确认收货
+          </FaButton>
+        </div>
+      </div>
+    </FaModal>
+
+    <!-- 审核/取消/发货确认 -->
+    <FaModal v-model="confirmVisible" :title="confirmTitle" :footer="false" :close-on-click-overlay="false">
+      <div class="py-3">
+        <p class="text-sm text-muted-foreground">
+          {{ confirmText }}
+        </p>
+        <div class="pt-4 flex gap-2 justify-end">
+          <FaButton variant="outline" @click="confirmVisible = false">
+            取消
+          </FaButton>
+          <FaButton :variant="confirmAction === 'cancel' ? 'destructive' : 'default'" :loading="actionLoading" @click="onConfirmSubmit">
+            确认
+          </FaButton>
+        </div>
+      </div>
+    </FaModal>
   </div>
 </template>

@@ -265,36 +265,48 @@ onMounted(() => {
 </script>
 
 <template>
-  <div>
+  <!-- 标准布局:外层固定高度容器,撑满视口 -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域 -->
+    <!--
     <EntityPageHeader compact title="年度动物诊疗活动报告" description="依据《动物诊疗机构管理办法》第三十条,生成/预览/导出/提交年度诊疗活动报告(快照式,生成后历史内容固定)" />
-    <FaPageMain>
+    -->
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <!-- 无租户上下文警告条 -->
       <div
         v-if="platformUiDeferred"
-        class="text-sm text-amber-700 mb-3 px-4 py-3 border border-amber-200 rounded-md bg-amber-50"
+        class="text-sm text-amber-700 px-4 py-3 border border-amber-200 rounded-md bg-amber-50 shrink-0"
       >
         当前账号无租户成员关系,无法确定租户上下文。
       </div>
-      <div class="mb-3 flex flex-wrap gap-2 items-center">
-        <BusinessStorePicker v-model="searchStoreId" placeholder="选择门店(可选)" class="w-56" />
-        <FaButton variant="outline" @click="getDataList">
-          查询
-        </FaButton>
-      </div>
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="tableColumns"
-        :data="dataList.map(toDisplayRow)"
-      >
-        <template #toolbar>
-          <PermissionButton permission="regulatory_report.generate" @click="openGenerate">
-            生成报告
-          </PermissionButton>
-        </template>
-        <template #cell-operation="{ row }">
+      <!-- 主内容白底卡片 -->
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 卡片顶部筛选区:筛选控件左、功能按钮右 -->
+        <div class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 flex flex-wrap gap-3 items-center">
+            <BusinessStorePicker v-model="searchStoreId" placeholder="选择门店(可选)" class="w-56" />
+            <FaButton variant="outline" @click="getDataList">
+              查询
+            </FaButton>
+            <div class="ml-auto flex gap-2 items-center">
+              <PermissionButton permission="regulatory_report.generate" @click="openGenerate">
+                生成报告
+              </PermissionButton>
+            </div>
+          </div>
+        </div>
+        <!-- 中部表格区 -->
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="tableColumns"
+            :data="dataList.map(toDisplayRow)"
+          >
+            <template #cell-operation="{ row }">
           <FaButton size="sm" variant="outline" class="mr-1" @click="openPreview(row.original)">
             预览
           </FaButton>
@@ -310,9 +322,11 @@ onMounted(() => {
           >
             提交
           </PermissionButton>
-        </template>
-      </FaTable>
-    </FaPageMain>
+          </template>
+          </FaTable>
+        </div>
+      </div>
+    </div>
 
     <FaDrawer v-model="genVisible" title="生成年度报告" :width="520">
       <div class="space-y-3">

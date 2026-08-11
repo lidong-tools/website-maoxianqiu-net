@@ -1,6 +1,9 @@
 import type {
   DispenseInput,
+  GoodsReceipt,
+  GoodsReceiptCreateInput,
   GoodsReceiptInput,
+  GoodsReceiptItem,
   InventoryBalance,
   InventoryMovement,
   NearExpiryItem,
@@ -16,13 +19,21 @@ import type {
   PurchaseReturnItemInput,
   ReservationProcessInput,
   ReserveInput,
+  StockCount,
+  StockCountCreateInput,
   StockCountInput,
+  StockCountItemRow,
   Supplier,
   SupplierInput,
   SupplierStatus,
+  TransferCreateInput,
   TransferInput,
+  TransferItem,
+  TransferOrder,
+  TransferReceiveItemInput,
   Warehouse,
   WarehouseUpsertInput,
+  WriteOffInput,
 } from '@/types/inventory'
 import { supabase } from '@/lib/supabase'
 import api from '../index'
@@ -48,6 +59,40 @@ export interface PurchaseReturnRow extends PurchaseReturn {
   warehouses?: { id: string, name: string } | null
   stores?: { id: string, name: string } | null
   purchase_orders?: { id: string, po_no: string } | null
+}
+
+/** 入库单列表行(内嵌仓库/门店名称) */
+export interface GoodsReceiptRow extends GoodsReceipt {
+  warehouses?: { id: string, name: string } | null
+  stores?: { id: string, name: string } | null
+}
+
+/** 入库单明细行(内嵌商品名称) */
+export interface GoodsReceiptItemRow extends GoodsReceiptItem {
+  catalog_items?: { id: string, name: string, code: string | null, unit: string | null } | null
+}
+
+/** 盘点单列表行(内嵌仓库/门店名称) */
+export interface StockCountRow extends StockCount {
+  warehouses?: { id: string, name: string } | null
+  stores?: { id: string, name: string } | null
+}
+
+/** 盘点单明细行(内嵌商品名称) */
+export interface StockCountItemRowWithCatalog extends StockCountItemRow {
+  catalog_items?: { id: string, name: string, code: string | null, unit: string | null } | null
+}
+
+/** 调拨单列表行(内嵌源/目标仓库与门店名称) */
+export interface TransferRow extends TransferOrder {
+  from_warehouses?: { id: string, name: string } | null
+  to_warehouses?: { id: string, name: string } | null
+  stores?: { id: string, name: string } | null
+}
+
+/** 调拨单明细行(内嵌商品名称) */
+export interface TransferItemRow extends TransferItem {
+  catalog_items?: { id: string, name: string, code: string | null, unit: string | null } | null
 }
 
 /**
@@ -542,6 +587,227 @@ export default {
    */
   postPurchaseReturn(data: { tenantId: string, returnId: string }, idempotencyKey: string) {
     return api.post('inventory/purchase-returns/post', data, {
+      headers: { 'idempotency-key': idempotencyKey },
+    })
+  },
+
+  // ===== 入库单(R-1/R-2/R-3,状态流转经 Hono Command + RPC) =====
+
+  /**
+   * 入库单列表(浏览器直连,RLS 按门店过滤;内嵌仓库/门店名称)
+   * @param storeId 当前门店 id
+   */
+  async listGoodsReceipts(storeId: string): Promise<GoodsReceiptRow[]> {
+    const { data, error } = await supabase
+      .from('goods_receipts')
+      .select('*, warehouses(name, id), stores(name, id)')
+      .eq('store_id', storeId)
+      .order('created_at', { ascending: false })
+    if (error) {
+      throw new Error(error.message)
+    }
+    return (data ?? []) as GoodsReceiptRow[]
+  },
+
+  /**
+   * 入库单明细(浏览器直连,RLS 按门店过滤;内嵌商品名称/编码/单位)
+   * @param grId 入库单 id
+   */
+  async listGoodsReceiptItems(grId: string): Promise<GoodsReceiptItemRow[]> {
+    const { data, error } = await supabase
+      .from('goods_receipt_items')
+      .select('*, catalog_items(name, code, unit)')
+      .eq('goods_receipt_id', grId)
+      .order('created_at', { ascending: true })
+    if (error) {
+      throw new Error(error.message)
+    }
+    return (data ?? []) as GoodsReceiptItemRow[]
+  },
+
+  /** 创建入库单草稿(R-1,仅建单据不增库存) */
+  createGoodsReceipt(data: GoodsReceiptCreateInput) {
+    return api.post('inventory/goods-receipts', data)
+  },
+
+  /** 提交入库单(draft → submitted) */
+  submitGoodsReceipt(data: { tenantId: string, grId: string }) {
+    return api.post('inventory/goods-receipts/submit', data)
+  },
+
+  /** 审核入库单(submitted → approved,禁止自审) */
+  approveGoodsReceipt(data: { tenantId: string, grId: string }) {
+    return api.post('inventory/goods-receipts/approve', data)
+  },
+
+  /**
+   * 过账入库单(approved → posted,复用 post_goods_receipt 增加库存)
+   * 幂等:同一 idempotencyKey 重复请求只产生一次入库
+   */
+  postGoodsReceiptDoc(data: { tenantId: string, grId: string }, idempotencyKey: string) {
+    return api.post('inventory/goods-receipts/post', data, {
+      headers: { 'idempotency-key': idempotencyKey },
+    })
+  },
+
+  /** 取消入库单(draft / submitted → cancelled) */
+  cancelGoodsReceipt(data: { tenantId: string, grId: string }) {
+    return api.post('inventory/goods-receipts/cancel', data)
+  },
+
+  // ===== 盘点单(R-5/R-6/R-7/R-8,状态流转经 Hono Command + RPC) =====
+
+  /**
+   * 盘点单列表(浏览器直连,RLS 按门店过滤;内嵌仓库/门店名称)
+   * @param storeId 当前门店 id
+   */
+  async listStockCounts(storeId: string): Promise<StockCountRow[]> {
+    const { data, error } = await supabase
+      .from('stock_counts')
+      .select('*, warehouses(name, id), stores(name, id)')
+      .eq('store_id', storeId)
+      .order('created_at', { ascending: false })
+    if (error) {
+      throw new Error(error.message)
+    }
+    return (data ?? []) as StockCountRow[]
+  },
+
+  /**
+   * 盘点单明细(浏览器直连,RLS 按门店过滤;内嵌商品名称/编码/单位)
+   * @param countId 盘点单 id
+   */
+  async listStockCountItems(countId: string): Promise<StockCountItemRowWithCatalog[]> {
+    const { data, error } = await supabase
+      .from('stock_count_items')
+      .select('*, catalog_items(name, code, unit)')
+      .eq('stock_count_id', countId)
+      .order('created_at', { ascending: true })
+    if (error) {
+      throw new Error(error.message)
+    }
+    return (data ?? []) as StockCountItemRowWithCatalog[]
+  },
+
+  /** 创建盘点单草稿(R-5,含账面快照与盘点范围,不调整库存) */
+  createStockCount(data: StockCountCreateInput) {
+    return api.post('inventory/stock-counts', data)
+  },
+
+  /** 录入实盘数量(draft/counting → counting) */
+  updateStockCountCounting(data: { tenantId: string, countId: string, items: Array<{ catalogItemId: string, countedQuantity: number }> }) {
+    return api.post('inventory/stock-counts/counting', data)
+  },
+
+  /** 提交盘点单(counting/draft → submitted) */
+  submitStockCount(data: { tenantId: string, countId: string }) {
+    return api.post('inventory/stock-counts/submit', data)
+  },
+
+  /** 审核盘点单(submitted → approved,禁止自审) */
+  approveStockCount(data: { tenantId: string, countId: string }) {
+    return api.post('inventory/stock-counts/approve', data)
+  },
+
+  /**
+   * 过账盘点单(approved → posted,按实盘调整余额写盘盈/盘亏流水)
+   * 幂等:同一 idempotencyKey 重复请求只产生一次调整
+   */
+  postStockCountDoc(data: { tenantId: string, countId: string }, idempotencyKey: string) {
+    return api.post('inventory/stock-counts/post', data, {
+      headers: { 'idempotency-key': idempotencyKey },
+    })
+  },
+
+  /** 取消盘点单(draft/counting/submitted → cancelled) */
+  cancelStockCount(data: { tenantId: string, countId: string }) {
+    return api.post('inventory/stock-counts/cancel', data)
+  },
+
+  // ===== 调拨单(R-9~R-13,状态流转经 Hono Command + RPC) =====
+
+  /**
+   * 调拨单列表(浏览器直连,RLS 按门店过滤;内嵌源/目标仓库与门店名称)
+   * @param storeId 当前门店 id
+   */
+  async listTransfers(storeId: string): Promise<TransferRow[]> {
+    const { data, error } = await supabase
+      .from('transfers')
+      .select('*, warehouses!transfers_from_warehouse_id_fkey(name, id), warehouses!transfers_to_warehouse_id_fkey(name, id), stores(name, id)')
+      .eq('store_id', storeId)
+      .order('created_at', { ascending: false })
+    if (error) {
+      throw new Error(error.message)
+    }
+    return (data ?? []) as TransferRow[]
+  },
+
+  /**
+   * 调拨单明细(浏览器直连,RLS 按门店过滤;内嵌商品名称/编码/单位)
+   * @param transferId 调拨单 id
+   */
+  async listTransferItems(transferId: string): Promise<TransferItemRow[]> {
+    const { data, error } = await supabase
+      .from('transfer_items')
+      .select('*, catalog_items(name, code, unit)')
+      .eq('transfer_id', transferId)
+      .order('created_at', { ascending: true })
+    if (error) {
+      throw new Error(error.message)
+    }
+    return (data ?? []) as TransferItemRow[]
+  },
+
+  /** 创建调拨单草稿(R-9,仅建单据不扣库存) */
+  createTransfer(data: TransferCreateInput) {
+    return api.post('inventory/transfers', data)
+  },
+
+  /** 提交调拨单(draft → submitted) */
+  submitTransfer(data: { tenantId: string, transferId: string }) {
+    return api.post('inventory/transfers/submit', data)
+  },
+
+  /** 审核调拨单(submitted → approved,禁止自审) */
+  approveTransfer(data: { tenantId: string, transferId: string }) {
+    return api.post('inventory/transfers/approve', data)
+  },
+
+  /** 取消调拨单(draft/submitted → cancelled) */
+  cancelTransfer(data: { tenantId: string, transferId: string }) {
+    return api.post('inventory/transfers/cancel', data)
+  },
+
+  /**
+   * 发货(approved → outbound,FEFO 扣源仓批次写 transfer_out 流水)
+   * 幂等:同一 idempotencyKey 重复请求只产生一次出库
+   */
+  shipTransfer(data: { tenantId: string, transferId: string }, idempotencyKey: string) {
+    return api.post('inventory/transfers/ship', data, {
+      headers: { 'idempotency-key': idempotencyKey },
+    })
+  },
+
+  /**
+   * 收货(outbound/partially_received → received/partially_received,记录实收/批次/效期)
+   * 幂等:同一 idempotencyKey 重复请求只产生一次入库
+   */
+  receiveTransfer(data: { tenantId: string, transferId: string, items: TransferReceiveItemInput[] }, idempotencyKey: string) {
+    return api.post('inventory/transfers/receive', data, {
+      headers: { 'idempotency-key': idempotencyKey },
+    })
+  },
+
+  // ===== 报损/报废/过期(B-R-2/R-15,经 Hono Command + RPC) =====
+
+  /**
+   * 报损/报废/过期登记
+   * 走 Hono Command + post_inventory_writeoff RPC,FEFO 扣减批次写负向流水
+   * @param data 报损参数(含批量明细,reasonType 区分报损/报废/过期)
+   * @param idempotencyKey 幂等键(同一 key 重复请求返回原结果)
+   */
+  postWriteOff(data: WriteOffInput, idempotencyKey: string) {
+    return api.post('inventory/write-off', data, {
       headers: { 'idempotency-key': idempotencyKey },
     })
   },

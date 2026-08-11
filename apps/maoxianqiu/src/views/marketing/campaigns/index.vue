@@ -4,6 +4,7 @@ import type { Campaign } from '@/api/modules/marketing'
 import apiCrmGrowth from '@/api/modules/crmGrowth'
 import apiCustomer from '@/api/modules/customer'
 import apiMarketing from '@/api/modules/marketing'
+import apiMessaging from '@/api/modules/messaging'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
 
 defineOptions({
@@ -61,6 +62,13 @@ const statusFilter = ref('all')
 const loading = ref(false)
 const segments = ref<Array<{ id: string, name: string }>>([])
 const offers = ref<Array<{ id: string, name: string }>>([])
+/** 消息模板列表(F-R-3:messageTemplateId 存在性校验与预览数据源) */
+const messageTemplates = ref<Array<{ id: string, code: string, name: string, channel: string, body: string, is_active: boolean }>>([])
+
+/** 当前选中模板(F-R-3:表单模板预览) */
+const selectedTemplate = computed(() =>
+  form.messageTemplateId ? messageTemplates.value.find(t => t.id === form.messageTemplateId) ?? null : null,
+)
 
 /** 活动 Offer 摘要 */
 function offerText(row: Campaign): string {
@@ -104,10 +112,14 @@ const columns = computed<TableColumn<Campaign>[]>(() => [
   },
   {
     accessorKey: 'latest_run',
-    header: '触达人数',
+    header: '触达/已投递',
     cell: (info) => {
       const run = info.getValue() as Campaign['latest_run']
-      return run ? run.audience_count : '-'
+      if (!run) {
+        return '-'
+      }
+      // F-R-3:发布后展示 dispatch_count(投递进度)
+      return run.dispatch_count != null ? `${run.audience_count} / ${run.dispatch_count}` : `${run.audience_count}`
     },
   },
   {
@@ -148,22 +160,31 @@ async function loadCampaigns() {
   }
 }
 
-/** 加载下拉选项(Segment/优惠券/套餐) */
+/** 加载下拉选项(Segment/优惠券/套餐/消息模板) */
 async function loadOptions() {
   if (!requireTenant()) {
     return
   }
   try {
-    const [segRes, couponRes, pkgRes] = await Promise.all([
+    const [segRes, couponRes, pkgRes, tplRes] = await Promise.all([
       apiCrmGrowth.listSegments({ tenantId: tenantId() }),
       apiMarketing.listCoupons({ tenantId: tenantId() }),
       apiMarketing.listPackages({ tenantId: tenantId() }),
+      apiMessaging.listTemplates({ tenantId: tenantId(), onlyActive: true }),
     ])
     segments.value = ((segRes as any)?.data?.list ?? []).map((s: any) => ({ id: s.id, name: s.name }))
     offers.value = [
       ...((couponRes as any)?.data?.list ?? []).map((c: any) => ({ id: c.id, name: `[券] ${c.name}` })),
       ...((pkgRes as any)?.data?.list ?? []).map((p: any) => ({ id: p.id, name: `[套餐] ${p.name}` })),
     ]
+    messageTemplates.value = ((tplRes as any)?.data?.list ?? []).map((t: any) => ({
+      id: t.id,
+      code: t.code,
+      name: t.name,
+      channel: t.channel,
+      body: t.body,
+      is_active: t.is_active,
+    }))
   }
   catch {
     // 选项加载失败不阻塞列表
@@ -251,6 +272,11 @@ async function saveCampaign() {
     useFaToast().warning('请选择分层')
     return
   }
+  // F-R-3:消息模板存在性校验(选择器数据源仅含启用模板,落库前兜底校验)
+  if (form.messageTemplateId && !selectedTemplate.value) {
+    useFaToast().warning('所选消息模板不存在或已停用,请重新选择')
+    return
+  }
   saving.value = true
   try {
     const payload = {
@@ -303,7 +329,15 @@ const publishSaving = ref(false)
 const publishTarget = ref<Campaign | null>(null)
 const publishCustomerIds = ref<string[]>([])
 const publishCustomerOptions = ref<Array<{ label: string, value: string }>>([])
-const publishResult = ref<{ run_id: string, run_no: number, audience_count: number, rule_version: string } | null>(null)
+const publishResult = ref<{
+  run_id: string
+  run_no: number
+  audience_count: number
+  rule_version: string
+  dispatch_count?: number
+  dispatch_error?: string
+  idempotent?: boolean
+} | null>(null)
 
 /** 加载手动名单客户选项 */
 async function loadPublishCustomers(keyword = '') {
@@ -346,7 +380,14 @@ async function doPublish() {
       customerIds: publishTarget.value.type === 'manual' ? publishCustomerIds.value : undefined,
     })
     publishResult.value = res?.data ?? null
-    useFaToast().success(`发布成功,触达 ${publishResult.value?.audience_count ?? 0} 人`)
+    // F-R-3:发布后展示投递生成数(dispatch_count);生成失败时附加错误提示
+    const dispatchInfo = publishResult.value?.dispatch_count != null
+      ? `,已生成投递 ${publishResult.value.dispatch_count} 条`
+      : ''
+    useFaToast().success(`发布成功,触达 ${publishResult.value?.audience_count ?? 0} 人${dispatchInfo}`)
+    if (publishResult.value?.dispatch_error) {
+      useFaToast().warning(publishResult.value.dispatch_error)
+    }
     await loadCampaigns()
   }
   catch (e) {
@@ -564,8 +605,18 @@ onMounted(() => {
             placeholder="选择券/套餐"
           />
         </FaLabel>
-        <FaLabel label="消息模板 UUID(可空)">
-          <FaInput v-model="form.messageTemplateId" placeholder="Agent-08 模板" />
+        <FaLabel label="消息模板(可空)" class="col-span-2">
+          <FaSelect
+            v-model="form.messageTemplateId"
+            :options="messageTemplates.map(t => ({ label: `${t.code}(${t.name})`, value: t.id }))"
+            clearable
+            filterable
+            placeholder="选择消息模板(发布时按模板渲染投递)"
+          />
+          <!-- F-R-3:模板存在性校验 + 内容预览 -->
+          <div v-if="selectedTemplate" class="mt-1 text-xs text-muted-foreground rounded bg-muted px-2 py-1 whitespace-pre-wrap">
+            {{ selectedTemplate.body }}
+          </div>
         </FaLabel>
         <FaLabel label="开始时间">
           <FaDatePicker v-model="form.startsAt" value-type="format" />
@@ -608,8 +659,13 @@ onMounted(() => {
         <div class="text-sm gap-3 grid grid-cols-2">
           <div>运行批次:<span class="font-bold ml-1">#{{ publishResult.run_no }}</span></div>
           <div>触达人数:<span class="font-bold ml-1">{{ publishResult.audience_count }}</span></div>
+          <!-- F-R-3:发布后投递进度(dispatch_count) -->
+          <div>已生成投递:<span class="font-bold ml-1">{{ publishResult.dispatch_count ?? 0 }}</span></div>
           <div>规则版本:<span class="font-bold ml-1">{{ publishResult.rule_version }}</span></div>
-          <div>运行 ID:<span class="text-xs font-bold ml-1">{{ publishResult.run_id.slice(0, 8) }}…</span></div>
+          <div class="col-span-2">运行 ID:<span class="text-xs font-bold ml-1">{{ publishResult.run_id.slice(0, 8) }}…</span></div>
+        </div>
+        <div v-if="publishResult.dispatch_error" class="mt-2 text-xs text-red-600">
+          {{ publishResult.dispatch_error }}
         </div>
       </div>
     </FaModal>

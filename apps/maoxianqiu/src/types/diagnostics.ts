@@ -231,6 +231,19 @@ export interface ScanRemindersResult {
   inserted_count: number
 }
 
+/** 批量发送提醒入参(F-R-1:3.8.1-01 疫苗提醒一体化发送) */
+export interface SendRemindersInput {
+  reminderIds: string[]
+}
+
+/** 批量发送提醒结果(F-R-1:返回成功/失败计数与明细) */
+export interface SendRemindersResult {
+  total: number
+  sentCount: number
+  failedCount: number
+  failures: Array<{ id: string, reason: string }>
+}
+
 // ===== 疫苗证明(MXQ-10005) =====
 
 /** 疫苗证明状态:issued/revoked */
@@ -624,6 +637,40 @@ export interface ReviewLabResultsInput {
   labOrderId: string
   decision: ReviewDecision
   comment?: string
+}
+
+// ===== 检验结果修订(G-R-3:3.9.2-05 结果修订机制) =====
+
+/** lab_result_versions 版本表记录(每次修订复制当前结果为新版本行,旧值可追溯) */
+export interface LabResultVersion {
+  id: string
+  lab_order_id: string
+  analyte_id: string | null
+  version: number
+  result_value: string | null
+  result_numeric: number | null
+  flag: ResultFlag | null
+  /** 修订前的整行快照(旧值追溯) */
+  snapshot: Record<string, unknown>
+  change_reason: string
+  created_by: string | null
+  /** 原发布审核人(双签留痕) */
+  verified_by: string | null
+  verified_at: string | null
+  created_at: string
+}
+
+/** 修订检验结果入参(走 Hono Command + revise_lab_results RPC,仅已发布可修订,change_reason 必填) */
+export interface ReviseLabResultsInput {
+  labOrderId: string
+  results: LabResultInput[]
+  changeReason: string
+}
+
+/** 修订检验结果 RPC 返回(revisedCount 修订条数 / versionsCount 新增版本行数) */
+export interface ReviseLabResultsResult {
+  revisedCount: number
+  versionsCount: number
 }
 
 // ===== 危急值告警(MXQ-10009) =====

@@ -247,6 +247,53 @@ function onIssueCertificate(row: VaccinationRow) {
   })
 }
 
+/**
+ * 发送疫苗到期提醒(F-R-1:3.8.1-01 疫苗提醒一体化发送,快捷入口)
+ * 流程:先扫描生成 pending 提醒(幂等)→ 取该宠物待发送的疫苗提醒 → sendReminders 真实发送
+ */
+function onSendReminder(row: VaccinationRow) {
+  if (row.status !== 'administered') {
+    useFaToast().warning('仅「已接种」后可发送到期提醒')
+    return
+  }
+  if (!tenantStore.currentTenantId) {
+    useFaToast().warning('请先选择工作租户')
+    return
+  }
+  useFaModal().confirm({
+    title: '发送疫苗提醒',
+    content: `确认为宠物 ${row.pet_id.slice(0, 8)} 的第 ${row.dose_no} 针发送疫苗到期提醒短信吗?(自动扫描并发送)`,
+    onConfirm: async () => {
+      try {
+        // 1. 扫描生成到期提醒(幂等,确保存在 pending 提醒)
+        await apiDiagnostics.scanReminders(
+          tenantStore.currentTenantId!,
+          tenantStore.currentStoreId || undefined,
+          30,
+        )
+        // 2. 查询该宠物待发送的疫苗提醒
+        const res = await apiDiagnostics.listReminders({
+          storeId: tenantStore.currentStoreId || undefined,
+          petId: row.pet_id,
+          reminderType: 'vaccine',
+          status: 'pending',
+        })
+        const pending = res.data.list
+        if (!pending.length) {
+          useFaToast().warning('该宠物暂无待发送的疫苗提醒')
+          return
+        }
+        // 3. 批量发送(engine.ts sendMessage,scene=vaccine_reminder)
+        const result = await apiDiagnostics.sendReminders(pending.map(r => r.id))
+        useFaToast().success(`已发送 ${result.data.sentCount} 条疫苗提醒`)
+      }
+      catch {
+        // 错误已由全局拦截器提示
+      }
+    },
+  })
+}
+
 onMounted(async () => {
   await Promise.all([loadVaccinations(), loadCertificates()])
 })
@@ -260,17 +307,21 @@ useStoreScopedPage({
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="疫苗接种管理" description="疫苗接种计划 → 接种 → 签发证明;支持跳过、逾期标记;证明签发走 RPC 事务化" />
-    <FaPageMain>
-      <!-- 创建接种计划表单 -->
-      <div class="mb-4 p-4 border rounded-lg bg-muted/30">
-        <div class="mb-3 flex gap-2 items-center">
+    -->
+
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <!-- 创建接种计划表单卡片(shrink-0,固定不滚动) -->
+      <div class="border rounded-lg bg-card shrink-0 overflow-hidden">
+        <div class="px-4 pt-3 flex gap-2 items-center">
           <FaIcon name="i-ri:syringe-line" class="text-lg" />
           <span class="font-bold">创建接种计划</span>
           <span class="text-xs text-muted-foreground">(RLS 须 vaccine.manage 权限)</span>
         </div>
-        <div class="gap-3 grid grid-cols-1 md:grid-cols-3">
+        <div class="px-4 py-3 gap-3 grid grid-cols-1 md:grid-cols-3">
           <FaLabel label="客户">
             <BusinessCustomerPicker v-model="vaccForm.customerId" placeholder="搜索选择客户" />
           </FaLabel>
@@ -301,87 +352,101 @@ useStoreScopedPage({
         </div>
       </div>
 
-      <FaSearchBar :show-toggle="false">
-        <template #default>
-          <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-            <FaLabel label="状态" class="col-span-1">
-              <FaSelect
-                v-model="search.status"
-                :options="[
-                  { label: '全部', value: '' },
-                  { label: '已计划', value: 'scheduled' },
-                  { label: '已接种', value: 'administered' },
-                  { label: '已跳过', value: 'skipped' },
-                  { label: '已逾期', value: 'overdue' },
-                ]"
-                class="w-full"
-                @change="loadVaccinations()"
-              />
-            </FaLabel>
-            <FaLabel label="宠物" class="col-span-1">
-              <BusinessPetPicker v-model="search.petId" placeholder="按宠物筛选" />
-            </FaLabel>
-            <div class="flex gap-2 col-end--1 justify-end">
-              <FaButton type="primary" @click="loadVaccinations">
+      <!-- 主表格白底卡片(flex-1) -->
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 筛选区:左为筛选控件,右为功能按钮(含创建按钮右侧) -->
+        <div class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 flex flex-wrap gap-3 items-center">
+            <FaSelect
+              v-model="search.status"
+              :options="[
+                { label: '全部', value: '' },
+                { label: '已计划', value: 'scheduled' },
+                { label: '已接种', value: 'administered' },
+                { label: '已跳过', value: 'skipped' },
+                { label: '已逾期', value: 'overdue' },
+              ]"
+              class="w-40"
+              @change="loadVaccinations()"
+            />
+            <BusinessPetPicker v-model="search.petId" placeholder="按宠物筛选" class="w-64" />
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton type="primary" :loading="submitting" @click="onCreate">
+                <FaIcon name="i-ri:add-line" />
+                创建计划
+              </FaButton>
+              <FaButton variant="outline" @click="loadVaccinations">
                 <FaIcon name="i-ri:refresh-line" />
                 刷新
               </FaButton>
             </div>
           </div>
-        </template>
-      </FaSearchBar>
-      <div class="mx--4 my-3 border-t border-t-dashed" />
+        </div>
 
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="tableColumns"
-        :data="dataList"
-      >
-        <template #cell-operation="{ row }">
-          <div class="flex-center gap-2">
-            <FaButton
-              v-if="row.original.status === 'scheduled'"
-              variant="outline"
-              size="sm"
-              @click="onAdminister(row.original)"
-            >
-              <FaIcon name="i-ri:check-line" />
-              接种
-            </FaButton>
-            <FaButton
-              v-if="row.original.status === 'scheduled'"
-              variant="outline"
-              size="sm"
-              @click="onSkip(row.original)"
-            >
-              <FaIcon name="i-ri:skip-forward-line" />
-              跳过
-            </FaButton>
-            <FaButton
-              v-if="row.original.status === 'administered'"
-              variant="outline"
-              size="sm"
-              @click="onIssueCertificate(row.original)"
-            >
-              <FaIcon name="i-ri:award-line" />
-              签发证明
-            </FaButton>
-          </div>
-        </template>
-      </FaTable>
+        <!-- 表格区 -->
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="tableColumns"
+            :data="dataList"
+          >
+              <template #cell-operation="{ row }">
+                <div class="flex-center gap-2">
+                  <FaButton
+                    v-if="row.original.status === 'scheduled'"
+                    variant="outline"
+                    size="sm"
+                    @click="onAdminister(row.original)"
+                  >
+                    <FaIcon name="i-ri:check-line" />
+                    接种
+                  </FaButton>
+                  <FaButton
+                    v-if="row.original.status === 'scheduled'"
+                    variant="outline"
+                    size="sm"
+                    @click="onSkip(row.original)"
+                  >
+                    <FaIcon name="i-ri:skip-forward-line" />
+                    跳过
+                  </FaButton>
+                  <FaButton
+                    v-if="row.original.status === 'administered'"
+                    variant="outline"
+                    size="sm"
+                    @click="onIssueCertificate(row.original)"
+                  >
+                    <FaIcon name="i-ri:award-line" />
+                    签发证明
+                  </FaButton>
+                  <!-- F-R-1:疫苗到期提醒一键发送(扫描+发送) -->
+                  <FaButton
+                    v-if="row.original.status === 'administered'"
+                    variant="outline"
+                    size="sm"
+                    @click="onSendReminder(row.original)"
+                  >
+                    <FaIcon name="i-ri:send-plane-line" />
+                    发送提醒
+                  </FaButton>
+                </div>
+              </template>
+          </FaTable>
+        </div>
+      </div>
 
-      <!-- 已签发证明列表 -->
-      <div v-if="certificates.length > 0" class="mt-6">
-        <div class="mb-2 flex gap-2 items-center">
+      <!-- 已签发证明卡片区(shrink-0,固定不滚动) -->
+      <div v-if="certificates.length > 0" class="border rounded-lg bg-card shrink-0 overflow-hidden">
+        <div class="px-4 pt-3 pb-2 flex gap-2 items-center">
           <FaIcon name="i-ri:award-line" class="text-lg" />
           <span class="font-bold">已签发疫苗证明</span>
           <span class="text-xs text-muted-foreground">({{ certificates.length }} 条)</span>
         </div>
-        <div class="gap-3 grid grid-cols-1 lg:grid-cols-3 md:grid-cols-2">
+        <div class="px-4 pb-3 gap-3 grid grid-cols-1 lg:grid-cols-3 md:grid-cols-2">
           <div
             v-for="cert in certificates"
             :key="cert.id"
@@ -405,6 +470,6 @@ useStoreScopedPage({
           </div>
         </div>
       </div>
-    </FaPageMain>
+    </div>
   </div>
 </template>

@@ -137,6 +137,73 @@ export interface RenderedDocument {
 }
 
 /**
+ * 读取生效的打印显示项配置(R-5 3.4.2.3-03)
+ * print_settings 为门店级配置,按 (tenant_id, store_id, paper_size) 唯一键查询;
+ * 未传门店或未命中时返回空配置(等价全部开关默认开启)。
+ * @param service service-role 客户端
+ * @param opts.tenantId 目标租户
+ * @param opts.storeId 目标门店(可空)
+ * @param opts.paperSize 纸型(模板侧为大写,存储侧为小写,查询时归一)
+ */
+async function loadPrintConfig(
+  service: Service,
+  opts: { tenantId: string, storeId?: string | null, paperSize: PaperSize },
+): Promise<Record<string, unknown>> {
+  const { tenantId, storeId, paperSize } = opts
+  if (!storeId) {
+    return {}
+  }
+  const { data, error } = await service
+    .from('print_settings')
+    .select('config')
+    .eq('tenant_id', tenantId)
+    .eq('store_id', storeId)
+    .eq('paper_size', paperSize.toLowerCase())
+    .eq('is_active', true)
+    .limit(1)
+    .maybeSingle()
+  if (error || !data) {
+    return {}
+  }
+  const cfg = data.config
+  return cfg && typeof cfg === 'object' ? (cfg as Record<string, unknown>) : {}
+}
+
+/**
+ * 按打印显示项配置裁剪数据树(R-5)
+ * 关闭的开关将对应字段置空/置 null,渲染器对空值不输出({{path}} 渲染为空);
+ * 抬头/页脚/声明文本注入 printConfig 供模板使用(如 {{printConfig.header}})。
+ * @param data 已组装的数据树(原地修改)
+ * @param config print_settings.config(缺省视为开关全部开启)
+ */
+function applyPrintConfig(data: DocumentData, config: Record<string, unknown>): void {
+  const isOn = (key: string): boolean => config[key] !== false
+  if (!isOn('showCustomerPhone') && data.customer) {
+    data.customer.phone = undefined
+  }
+  if (!isOn('showPetInfo')) {
+    data.pet = null
+  }
+  if (!isOn('showOperator')) {
+    data.operator = null
+  }
+  if (!isOn('showDoctor')) {
+    data.doctor = null
+  }
+  if (!isOn('showSubtotal')) {
+    const inv = data.invoice as Record<string, unknown> | undefined
+    if (inv) {
+      inv.subtotal = undefined
+    }
+  }
+  data.printConfig = {
+    header: typeof config.header === 'string' ? config.header : '',
+    footer: typeof config.footer === 'string' ? config.footer : '',
+    statement: typeof config.statement === 'string' ? config.statement : '',
+  }
+}
+
+/**
  * 渲染一份业务文档
  * 管道:Adapter 聚合真实业务 DTO → 解析模板(优先级) → 安全渲染 → HTML
  */
@@ -170,6 +237,14 @@ export async function renderDocument(
     meta: { printedAt: new Date().toISOString() },
     [DOCUMENT_SECTION_KEY[opts.documentType]]: section,
   }
+
+  // 4.5) R-5(3.4.2.3-03):读取打印显示项配置,按开关裁剪字段显隐 + 注入抬头/页脚/声明
+  const printConfig = await loadPrintConfig(service, {
+    tenantId: scope.tenantId,
+    storeId: scope.storeId,
+    paperSize,
+  })
+  applyPrintConfig(data, printConfig)
 
   // 5) 安全渲染
   const html = renderTemplate(template.template_html, data)

@@ -4,8 +4,8 @@
  */
 import type { ArchiveStatus } from './clinical'
 
-/** 房间类型 */
-export type RoomType = 'ward' | 'icu' | 'isolation' | 'standard'
+/** 房间类型(DB 侧 rooms_room_type_check 已含 boarding,migration 70) */
+export type RoomType = 'ward' | 'icu' | 'isolation' | 'standard' | 'boarding'
 
 /** 笼位类型 */
 export type CageType = 'cage' | 'run' | 'tank'
@@ -387,6 +387,84 @@ export interface GenerateDailyChargesResult {
   generatedCount: number
 }
 
+// ===== 自动计费规则(E-R-1, migration 20260811000052) =====
+
+/** 计费单位 */
+export type BillingUnit = 'day' | 'night' | 'stay'
+
+/** 计费规则状态 */
+export type ChargeRuleStatus = 'active' | 'inactive'
+
+/** inpatient_charge_rules 表记录(计费规则) */
+export interface ChargeRule {
+  id: string
+  tenant_id: string
+  store_id: string
+  name: string
+  catalog_item_id: string | null
+  billing_unit: BillingUnit
+  cutoff_time: string
+  grace_minutes: number
+  status: ChargeRuleStatus
+  room_type: string | null
+  cage_id: string | null
+  price_snapshot: number
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** inpatient_charge_periods 表记录(计费周期,支持换房分段) */
+export interface ChargePeriod {
+  id: string
+  tenant_id: string
+  store_id: string
+  source_type: 'inpatient' | 'boarding'
+  admission_id: string | null
+  boarding_stay_id: string | null
+  catalog_item_id: string | null
+  description: string | null
+  billing_period: string
+  period_start: string
+  period_end: string | null
+  unit_price: number
+  amount: number
+  invoice_line_id: string | null
+  idempotency_key: string | null
+  created_at: string
+}
+
+/** 计费规则新建/编辑请求 */
+export interface ChargeRuleInput {
+  tenantId: string
+  storeId: string
+  name: string
+  catalogItemId?: string | null
+  billingUnit?: BillingUnit
+  cutoffTime?: string
+  graceMinutes?: number
+  status?: ChargeRuleStatus
+  roomType?: string | null
+  cageId?: string | null
+  priceSnapshot?: number
+  description?: string | null
+}
+
+/** 日切计费结果(run_daily_billing RPC) */
+export interface RunDailyBillingResult {
+  targetDate: string
+  generatedInpatientCount: number
+  generatedBoardingCount: number
+}
+
+/** 护理计划批量生成任务结果(generate_nursing_tasks RPC, E-R-4) */
+export interface GenerateNursingTasksResult {
+  planId: string
+  planName: string
+  generatedCount: number
+  skippedCount: number
+}
+
 /** 房间新建/编辑请求 */
 export interface RoomUpsertInput {
   tenantId: string
@@ -498,6 +576,7 @@ export const ROOM_TYPE_LABELS: Record<RoomType, string> = {
   icu: 'ICU',
   isolation: '隔离房',
   standard: '普通房',
+  boarding: '寄养房',
 }
 
 /** 笼位类型标签映射(UI 显示用) */

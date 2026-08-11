@@ -506,143 +506,170 @@ onMounted(() => {
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="会员中心">
       <template #description>
         会员等级、客户会员关系、积分流水与会员折扣规则的统一管理;会员折扣在收银时按规则自动计算并写入价格快照。
       </template>
     </EntityPageHeader>
-    <FaPageMain>
-      <FaTabs v-model="activeTab" :list="TABS" class="mb-4" @change="onTabChange" />
-
-      <!-- 会员等级 -->
-      <template v-if="activeTab === 'tiers'">
-        <div class="mb-3 flex items-center justify-between">
-          <div class="text-sm text-muted-foreground">
-            共 {{ tiers.length }} 个等级;折扣按 100%=不打折,90=9折
-          </div>
-          <FaButton size="sm" @click="openCreateTier">
-            <FaIcon name="i-ri:add-line" />
-            新建等级
-          </FaButton>
-        </div>
-        <FaTable
-          v-loading="tierLoading"
-          table-root-class="rounded-lg overflow-hidden"
-          row-key="id"
-          stripe
-          border
-          :columns="tierColumns"
-          :data="tiers"
-          empty-text="暂无会员等级"
-        >
-          <template #cell-operation="{ row }">
-            <div class="flex-center gap-1">
-              <FaButton variant="outline" size="sm" @click="openEditTier(row.original)">
-                编辑
-              </FaButton>
-              <FaButton variant="outline" size="sm" @click="toggleTierActive(row.original)">
-                {{ row.original.is_active ? '停用' : '启用' }}
+    -->
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <div class="px-4 pt-3 border-b shrink-0">
+          <FaTabs v-model="activeTab" :list="TABS" class="mb-2" @update:model-value="onTabChange" />
+          <!-- 会员等级:说明 + 新建等级 -->
+          <div v-if="activeTab === 'tiers'" class="pb-3 flex flex-wrap gap-3 items-center">
+            <div class="text-sm text-muted-foreground">
+              共 {{ tiers.length }} 个等级;折扣按 100%=不打折,90=9折
+            </div>
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton size="sm" @click="openCreateTier">
+                <FaIcon name="i-ri:add-line" />
+                新建等级
               </FaButton>
             </div>
-          </template>
-        </FaTable>
-      </template>
-
-      <!-- 客户会员 -->
-      <template v-else-if="activeTab === 'customers'">
-        <div class="mb-3 flex gap-2 items-center">
-          <FaInput v-model="customerKeyword" placeholder="按姓名/手机号搜索" class="w-64" @keyup.enter="loadCustomers" />
-          <FaButton size="sm" variant="outline" @click="loadCustomers">
-            <FaIcon name="i-ri:search-line" />
-            查询
-          </FaButton>
-        </div>
-        <FaTable
-          v-loading="customerLoading"
-          table-root-class="rounded-lg overflow-hidden"
-          row-key="id"
-          stripe
-          border
-          :columns="customerColumns"
-          :data="customers"
-          empty-text="暂无客户会员"
-        >
-          <template #cell-operation="{ row }">
-            <FaButton variant="outline" size="sm" @click="openEditCustomer(row.original)">
-              调整等级
-            </FaButton>
-          </template>
-        </FaTable>
-        <FaPagination
-          :page="customerPage"
-          :size="customerPageSize"
-          :total="customerTotal"
-          class="mt-2 px-4 pb-3"
-          @page-change="p => { customerPage = p; loadCustomers() }"
-          @size-change="s => { customerPageSize = s; customerPage = 1; loadCustomers() }"
-        />
-      </template>
-
-      <!-- 积分流水 -->
-      <template v-else-if="activeTab === 'points'">
-        <div class="text-sm text-muted-foreground mb-3">
-          积分流水不可修改;余额由系统在消费/兑换/调整时维护
-        </div>
-        <FaTable
-          v-loading="pointsLoading"
-          table-root-class="rounded-lg overflow-hidden"
-          row-key="id"
-          stripe
-          border
-          :columns="pointColumns"
-          :data="points"
-          empty-text="暂无积分流水"
-        />
-        <FaPagination
-          :page="pointsPage"
-          :size="pointsPageSize"
-          :total="pointsTotal"
-          class="mt-2 px-4 pb-3"
-          @page-change="p => { pointsPage = p; loadPoints() }"
-          @size-change="s => { pointsPageSize = s; pointsPage = 1; loadPoints() }"
-        />
-      </template>
-
-      <!-- 折扣规则 -->
-      <template v-else-if="activeTab === 'rules'">
-        <div class="mb-3 flex items-center justify-between">
-          <div class="text-sm text-muted-foreground">
-            匹配优先级:具体项目 &gt; 目录类型 &gt; 等级默认;同维度下指定门店 &gt; 全门店
           </div>
-          <FaButton size="sm" @click="openCreateRule">
-            <FaIcon name="i-ri:add-line" />
-            新建规则
-          </FaButton>
-        </div>
-        <FaTable
-          v-loading="rulesLoading"
-          table-root-class="rounded-lg overflow-hidden"
-          row-key="id"
-          stripe
-          border
-          :columns="ruleColumns"
-          :data="rules"
-          empty-text="暂无折扣规则(未配置时按等级默认折扣)"
-        >
-          <template #cell-operation="{ row }">
-            <div class="flex-center gap-1">
-              <FaButton variant="outline" size="sm" @click="openEditRule(row.original)">
-                编辑
-              </FaButton>
-              <FaButton variant="outline" size="sm" class="text-red-600" @click="deleteRule(row.original)">
-                删除
+          <!-- 客户会员:关键词搜索 -->
+          <div v-else-if="activeTab === 'customers'" class="pb-3 flex flex-wrap gap-3 items-center">
+            <FaInput v-model="customerKeyword" placeholder="按姓名/手机号搜索" class="w-64" @keyup.enter="loadCustomers" />
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton size="sm" variant="outline" @click="loadCustomers">
+                <FaIcon name="i-ri:search-line" />
+                查询
               </FaButton>
             </div>
-          </template>
-        </FaTable>
-      </template>
-    </FaPageMain>
+          </div>
+          <!-- 积分流水:说明 -->
+          <div v-else-if="activeTab === 'points'" class="pb-3 flex flex-wrap gap-3 items-center">
+            <div class="text-sm text-muted-foreground">
+              积分流水不可修改;余额由系统在消费/兑换/调整时维护
+            </div>
+          </div>
+          <!-- 折扣规则:说明 + 新建规则 -->
+          <div v-else class="pb-3 flex flex-wrap gap-3 items-center">
+            <div class="text-sm text-muted-foreground">
+              匹配优先级:具体项目 &gt; 目录类型 &gt; 等级默认;同维度下指定门店 &gt; 全门店
+            </div>
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton size="sm" @click="openCreateRule">
+                <FaIcon name="i-ri:add-line" />
+                新建规则
+              </FaButton>
+            </div>
+          </div>
+        </div>
+
+        <!-- 会员等级(全量加载,无分页) -->
+        <template v-if="activeTab === 'tiers'">
+          <div v-loading="tierLoading" class="flex-1 min-h-0 overflow-hidden">
+            <FaTable
+              class="h-full min-h-0"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="tierColumns"
+              :data="tiers"
+              empty-text="暂无会员等级"
+            >
+              <template #cell-operation="{ row }">
+                <div class="flex-center gap-1">
+                  <FaButton variant="outline" size="sm" @click="openEditTier(row.original)">
+                    编辑
+                  </FaButton>
+                  <FaButton variant="outline" size="sm" @click="toggleTierActive(row.original)">
+                    {{ row.original.is_active ? '停用' : '启用' }}
+                  </FaButton>
+                </div>
+              </template>
+            </FaTable>
+          </div>
+        </template>
+
+        <!-- 客户会员 -->
+        <template v-else-if="activeTab === 'customers'">
+          <div v-loading="customerLoading" class="flex-1 min-h-0 overflow-hidden">
+            <FaTable
+              class="h-full min-h-0"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="customerColumns"
+              :data="customers"
+              empty-text="暂无客户会员"
+            >
+              <template #cell-operation="{ row }">
+                <FaButton variant="outline" size="sm" @click="openEditCustomer(row.original)">
+                  调整等级
+                </FaButton>
+              </template>
+            </FaTable>
+          </div>
+          <FaPagination
+            :page="customerPage"
+            :size="customerPageSize"
+            :total="customerTotal"
+            class="mt-2 px-4 pb-3 shrink-0"
+            @page-change="p => { customerPage = p; loadCustomers() }"
+            @size-change="s => { customerPageSize = s; customerPage = 1; loadCustomers() }"
+          />
+        </template>
+
+        <!-- 积分流水 -->
+        <template v-else-if="activeTab === 'points'">
+          <div v-loading="pointsLoading" class="flex-1 min-h-0 overflow-hidden">
+            <FaTable
+              class="h-full min-h-0"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="pointColumns"
+              :data="points"
+              empty-text="暂无积分流水"
+            />
+          </div>
+          <FaPagination
+            :page="pointsPage"
+            :size="pointsPageSize"
+            :total="pointsTotal"
+            class="mt-2 px-4 pb-3 shrink-0"
+            @page-change="p => { pointsPage = p; loadPoints() }"
+            @size-change="s => { pointsPageSize = s; pointsPage = 1; loadPoints() }"
+          />
+        </template>
+
+        <!-- 折扣规则(全量加载,无分页) -->
+        <template v-else>
+          <div v-loading="rulesLoading" class="flex-1 min-h-0 overflow-hidden">
+            <FaTable
+              class="h-full min-h-0"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="ruleColumns"
+              :data="rules"
+              empty-text="暂无折扣规则(未配置时按等级默认折扣)"
+            >
+              <template #cell-operation="{ row }">
+                <div class="flex-center gap-1">
+                  <FaButton variant="outline" size="sm" @click="openEditRule(row.original)">
+                    编辑
+                  </FaButton>
+                  <FaButton variant="outline" size="sm" class="text-red-600" @click="deleteRule(row.original)">
+                    删除
+                  </FaButton>
+                </div>
+              </template>
+            </FaTable>
+          </div>
+        </template>
+      </div>
+    </div>
 
     <!-- 会员等级表单 -->
     <FaModal v-model="tierDialogVisible" :title="tierForm.id ? '编辑等级' : '新建等级'" :show-cancel="true" confirm-text="保存" @confirm="saveTier">

@@ -319,26 +319,40 @@ onMounted(() => {
 </script>
 
 <template>
-  <div>
+  <!-- 标准布局:外层固定高度容器,撑满视口 -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域 -->
+    <!--
     <EntityPageHeader compact title="渠道对账" description="系统账面金额 vs 人工录入实际金额:录入后自动比对差异,确认时差异必须填写原因(审计留痕)" />
-    <FaPageMain>
+    -->
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <!-- 无租户上下文警告条 -->
       <div
         v-if="platformUiDeferred"
-        class="text-sm text-amber-700 mb-3 px-4 py-3 border border-amber-200 rounded-md bg-amber-50"
+        class="text-sm text-amber-700 px-4 py-3 border border-amber-200 rounded-md bg-amber-50 shrink-0"
       >
         当前账号无租户成员关系,无法确定租户上下文。
       </div>
-      <div class="mb-3 flex flex-wrap gap-2 items-center">
-        <BusinessStorePicker v-model="searchStoreId" placeholder="选择门店" class="w-56" />
-        <FaInput v-model="searchBusinessDate" type="date" placeholder="业务日期" class="w-44" />
-        <FaButton variant="outline" @click="onSearch">
-          查询
-        </FaButton>
-      </div>
-
-      <!-- 渠道汇总卡片(服务端聚合真实 payments/refunds) -->
-      <div v-loading="summaryLoading" class="mb-4">
-        <template v-if="channelSummary">
+      <!-- 主内容白底卡片 -->
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 卡片顶部筛选区:筛选控件左、功能按钮右 -->
+        <div class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 flex flex-wrap gap-3 items-center">
+            <BusinessStorePicker v-model="searchStoreId" placeholder="选择门店" class="w-56" />
+            <FaInput v-model="searchBusinessDate" type="date" placeholder="业务日期" class="w-44" />
+            <FaButton variant="outline" @click="onSearch">
+              查询
+            </FaButton>
+            <div class="ml-auto flex gap-2 items-center">
+              <PermissionButton permission="reconciliation.edit" @click="openSaveDrawer">
+                录入实际金额
+              </PermissionButton>
+            </div>
+          </div>
+        </div>
+        <!-- 渠道汇总卡片(服务端聚合真实 payments/refunds) -->
+        <div v-loading="summaryLoading" class="px-4 py-3 border-b shrink-0">
+          <template v-if="channelSummary">
           <div class="text-xs text-gray-500 mb-2">
             门店实收汇总({{ formatDate(channelSummary.businessDate) }})· 日结状态:
             {{ channelSummary.closingStatus ? (channelSummary.closingStatus === 'adjusted' ? '已调整' : '已关闭') : '未关账' }}
@@ -367,23 +381,19 @@ onMounted(() => {
         <div v-else-if="!searchStoreId || !searchBusinessDate" class="text-xs text-gray-400">
           请选择门店与业务日期后查看渠道实收汇总
         </div>
-      </div>
-
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="tableColumns"
-        :data="dataList.map(toDisplayRow)"
-      >
-        <template #toolbar>
-          <PermissionButton permission="reconciliation.edit" @click="openSaveDrawer">
-            录入实际金额
-          </PermissionButton>
-        </template>
-        <template #cell-operation="{ row }">
+        </div>
+        <!-- 中部表格区 -->
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="tableColumns"
+            :data="dataList.map(toDisplayRow)"
+          >
+            <template #cell-operation="{ row }">
           <PermissionButton
             v-if="!['confirmed', 'difference_confirmed'].includes(row.original.status)"
             permission="reconciliation.confirm"
@@ -396,9 +406,11 @@ onMounted(() => {
           <span v-else class="text-xs text-gray-400">
             已确认
           </span>
-        </template>
-      </FaTable>
-    </FaPageMain>
+          </template>
+          </FaTable>
+        </div>
+      </div>
+    </div>
 
     <!-- 录入实际金额抽屉 -->
     <FaDrawer v-model="saveVisible" title="录入实际金额" :width="480">

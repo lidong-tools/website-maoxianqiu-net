@@ -227,47 +227,51 @@ useStoreScopedPage({
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="导入中心" description="客户/宠物/商品/员工/库存期初批量导入；上传 → 映射 → 校验 → 执行" />
-
-    <FaPageMain>
+    -->
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
       <!-- 新建导入向导 -->
-      <div v-if="showWizard">
-        <ImportWizard
-          :tenant-id="tenantStore.currentTenantId"
-          :store-id="tenantStore.currentStoreId"
-          :store-options="storeOptions"
-          @close="onWizardClose"
-          @completed="onWizardCompleted"
-        />
-        <div class="mt-4 flex justify-end">
-          <FaButton variant="outline" @click="onWizardClose">
-            返回列表
-          </FaButton>
+      <template v-if="showWizard">
+        <div class="flex-1 min-h-0 overflow-auto">
+          <ImportWizard
+            :tenant-id="tenantStore.currentTenantId"
+            :store-id="tenantStore.currentStoreId"
+            :store-options="storeOptions"
+            @close="onWizardClose"
+            @completed="onWizardCompleted"
+          />
+          <div class="mt-4 flex justify-end">
+            <FaButton variant="outline" @click="onWizardClose">
+              返回列表
+            </FaButton>
+          </div>
         </div>
-      </div>
+      </template>
 
       <!-- 任务列表 -->
       <template v-else>
-        <div class="mb-3 flex gap-1 items-center">
-          <FaButton
-            v-for="t in tabs"
-            :key="t.key"
-            :variant="activeTab === t.key ? 'default' : 'ghost'"
-            size="sm"
-            @click="onTabChange(t.key)"
-          >
-            {{ t.label }}
-          </FaButton>
-        </div>
-
-        <FaSearchBar :show-toggle="false">
-          <template #default>
-            <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-              <FaLabel label="门店" class="col-span-1">
+        <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+          <div class="px-4 pt-3 border-b shrink-0">
+            <!-- 自绘 tabs 按钮组移到筛选区最顶部 -->
+            <div class="mb-2 flex gap-1 items-center">
+              <FaButton
+                v-for="t in tabs"
+                :key="t.key"
+                :variant="activeTab === t.key ? 'default' : 'ghost'"
+                size="sm"
+                @click="onTabChange(t.key)"
+              >
+                {{ t.label }}
+              </FaButton>
+            </div>
+            <div class="pb-3 flex flex-wrap gap-3 items-center">
+              <FaLabel label="门店" class="w-44">
                 <FaSelect v-model="search.storeId" :options="storeOptions" class="w-full" @change="onSearch" />
               </FaLabel>
-              <FaLabel label="类型" class="col-span-1">
+              <FaLabel label="类型" class="w-44">
                 <FaSelect
                   v-model="search.type"
                   :options="[
@@ -278,7 +282,11 @@ useStoreScopedPage({
                   @change="onSearch"
                 />
               </FaLabel>
-              <div class="flex gap-2 col-end--1 justify-end">
+              <FaButton type="primary" @click="openWizard">
+                <FaIcon name="i-ri:upload-2-line" />
+                新建导入
+              </FaButton>
+              <div class="ml-auto flex gap-2 items-center">
                 <FaButton variant="outline" @click="onReset">
                   重置
                 </FaButton>
@@ -288,68 +296,53 @@ useStoreScopedPage({
                 </FaButton>
               </div>
             </div>
-          </template>
-        </FaSearchBar>
-
-        <div class="mx--4 my-3 border-t border-t-dashed" />
-
-        <FaTable
-          v-loading="loading"
-          table-root-class="rounded-lg overflow-hidden"
-          row-key="id"
-          stripe
-          border
-          :columns="tableColumns"
-          :data="dataList"
-        >
-          <template #toolbar>
-            <FaButton type="primary" @click="openWizard">
-              <FaIcon name="i-ri:upload-2-line" />
-              新建导入
-            </FaButton>
-          </template>
-          <template #cell-operation="{ row }">
-            <div class="flex-center gap-2">
-              <FaButton variant="outline" size="icon-sm" title="详情" @click="viewDetail(row.original)">
-                <FaIcon name="i-ri:eye-line" />
-              </FaButton>
-              <FaButton
-                variant="outline"
-                size="icon-sm"
-                title="错误明细"
-                :disabled="(row.original.failed_count || 0) === 0 && row.original.status !== 'failed'"
-                @click="openErrors(row.original)"
-              >
-                <FaIcon name="i-ri:error-warning-line" />
-              </FaButton>
-            </div>
-          </template>
-          <template #empty>
-            <div class="text-gray-400 py-12 text-center">
-              暂无导入任务
-            </div>
-          </template>
-        </FaTable>
-
-        <div class="mt-3 flex items-center justify-between">
-          <span class="text-sm text-gray-400">共 {{ total }} 条</span>
-          <div class="flex gap-2 items-center">
-            <FaButton variant="outline" size="sm" :disabled="page === 0" @click="goPage(page - 1)">
-              上一页
-            </FaButton>
-            <span class="text-sm">第 {{ page + 1 }} 页</span>
-            <FaButton
-              variant="outline"
-              size="sm"
-              :disabled="(page + 1) * PAGE_SIZE >= total"
-              @click="goPage(page + 1)"
-            >
-              下一页
-            </FaButton>
           </div>
+
+          <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+            <FaTable
+              class="h-full min-h-0"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="tableColumns"
+              :data="dataList"
+            >
+              <template #cell-operation="{ row }">
+                <div class="flex-center gap-2">
+                  <FaButton variant="outline" size="icon-sm" title="详情" @click="viewDetail(row.original)">
+                    <FaIcon name="i-ri:eye-line" />
+                  </FaButton>
+                  <FaButton
+                    variant="outline"
+                    size="icon-sm"
+                    title="错误明细"
+                    :disabled="(row.original.failed_count || 0) === 0 && row.original.status !== 'failed'"
+                    @click="openErrors(row.original)"
+                  >
+                    <FaIcon name="i-ri:error-warning-line" />
+                  </FaButton>
+                </div>
+              </template>
+              <template #empty>
+                <div class="text-gray-400 py-12 text-center">
+                  暂无导入任务
+                </div>
+              </template>
+            </FaTable>
+          </div>
+          <!-- 自绘分页改为标准 FaPagination(原 page 为 0 基,此处转 1 基) -->
+          <FaPagination
+            :page="page + 1"
+            :size="PAGE_SIZE"
+            :total="total"
+            :sizes="[PAGE_SIZE]"
+            class="mt-2 px-4 pb-3 shrink-0"
+            @page-change="p => goPage(p - 1)"
+          />
         </div>
       </template>
-    </FaPageMain>
+    </div>
 
     <!-- 任务详情抽屉 -->
     <FaDrawer v-model="detailVisible" title="任务详情" :width="480">

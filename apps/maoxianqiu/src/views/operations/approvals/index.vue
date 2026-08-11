@@ -235,53 +235,67 @@ useStoreScopedPage({
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="审批中心">
       <template #description>
         统一处理待办审批;折扣与病历修订审批在此集中处理,结果同步回原业务对象。
       </template>
     </EntityPageHeader>
-    <FaPageMain>
-      <FaTabs v-model="activeTab" :list="TABS.map(t => ({ ...t, label: `${t.label}${tabCounts[t.value as keyof typeof tabCounts] ? ` (${tabCounts[t.value as keyof typeof tabCounts]})` : ''}` }))" class="mb-4" @change="onTabChange" />
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="columns"
-        :data="dataList"
-        empty-text="暂无审批记录"
-        @row-click="openDetail"
-      >
-        <template #cell-operation="{ row }">
-          <div class="flex-center gap-1">
-            <FaButton variant="outline" size="icon-sm" @click.stop="openDetail(row.original)">
-              <FaIcon name="i-ri:eye-line" />
-            </FaButton>
-            <span v-if="row.original.status === 'pending' && isSelfInitiated(row.original)" class="text-xs text-muted-foreground">
-              不可审批本人申请
-            </span>
-            <template v-else-if="row.original.status === 'pending' && canApprove(row.original)">
-              <FaButton variant="outline" size="sm" class="text-green-600" @click.stop="openDecision(row.original, 'approve')">
-                批准
-              </FaButton>
-              <FaButton variant="outline" size="sm" class="text-red-600" @click.stop="openDecision(row.original, 'reject')">
-                拒绝
-              </FaButton>
+    -->
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <div class="px-4 pt-3 border-b shrink-0">
+          <FaTabs
+            v-model="activeTab"
+            :list="TABS.map(t => ({ ...t, label: `${t.label}${tabCounts[t.value as keyof typeof tabCounts] ? ` (${tabCounts[t.value as keyof typeof tabCounts]})` : ''}` }))"
+            class="mb-2"
+            @update:model-value="onTabChange"
+          />
+        </div>
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="columns"
+            :data="dataList"
+            empty-text="暂无审批记录"
+            @row-click="openDetail"
+          >
+            <template #cell-operation="{ row }">
+              <div class="flex-center gap-1">
+                <FaButton variant="outline" size="icon-sm" @click.stop="openDetail(row.original)">
+                  <FaIcon name="i-ri:eye-line" />
+                </FaButton>
+                <span v-if="row.original.status === 'pending' && isSelfInitiated(row.original)" class="text-xs text-muted-foreground">
+                  不可审批本人申请
+                </span>
+                <template v-else-if="row.original.status === 'pending' && canApprove(row.original)">
+                  <FaButton variant="outline" size="sm" class="text-green-600" @click.stop="openDecision(row.original, 'approve')">
+                    批准
+                  </FaButton>
+                  <FaButton variant="outline" size="sm" class="text-red-600" @click.stop="openDecision(row.original, 'reject')">
+                    拒绝
+                  </FaButton>
+                </template>
+              </div>
             </template>
-          </div>
-        </template>
-      </FaTable>
-      <FaPagination
-        :page="pagination.page"
-        :size="pagination.size"
-        :total="pagination.total"
-        class="mt-2 px-4 pb-3"
-        @page-change="handlePageChange"
-        @size-change="handleSizeChange"
-      />
-    </FaPageMain>
+          </FaTable>
+        </div>
+        <FaPagination
+          :page="pagination.page"
+          :size="pagination.size"
+          :total="pagination.total"
+          class="mt-2 px-4 pb-3 shrink-0"
+          @page-change="handlePageChange"
+          @size-change="handleSizeChange"
+        />
+      </div>
+    </div>
 
     <!-- 审批详情 -->
     <FaDrawer v-model="detailVisible" :title="detailItem?.title ?? '审批详情'" width="560px" :footer="false">

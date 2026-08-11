@@ -198,31 +198,40 @@ onMounted(() => {
 </script>
 
 <template>
-  <div>
+  <!-- 标准布局:外层固定高度 + 白底卡片(无筛选/分页,保留表格工具栏) -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="执业兽医备案" description="管理执业兽医备案信息(牌照/备案编号/有效期/电子签名资质)" />
-    <FaPageMain>
-      <div
-        v-if="platformUiDeferred"
-        class="text-sm text-amber-700 mb-3 px-4 py-3 border border-amber-200 rounded-md bg-amber-50"
-      >
-        当前账号无租户成员关系,无法确定租户上下文。平台管理员跨租户维护执业兽医备案的界面将在 S3.1-2 提供(platform UI deferred)。
+    -->
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 平台上下文提示(收缩,不占滚动区) -->
+        <div v-if="platformUiDeferred" class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 text-sm text-amber-700 px-4 py-3 border border-amber-200 rounded-md bg-amber-50">
+            当前账号无租户成员关系,无法确定租户上下文。平台管理员跨租户维护执业兽医备案的界面将在 S3.1-2 提供(platform UI deferred)。
+          </div>
+        </div>
+        <!-- 表格区(flex-1 撑满,内部滚动) -->
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="tableColumns"
+            :data="dataList.map(toDisplayRow)"
+          >
+            <template #toolbar>
+              <PermissionButton permission="veterinarian_registration.manage" @click="openCreate">
+                新增备案
+              </PermissionButton>
+            </template>
+          </FaTable>
+        </div>
       </div>
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="tableColumns"
-        :data="dataList.map(toDisplayRow)"
-      >
-        <template #toolbar>
-          <PermissionButton permission="veterinarian_registration.manage" @click="openCreate">
-            新增备案
-          </PermissionButton>
-        </template>
-      </FaTable>
-    </FaPageMain>
+    </div>
 
     <FaDrawer v-model="drawerVisible" title="新增备案" :width="560">
       <div class="space-y-3">

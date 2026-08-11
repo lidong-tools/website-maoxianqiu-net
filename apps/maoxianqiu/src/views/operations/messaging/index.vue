@@ -459,13 +459,18 @@ async function openDetail(row: MessagingDelivery) {
 </script>
 
 <template>
-  <div>
+  <!-- 最外层固定高度容器,撑满视口 -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(消息中心) -->
+    <!--
     <EntityPageHeader compact title="消息中心" description="真实消息通知 Provider：模板、变量白名单、发送与投递记录" />
+    -->
 
-    <!-- Provider 状态 -->
-    <div v-if="providerLoading" class="mock-banner mock-banner--dev">
-      <span>正在读取消息供应商配置…</span>
-    </div>
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <!-- Provider 状态 -->
+      <div v-if="providerLoading" class="mock-banner mock-banner--dev shrink-0">
+        <span>正在读取消息供应商配置…</span>
+      </div>
     <div v-else-if="isProdMock" class="mock-banner mock-banner--prod">
       <FaIcon name="i-ri:error-warning-line" class="mock-banner-icon" />
       <span>
@@ -473,7 +478,7 @@ async function openDetail(row: MessagingDelivery) {
         请在服务端配置 MESSAGING_PROVIDER=email、MESSAGING_API_KEY、MESSAGING_SENDER 后启用。
       </span>
     </div>
-    <div v-else-if="providerSummary" class="mock-banner mock-banner--ok">
+    <div v-else-if="providerSummary" class="mock-banner mock-banner--ok shrink-0">
       <FaIcon name="i-ri:checkbox-circle-line" class="mock-banner-icon" />
       <span>
         <strong>当前供应商：{{ providerSummary.provider }}（{{ providerSummary.channel }}）</strong>
@@ -481,69 +486,74 @@ async function openDetail(row: MessagingDelivery) {
       </span>
     </div>
 
-    <!-- Tab 切换 -->
-    <div class="msg-tabs">
-      <button
-        v-for="t in ([{ key: 'templates', label: '消息模板' }, { key: 'send', label: '发送消息' }, { key: 'deliveries', label: '投递记录' }] as const)"
-        :key="t.key"
-        class="msg-tab"
-        :class="{ 'msg-tab--active': activeTab === t.key }"
-        @click="activeTab = t.key"
-      >
-        {{ t.label }}
-      </button>
-    </div>
+    <!-- 主内容白底卡片 -->
+    <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+      <!-- 卡片顶部筛选区:Tab 切换放最顶部 -->
+      <div class="px-4 pt-3 border-b shrink-0">
+        <div class="msg-tabs mb-2">
+          <button
+            v-for="t in ([{ key: 'templates', label: '消息模板' }, { key: 'send', label: '发送消息' }, { key: 'deliveries', label: '投递记录' }] as const)"
+            :key="t.key"
+            class="msg-tab"
+            :class="{ 'msg-tab--active': activeTab === t.key }"
+            @click="activeTab = t.key"
+          >
+            {{ t.label }}
+          </button>
+        </div>
+      </div>
 
-    <FaPageMain>
+      <div class="flex-1 min-h-0 overflow-hidden">
       <!-- ===== 模板 ===== -->
       <template v-if="activeTab === 'templates'">
-        <FaSearchBar :show-toggle="false">
-          <template #default>
-            <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-              <FaLabel label="渠道" class="col-span-1">
-                <FaSelect v-model="templateSearch.channel" :options="[{ label: '全部渠道', value: '' }, ...channelOptions]" class="w-full" @change="loadTemplates" />
+        <div class="flex flex-col h-full min-h-0">
+          <!-- 模板筛选区(左筛选右按钮) -->
+          <div class="px-4 py-3 border-b shrink-0">
+            <div class="flex flex-wrap gap-3 items-center">
+              <FaLabel label="渠道">
+                <FaSelect v-model="templateSearch.channel" :options="[{ label: '全部渠道', value: '' }, ...channelOptions]" class="w-40" @change="loadTemplates" />
               </FaLabel>
-              <div class="flex gap-2 col-end--1 justify-end">
+              <div class="ml-auto flex gap-2 items-center">
                 <FaButton type="primary" @click="loadTemplates">
                   <FaIcon name="i-ri:search-line" />
                   筛选
                 </FaButton>
+                <FaButton @click="openCreateTemplate">
+                  <FaIcon name="i-ri:add-line" />
+                  新建模板
+                </FaButton>
               </div>
             </div>
-          </template>
-        </FaSearchBar>
-        <div class="mx--4 my-3 border-t border-t-dashed" />
-        <FaTable
-          v-loading="templateLoading"
-          table-root-class="rounded-lg overflow-hidden"
-          row-key="id"
-          stripe
-          border
-          :columns="templateColumns"
-          :data="templateList"
-        >
-          <template #toolbar>
-            <FaButton @click="openCreateTemplate">
-              <FaIcon name="i-ri:add-line" />
-              新建模板
-            </FaButton>
-          </template>
-          <template #cell-operation="{ row }">
-            <div class="flex-center gap-2">
-              <FaButton variant="outline" size="icon-sm" @click="openEditTemplate(row.original)">
-                <FaIcon name="i-ri:edit-line" />
-              </FaButton>
-              <FaButton variant="outline" size="icon-sm" @click="toggleTemplateActive(row.original)">
-                <FaIcon :name="row.original.is_active ? 'i-ri:toggle-fill' : 'i-ri:toggle-line'" />
-              </FaButton>
-            </div>
-          </template>
-        </FaTable>
+          </div>
+          <div v-loading="templateLoading" class="flex-1 min-h-0 overflow-hidden">
+            <FaTable
+              class="h-full min-h-0"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="templateColumns"
+              :data="templateList"
+            >
+              <template #cell-operation="{ row }">
+                <div class="flex-center gap-2">
+                  <FaButton variant="outline" size="icon-sm" @click="openEditTemplate(row.original)">
+                    <FaIcon name="i-ri:edit-line" />
+                  </FaButton>
+                  <FaButton variant="outline" size="icon-sm" @click="toggleTemplateActive(row.original)">
+                    <FaIcon :name="row.original.is_active ? 'i-ri:toggle-fill' : 'i-ri:toggle-line'" />
+                  </FaButton>
+                </div>
+              </template>
+            </FaTable>
+          </div>
+        </div>
       </template>
 
-      <!-- ===== 发送 ===== -->
+      <!-- ===== 发送(表单 Tab,内容保持原样,包滚动容器) ===== -->
       <template v-else-if="activeTab === 'send'">
-        <div class="max-w-3xl space-y-4">
+        <div class="p-4 flex-1 min-h-0 overflow-y-auto">
+          <div class="max-w-3xl space-y-4">
           <FaLabel label="消息模板">
             <FaSelect
               v-model="sendForm.templateId"
@@ -586,42 +596,43 @@ async function openDetail(row: MessagingDelivery) {
               发送
             </FaButton>
           </div>
+          </div>
         </div>
       </template>
 
       <!-- ===== 投递记录 ===== -->
       <template v-else>
-        <FaSearchBar :show-toggle="false">
-          <template #default>
-            <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-              <FaLabel label="状态" class="col-span-1">
-                <FaSelect v-model="deliverySearch.status" :options="statusOptions" class="w-full" @change="loadDeliveries" />
+        <div class="flex flex-col h-full min-h-0">
+          <!-- 投递记录筛选区(左筛选右按钮) -->
+          <div class="px-4 py-3 border-b shrink-0">
+            <div class="flex flex-wrap gap-3 items-center">
+              <FaLabel label="状态">
+                <FaSelect v-model="deliverySearch.status" :options="statusOptions" class="w-32" @change="loadDeliveries" />
               </FaLabel>
-              <FaLabel label="渠道" class="col-span-1">
-                <FaSelect v-model="deliverySearch.channel" :options="[{ label: '全部渠道', value: '' }, ...channelOptions]" class="w-full" @change="loadDeliveries" />
+              <FaLabel label="渠道">
+                <FaSelect v-model="deliverySearch.channel" :options="[{ label: '全部渠道', value: '' }, ...channelOptions]" class="w-32" @change="loadDeliveries" />
               </FaLabel>
-              <FaLabel label="场景" class="col-span-1">
-                <FaSelect v-model="deliverySearch.scene" :options="sceneOptions" class="w-full" @change="loadDeliveries" />
+              <FaLabel label="场景">
+                <FaSelect v-model="deliverySearch.scene" :options="sceneOptions" class="w-32" @change="loadDeliveries" />
               </FaLabel>
-              <div class="flex gap-2 col-end--1 justify-end">
+              <div class="ml-auto flex gap-2 items-center">
                 <FaButton type="primary" @click="loadDeliveries">
                   <FaIcon name="i-ri:search-line" />
                   筛选
                 </FaButton>
               </div>
             </div>
-          </template>
-        </FaSearchBar>
-        <div class="mx--4 my-3 border-t border-t-dashed" />
-        <FaTable
-          v-loading="deliveryLoading"
-          table-root-class="rounded-lg overflow-hidden"
-          row-key="id"
-          stripe
-          border
-          :columns="deliveryColumns"
-          :data="deliveryList"
-        >
+          </div>
+          <div v-loading="deliveryLoading" class="flex-1 min-h-0 overflow-hidden">
+            <FaTable
+              class="h-full min-h-0"
+              table-root-class="overflow-hidden"
+              row-key="id"
+              stripe
+              border
+              :columns="deliveryColumns"
+              :data="deliveryList"
+            >
           <template #cell-operation="{ row }">
             <div class="flex-center gap-2">
               <FaButton variant="outline" size="icon-sm" @click="openDetail(row.original)">
@@ -643,9 +654,13 @@ async function openDetail(row: MessagingDelivery) {
               </FaButton>
             </div>
           </template>
-        </FaTable>
+          </FaTable>
+          </div>
+        </div>
       </template>
-    </FaPageMain>
+      </div>
+    </div>
+    </div>
 
     <!-- 新建/编辑模板 -->
     <FaModal

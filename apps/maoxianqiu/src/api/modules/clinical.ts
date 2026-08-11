@@ -5,6 +5,7 @@ import type {
   CancelMedicalOrderResult,
   CreateAppointmentInput,
   CreateEncounterInput,
+  CreateEncounterLabResultRefInput,
   CreateMedicalOrderInput,
   CreateNurseTaskInput,
   EncounterListParams,
@@ -634,5 +635,53 @@ export default {
    */
   skipNurseTask(id: string) {
     return this.updateNurseTask(id, { status: 'skipped' as NurseTaskStatus })
+  },
+
+  // ============================================================
+  // 检验结果引用病历(G-3.9 R-2,走 Hono Command)
+  // ============================================================
+
+  /**
+   * 病历已引用的检验结果列表(走 Hono Command,权限 encounter.view)
+   * @param encounterId 就诊 id
+   * @returns 引用记录列表(含快照与来源申请单号)
+   */
+  async listEncounterLabResultRefs(encounterId: string) {
+    const res = await api.get(`clinical/encounters/${encounterId}/lab-result-refs`)
+    return { status: 1, error: '', data: (res as any).data }
+  },
+
+  /**
+   * 列出该宠物已发布、可引用的检验结果(走 Hono Command,权限 encounter.view)
+   * 服务端按就诊宠物收敛并仅返回已发布(completed + 已出结果)的检验单,
+   * 医生无需 lab.view 权限即可浏览引用来源。
+   * @param encounterId 就诊 id
+   * @returns 可引用检验单列表(含结果项明细)
+   */
+  async listAvailableLabResults(encounterId: string) {
+    const res = await api.get(`clinical/encounters/${encounterId}/lab-result-refs/available`)
+    return { status: 1, error: '', data: (res as any).data }
+  },
+
+  /**
+   * 引用检验结果到病历(走 Hono Command,权限 encounter.work)
+   * 服务端校验同租户/宠物一致/仅已发布结果,生成结果快照并落库引用记录;
+   * 返回引用记录 + 拼接好的快照文本,前端将其追加到目标字段。
+   * @param encounterId 就诊 id
+   * @param input 引用入参(检验单 + 结果项 + 目标字段)
+   */
+  async createEncounterLabResultRefs(encounterId: string, input: CreateEncounterLabResultRefInput) {
+    const res = await api.post(`clinical/encounters/${encounterId}/lab-result-refs`, input)
+    return { status: 1, error: '', data: (res as any).data }
+  },
+
+  /**
+   * 删除病历中的检验结果引用(走 Hono Command,权限 encounter.work)
+   * @param encounterId 就诊 id
+   * @param refId 引用记录 id
+   */
+  async deleteEncounterLabResultRef(encounterId: string, refId: string) {
+    const res = await api.delete(`clinical/encounters/${encounterId}/lab-result-refs/${refId}`)
+    return { status: 1, error: '', data: (res as any).data }
   },
 }

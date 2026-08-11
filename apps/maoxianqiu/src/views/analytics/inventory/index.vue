@@ -148,7 +148,7 @@ async function onExport() {
     </div>
 
     <div class="mt-4">
-      <FaCard title="缺货明细(可用数量 ≤ 0)">
+      <FaCard title="低库存明细(可用数量 ≤ 低库存阈值,未配置阈值回落 ≤ 0 断货)">
         <FaTable
           row-key="catalogItemId"
           stripe
@@ -157,7 +157,7 @@ async function onExport() {
           :data="report?.lowStockRows ?? []"
         />
         <div v-if="!loading && report && report.lowStockRows.length === 0" class="text-sm text-gray-400 py-8 text-center">
-          无缺货商品
+          无低库存商品
         </div>
       </FaCard>
     </div>

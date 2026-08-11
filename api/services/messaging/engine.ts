@@ -363,6 +363,70 @@ async function dispatchAndRecord(
   return { result, provider: provider.name }
 }
 
+/** 门店/医院档案白名单 key(供发送时自动补全) */
+const PROFILE_KEYS = ['store.name', 'store.phone', 'store.address', 'hospital.name', 'hospital.phone', 'hospital.address'] as const
+
+/**
+ * 补全门店/医院档案变量(F-R-4: 3.8.1-02 医院电话/地址变量化)
+ *
+ * 发送时若入参 variables 缺失 store.* / hospital.* 白名单 key,
+ * 自动从门店档案(stores)与租户档案(tenants)填充,避免模板变量渲染为空:
+ *   - store.name/phone/address    → 门店档案(优先 req.storeId,否则租户任一生效门店)
+ *   - hospital.name               → 租户名(医院主体)
+ *   - hospital.phone/address      → 门店档案电话/地址
+ * 已由调用方显式传入的 key 不覆盖;查询失败时缺失 key 留空(渲染为空串)。
+ */
+async function enrichProfileVariables(
+  service: ReturnType<typeof createServiceClient>,
+  tenantId: string,
+  storeId: string | null | undefined,
+  raw: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const vars = { ...(raw ?? {}) }
+  const missing = PROFILE_KEYS.filter(key => !(key in vars))
+  if (missing.length === 0) {
+    return vars
+  }
+
+  // 门店档案:优先指定门店,否则取租户任一生效门店
+  let store: { name: string, phone: string | null, address: string | null } | null = null
+  const storeQuery = service
+    .from('stores')
+    .select('id, name, phone, address')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'active')
+  if (storeId) {
+    const { data, error } = await storeQuery.eq('id', storeId).maybeSingle()
+    if (!error && data) {
+      store = data as { name: string, phone: string | null, address: string | null }
+    }
+  }
+  if (!store) {
+    const { data, error } = await storeQuery.order('created_at', { ascending: true }).limit(1).maybeSingle()
+    if (!error && data) {
+      store = data as { name: string, phone: string | null, address: string | null }
+    }
+  }
+
+  // 租户档案(医院主体名称)
+  const { data: tenant } = await service
+    .from('tenants')
+    .select('id, name')
+    .eq('id', tenantId)
+    .maybeSingle()
+  const tenantName = (tenant?.name as string | undefined) ?? ''
+  const storePhone = store?.phone ?? ''
+  const storeAddress = store?.address ?? ''
+
+  if (missing.includes('store.name')) { vars['store.name'] = store?.name ?? '' }
+  if (missing.includes('store.phone')) { vars['store.phone'] = storePhone }
+  if (missing.includes('store.address')) { vars['store.address'] = storeAddress }
+  if (missing.includes('hospital.name')) { vars['hospital.name'] = tenantName }
+  if (missing.includes('hospital.phone')) { vars['hospital.phone'] = storePhone }
+  if (missing.includes('hospital.address')) { vars['hospital.address'] = storeAddress }
+  return vars
+}
+
 /**
  * 发送一条消息(创建 delivery + 立即发送)
  * - 白名单变量校验通过后渲染
@@ -400,7 +464,7 @@ export async function sendMessage(req: SendRequest): Promise<DeliveryWithAttempt
   if (template.subject) {
     validateTemplatePlaceholders(template.subject)
   }
-  const variables = normalizeVariables(req.variables ?? {})
+  const variables = normalizeVariables(await enrichProfileVariables(service, req.tenantId, req.storeId, req.variables ?? {}))
   const body = renderTemplateText(template.body, variables)
   const subject = template.subject ? renderTemplateText(template.subject, variables) : null
 

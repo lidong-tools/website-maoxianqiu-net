@@ -17,6 +17,11 @@ export type MovementType
     | 'reserve'
     | 'confirm'
     | 'release'
+    | 'count_gain'
+    | 'count_loss'
+    | 'write_off'
+    | 'scrap'
+    | 'expired'
 
 /** warehouses 表记录(仓库) */
 export interface Warehouse {
@@ -284,6 +289,11 @@ export const MOVEMENT_TYPE_LABELS: Record<MovementType, string> = {
   reserve: '预留',
   confirm: '确认预留',
   release: '释放预留',
+  count_gain: '盘盈',
+  count_loss: '盘亏',
+  write_off: '报损',
+  scrap: '报废',
+  expired: '过期',
 }
 
 /** 权限码常量 */
@@ -297,6 +307,7 @@ export const INVENTORY_PERMISSIONS = {
   reserve: 'inventory.reserve',
   confirm: 'inventory.confirm',
   release: 'inventory.release',
+  writeOff: 'inventory.write_off',
 } as const
 
 // ============================================================
@@ -586,3 +597,259 @@ export const PURCHASE_RETURN_PERMISSIONS = {
   approve: 'purchase_return.approve',
   post: 'purchase_return.post',
 } as const
+
+// ============================================================
+// 入库单(R-1/R-2/R-3)
+// 状态机:draft → submitted → approved → posted;draft/submitted 可取消
+// ============================================================
+
+/** 入库单状态 */
+export type GoodsReceiptStatus = 'draft' | 'submitted' | 'approved' | 'posted' | 'cancelled'
+
+/** goods_receipts 表记录 */
+export interface GoodsReceipt {
+  id: string
+  tenant_id: string
+  store_id: string
+  warehouse_id: string
+  gr_no: string
+  supplier: string | null
+  status: GoodsReceiptStatus
+  total_cost: number
+  note: string | null
+  created_by: string | null
+  submitted_by: string | null
+  submitted_at: string | null
+  approved_by: string | null
+  approved_at: string | null
+  posted_by: string | null
+  posted_at: string | null
+  cancelled_by: string | null
+  cancelled_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** goods_receipt_items 表记录 */
+export interface GoodsReceiptItem {
+  id: string
+  tenant_id: string
+  goods_receipt_id: string
+  catalog_item_id: string
+  quantity: number
+  unit_cost: number
+  batch_no: string | null
+  expires_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** 入库单创建输入项 */
+export interface GoodsReceiptCreateInput {
+  tenantId: string
+  storeId: string
+  warehouseId: string
+  supplier?: string
+  note?: string
+  items: Array<{
+    catalogItemId: string
+    quantity: number
+    unitCost?: number
+    batchNo?: string
+    expiresAt?: string
+  }>
+}
+
+/** 入库单状态标签映射(UI 显示用) */
+export const GOODS_RECEIPT_STATUS_LABELS: Record<GoodsReceiptStatus, string> = {
+  draft: '草稿',
+  submitted: '待审核',
+  approved: '已审核',
+  posted: '已过账',
+  cancelled: '已取消',
+}
+
+// ============================================================
+// 盘点单(R-5/R-6/R-7/R-8)
+// 状态机:draft → counting → submitted → approved → posted;draft/counting/submitted 可取消
+// ============================================================
+
+/** 盘点单状态 */
+export type StockCountStatus = 'draft' | 'counting' | 'submitted' | 'approved' | 'posted' | 'cancelled'
+
+/** 盘点范围 */
+export type StockCountScope = 'all' | 'category' | 'item'
+
+/** stock_counts 表记录 */
+export interface StockCount {
+  id: string
+  tenant_id: string
+  store_id: string
+  warehouse_id: string
+  count_no: string
+  status: StockCountStatus
+  scope: StockCountScope
+  category_id: string | null
+  book_snapshot: StockCountSnapshotItem[]
+  counting_items: StockCountSnapshotItem[]
+  note: string | null
+  created_by: string | null
+  submitted_by: string | null
+  submitted_at: string | null
+  approved_by: string | null
+  approved_at: string | null
+  posted_by: string | null
+  posted_at: string | null
+  cancelled_by: string | null
+  cancelled_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** 盘点快照项(book_snapshot / counting_items 元素) */
+export interface StockCountSnapshotItem {
+  catalog_item_id: string
+  book_quantity: number
+  counted_quantity?: number | null
+}
+
+/** stock_count_items 表记录 */
+export interface StockCountItemRow {
+  id: string
+  tenant_id: string
+  stock_count_id: string
+  catalog_item_id: string
+  book_quantity: number
+  counted_quantity: number | null
+  created_at: string
+  updated_at: string
+}
+
+/** 盘点单创建输入项 */
+export interface StockCountCreateInput {
+  tenantId: string
+  storeId: string
+  warehouseId: string
+  scope: StockCountScope
+  categoryId?: string
+  itemIds?: string[]
+  note?: string
+}
+
+/** 盘点单状态标签映射(UI 显示用) */
+export const STOCK_COUNT_STATUS_LABELS: Record<StockCountStatus, string> = {
+  draft: '草稿',
+  counting: '盘点中',
+  submitted: '待审核',
+  approved: '已审核',
+  posted: '已过账',
+  cancelled: '已取消',
+}
+
+// ============================================================
+// 调拨单(R-9/R-10/R-11/R-12/R-13)
+// 状态机:draft → submitted → approved → outbound → received/partially_received
+//   ;draft/submitted 可取消;partially_received 可继续收货
+// ============================================================
+
+/** 调拨单状态 */
+export type TransferStatus = 'draft' | 'submitted' | 'approved' | 'outbound' | 'partially_received' | 'received' | 'cancelled'
+
+/** transfers 表记录 */
+export interface TransferOrder {
+  id: string
+  tenant_id: string
+  store_id: string
+  from_warehouse_id: string
+  to_warehouse_id: string
+  transfer_no: string
+  status: TransferStatus
+  note: string | null
+  created_by: string | null
+  submitted_by: string | null
+  submitted_at: string | null
+  approved_by: string | null
+  approved_at: string | null
+  shipped_by: string | null
+  shipped_at: string | null
+  received_by: string | null
+  received_at: string | null
+  cancelled_by: string | null
+  cancelled_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** transfer_items 表记录 */
+export interface TransferItem {
+  id: string
+  tenant_id: string
+  transfer_id: string
+  catalog_item_id: string
+  quantity: number
+  shipped_qty: number
+  received_qty: number
+  batch_no: string | null
+  expires_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** 调拨单创建输入项 */
+export interface TransferCreateInput {
+  tenantId: string
+  storeId: string
+  fromWarehouseId: string
+  toWarehouseId: string
+  note?: string
+  items: Array<{
+    catalogItemId: string
+    quantity: number
+  }>
+}
+
+/** 调拨收货明细输入项 */
+export interface TransferReceiveItemInput {
+  id: string
+  receivedQuantity: number
+  batchNo?: string
+  expiresAt?: string
+}
+
+/** 调拨单状态标签映射(UI 显示用) */
+export const TRANSFER_STATUS_LABELS: Record<TransferStatus, string> = {
+  draft: '草稿',
+  submitted: '待审核',
+  approved: '已审核',
+  outbound: '在途',
+  partially_received: '部分收货',
+  received: '已收货',
+  cancelled: '已取消',
+}
+
+// ============================================================
+// 报损(B-R-2 / R-15)
+// ============================================================
+
+/** 报损原因类型(与 movement_type 对应) */
+export type WriteOffReasonType = 'write_off' | 'scrap' | 'expired'
+
+/** 报损请求 */
+export interface WriteOffInput {
+  tenantId: string
+  warehouseId: string
+  items: Array<{
+    catalogItemId: string
+    quantity: number
+    reasonType?: WriteOffReasonType
+    reason?: string
+    batchId?: string
+  }>
+}
+
+/** 报损原因类型标签映射(UI 显示用) */
+export const WRITE_OFF_REASON_LABELS: Record<WriteOffReasonType, string> = {
+  write_off: '报损',
+  scrap: '报废',
+  expired: '过期',
+}

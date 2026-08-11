@@ -10,6 +10,7 @@ import { ok } from '../lib/result.js'
 import { createServiceClient } from '../lib/supabase.js'
 import { parseJsonBody } from '../lib/validation.js'
 import { authMiddleware, loadCaller } from '../middlewares/auth.js'
+import { safeFilename, toCsv } from '../services/analytics/csv.js'
 
 /**
  * Catalog 领域路由(MXQ-6001~6010)
@@ -301,6 +302,164 @@ catalogRoutes.post('/migrate-to-store', async (c) => {
     insertedCount: Number(row?.inserted_count ?? 0),
     skippedCount: Number(row?.skipped_count ?? 0),
     totalCount: Number(row?.total_count ?? 0),
+  })
+})
+
+// ==================== MXQ-6005 目录项跨类目批量迁移(B-R-1) ====================
+
+const migrateItemsSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  sourceCategoryId: z.string().uuid('来源类目 id 格式错误'),
+  itemIds: z.array(z.string().uuid('项目 id 格式错误')).min(1, '至少选择一个项目').max(500, '单次最多迁移 500 个项目'),
+  targetCategoryId: z.string().uuid('目标类目 id 格式错误'),
+})
+
+/**
+ * 目录项跨类目批量迁移(MXQ-6005,B-R-1)
+ * - 权限:catalog.manage
+ * - 行为:调 catalog_items_bulk_migrate RPC,事务内校验目标类目同租户、项目属于来源类目,
+ *   批量 UPDATE catalog_items.category_id 并写审计日志(含跨租户目标类目拒绝)
+ */
+catalogRoutes.post('/items/migrate', async (c) => {
+  const input = await parseJsonBody(c, migrateItemsSchema)
+  // P0-02 scoped:租户作用域授权,替代 requirePermission
+  const scope = await requireScopedPermission(c, { code: 'catalog.manage', tenantId: input.tenantId })
+
+  const service = createServiceClient()
+  const user = c.get('user')
+  const { data, error: rpcError } = await service.rpc('catalog_items_bulk_migrate', {
+    p_tenant_id: scope.tenantId,
+    p_source_category_id: input.sourceCategoryId,
+    p_item_ids: input.itemIds,
+    p_target_category_id: input.targetCategoryId,
+    p_operator_id: user.id,
+  })
+
+  if (rpcError) {
+    if (rpcError.message.includes('SOURCE_CATEGORY_NOT_FOUND')) {
+      throw err.notFound('来源类目不存在或不属于当前租户')
+    }
+    if (rpcError.message.includes('TARGET_CATEGORY_NOT_FOUND')) {
+      throw err.forbidden('目标类目不存在或不属于当前租户')
+    }
+    throw err.internal(`批量迁移失败: ${rpcError.message}`)
+  }
+
+  // RPC 返回 returns table,数据为数组,取首行
+  const row = Array.isArray(data) ? data[0] : data
+
+  await writeAudit(c, {
+    action: 'catalog.itemsBulkMigrate',
+    entityType: 'catalog_items',
+    tenantId: input.tenantId,
+    metadata: {
+      sourceCategoryId: input.sourceCategoryId,
+      targetCategoryId: input.targetCategoryId,
+      itemIds: input.itemIds,
+      migratedCount: Number(row?.migrated_count ?? 0),
+      skippedCount: Number(row?.skipped_count ?? 0),
+    },
+  })
+
+  return ok(c, {
+    migratedCount: Number(row?.migrated_count ?? 0),
+    skippedCount: Number(row?.skipped_count ?? 0),
+    totalCount: Number(row?.total_count ?? 0),
+  })
+})
+
+// ==================== MXQ-6005 目录导出(B-R-3) ====================
+
+const exportItemsSchema = z.object({
+  tenantId: z.string().uuid('租户 id 格式错误'),
+  categoryId: z.string().uuid('类目 id 格式错误').optional(),
+  keyword: z.string().max(100).optional(),
+  billingType: z.string().max(50).optional(),
+})
+
+/** 收费类型中文标签(导出文件用) */
+const EXPORT_BILLING_TYPE_LABELS: Record<string, string> = {
+  service: '服务',
+  product: '商品',
+  drug: '药品',
+  vaccine: '疫苗',
+  exam: '检验',
+  hospitalization: '住院费',
+  boarding: '寄养费',
+}
+
+/**
+ * 目录导出 CSV(B-R-3)
+ * - 权限:catalog.view
+ * - 按当前筛选条件(类目/关键词/收费类型)导出,复用 csv.ts 生成 CSV(UTF-8 BOM)
+ * - 导出字段:编码/名称/类目/收费类型/单位/售价/成本价/状态/规格/厂家/条码
+ */
+catalogRoutes.get('/export', async (c) => {
+  const input = exportItemsSchema.parse(c.req.query())
+  const scope = await requireScopedPermission(c, {
+    code: 'catalog.view',
+    tenantId: resolveRequestedTenant(c, input.tenantId) ?? '',
+  })
+
+  const service = createServiceClient()
+  let query = service
+    .from('catalog_items')
+    .select(`
+      code, name, unit, default_price, cost_price, is_active, billing_type, barcode, manufacturer,
+      category:catalog_categories(name),
+      drug_extension:catalog_drug_extensions(strength, manufacturer, barcode),
+      vaccine_extension:catalog_vaccine_extensions(manufacturer)
+    `)
+    .eq('tenant_id', scope.tenantId)
+
+  if (input.categoryId) {
+    query = query.eq('category_id', input.categoryId)
+  }
+  if (input.billingType) {
+    query = query.eq('billing_type', input.billingType)
+  }
+  if (input.keyword) {
+    query = query.or(`name.ilike.%${input.keyword}%,code.ilike.%${input.keyword}%`)
+  }
+  query = query.order('created_at', { ascending: true }).limit(10000)
+
+  const { data, error } = await query
+  if (error) {
+    throw err.internal(`导出目录失败: ${error.message}`)
+  }
+
+  const rows = (data ?? []).map((item: any) => ({
+    code: item.code ?? '',
+    name: item.name ?? '',
+    category: item.category?.name ?? '未分类',
+    billingType: EXPORT_BILLING_TYPE_LABELS[item.billing_type] ?? item.billing_type ?? '',
+    unit: item.unit ?? '',
+    defaultPrice: item.default_price ?? 0,
+    costPrice: item.cost_price ?? 0,
+    status: item.is_active ? '启用' : '停用',
+    strength: item.drug_extension?.strength ?? '',
+    manufacturer: item.manufacturer ?? item.drug_extension?.manufacturer ?? item.vaccine_extension?.manufacturer ?? '',
+    barcode: item.barcode ?? item.drug_extension?.barcode ?? '',
+  }))
+
+  const csv = toCsv([
+    { label: '编码', key: 'code' },
+    { label: '名称', key: 'name' },
+    { label: '类目', key: 'category' },
+    { label: '收费类型', key: 'billingType' },
+    { label: '单位', key: 'unit' },
+    { label: '售价', key: 'defaultPrice' },
+    { label: '成本价', key: 'costPrice' },
+    { label: '状态', key: 'status' },
+    { label: '规格', key: 'strength' },
+    { label: '厂家', key: 'manufacturer' },
+    { label: '条码', key: 'barcode' },
+  ], rows)
+
+  const filename = safeFilename(`catalog-export-${new Date().toISOString().slice(0, 10)}`)
+  return c.body(csv, 200, {
+    'Content-Type': 'text/csv; charset=utf-8',
+    'Content-Disposition': `attachment; filename="${filename}.csv"`,
   })
 })
 
@@ -720,7 +879,7 @@ catalogRoutes.get('/lab-panels', async (c) => {
   const service = createServiceClient()
   let query = service
     .from('lab_panels')
-    .select('*', { count: 'exact' })
+    .select('*, catalog_item:catalog_items(id, code, name)', { count: 'exact' })
     .eq('tenant_id', scope.tenantId)
 
   if (input.category) {
@@ -748,11 +907,13 @@ const createLabPanelSchema = z.object({
   name: z.string().min(1, '名称不能为空').max(100),
   category: z.enum(['blood', 'urine', 'biochem', 'endocrine', 'other']).default('other'),
   sampleType: z.string().max(50).optional(),
+  catalogItemId: z.string().uuid('关联收费项 id 格式错误').nullable().optional(),
 })
 
 /**
  * 创建检验 panel(MXQ-6009)
  * - 权限:catalog.manage
+ * - catalogItemId:关联收费目录项(billing_type=exam),panel 组合的收费入口
  */
 catalogRoutes.post('/lab-panels', async (c) => {
   const input = await parseJsonBody(c, createLabPanelSchema)
@@ -768,6 +929,7 @@ catalogRoutes.post('/lab-panels', async (c) => {
       name: input.name,
       category: input.category,
       sample_type: input.sampleType ?? null,
+      catalog_item_id: input.catalogItemId ?? null,
     })
     .select()
     .single()
@@ -794,6 +956,7 @@ const updateLabPanelSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   category: z.enum(['blood', 'urine', 'biochem', 'endocrine', 'other']).optional(),
   sampleType: z.string().max(50).optional(),
+  catalogItemId: z.string().uuid('关联收费项 id 格式错误').nullable().optional(),
   isActive: z.boolean().optional(),
 })
 
@@ -814,6 +977,9 @@ catalogRoutes.patch('/lab-panels/:id', async (c) => {
   }
   if (input.sampleType !== undefined) {
     patch.sample_type = input.sampleType
+  }
+  if (input.catalogItemId !== undefined) {
+    patch.catalog_item_id = input.catalogItemId
   }
   if (input.isActive !== undefined) {
     patch.is_active = input.isActive
@@ -934,12 +1100,15 @@ const createLabAnalyteSchema = z.object({
   refRangeHigh: z.number().nullable().optional(),
   refRangeText: z.string().max(200).optional(),
   isCritical: z.boolean().default(false),
+  reportTemplate: z.string().max(1000).optional(),
+  isOutsourced: z.boolean().default(false),
   sortOrder: z.number().int().min(0).default(0),
 })
 
 /**
  * 创建检验 analyte(MXQ-6009)
  * - 权限:catalog.manage
+ * - reportTemplate:报告模板;isOutsourced:是否外送检测
  */
 catalogRoutes.post('/lab-analytes', async (c) => {
   const input = await parseJsonBody(c, createLabAnalyteSchema)
@@ -968,6 +1137,8 @@ catalogRoutes.post('/lab-analytes', async (c) => {
       ref_range_high: input.refRangeHigh ?? null,
       ref_range_text: input.refRangeText ?? null,
       is_critical: input.isCritical,
+      report_template: input.reportTemplate ?? null,
+      is_outsourced: input.isOutsourced,
       sort_order: input.sortOrder,
     })
     .select()
@@ -994,6 +1165,8 @@ const updateLabAnalyteSchema = z.object({
   refRangeHigh: z.number().nullable().optional(),
   refRangeText: z.string().max(200).optional(),
   isCritical: z.boolean().optional(),
+  reportTemplate: z.string().max(1000).optional(),
+  isOutsourced: z.boolean().optional(),
   sortOrder: z.number().int().min(0).optional(),
 })
 
@@ -1023,6 +1196,12 @@ catalogRoutes.patch('/lab-analytes/:id', async (c) => {
   }
   if (input.isCritical !== undefined) {
     patch.is_critical = input.isCritical
+  }
+  if (input.reportTemplate !== undefined) {
+    patch.report_template = input.reportTemplate
+  }
+  if (input.isOutsourced !== undefined) {
+    patch.is_outsourced = input.isOutsourced
   }
   if (input.sortOrder !== undefined) {
     patch.sort_order = input.sortOrder

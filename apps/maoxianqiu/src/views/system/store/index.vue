@@ -149,74 +149,78 @@ function onRestore(row: StoreItem) {
 </script>
 
 <template>
-  <div>
+  <!-- 标准布局:外层固定高度 + 白底卡片,FaSearchBar 展开为卡片内联布局(左筛选右按钮) -->
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="店铺管理" description="管理各宠物医院门店信息;归档门店不可用于业务,可恢复" />
-    <FaPageMain>
-      <FaSearchBar :show-toggle="false">
-        <template #default>
-          <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-            <FaLabel label="关键词" class="col-span-1">
-              <FaInput
-                v-model="search.keyword"
-                placeholder="店铺名称/编码"
-                clearable
-                class="w-full"
-                @keydown.enter="getDataList"
-                @clear="getDataList"
-              />
-            </FaLabel>
-            <FaLabel label="显示已归档" class="col-span-1">
+    -->
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <!-- 筛选区:左筛选控件,右功能按钮 -->
+        <div class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 flex flex-wrap gap-3 items-center">
+            <FaInput
+              v-model="search.keyword"
+              placeholder="店铺名称/编码"
+              class="w-64"
+              clearable
+              @keydown.enter="getDataList"
+              @clear="getDataList"
+            />
+            <div class="flex gap-2 items-center">
+              <span class="text-sm text-muted-foreground">显示已归档</span>
               <FaSwitch v-model="includeArchived" @change="getDataList" />
-            </FaLabel>
-            <div class="flex gap-2 col-end--1 justify-end">
-              <FaButton variant="outline" @click="search.keyword = ''; getDataList()">
+            </div>
+            <FaButton size="sm" @click="onCreate">
+              新增店铺
+            </FaButton>
+            <div class="ml-auto flex gap-2 items-center">
+              <FaButton size="sm" variant="outline" @click="search.keyword = ''; getDataList()">
                 重置
               </FaButton>
-              <FaButton type="primary" @click="getDataList">
+              <FaButton size="sm" @click="getDataList">
                 <FaIcon name="i-ri:search-line" />
                 筛选
               </FaButton>
             </div>
           </div>
-        </template>
-      </FaSearchBar>
-      <div class="mx--4 my-3 border-t border-t-dashed" />
-      <FaTable
-        v-loading="loading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="tableColumns"
-        :data="dataList"
-      >
-        <template #toolbar>
-          <FaButton @click="onCreate">
-            新增店铺
-          </FaButton>
-        </template>
-        <template #cell-operation="{ row }">
-          <div class="flex-center gap-2">
-            <FaButton variant="outline" size="icon-sm" title="详情" @click="goDetail(row.original)">
-              <FaIcon name="i-ri:eye-line" />
-            </FaButton>
-            <FaButton variant="outline" size="icon-sm" title="编辑" @click="onEdit(row.original)">
-              <FaIcon name="i-ri:edit-line" />
-            </FaButton>
-            <FaDropdown
-              :items="[[
-                row.original.archived_at
-                  ? { label: '恢复', handle: () => onRestore(row.original) }
-                  : { label: '归档', variant: 'destructive', handle: () => onArchive(row.original) },
-              ]]"
-            >
-              <FaButton variant="outline" size="icon-sm">
-                <FaIcon name="i-ri:more-line" />
-              </FaButton>
-            </FaDropdown>
-          </div>
-        </template>
-      </FaTable>
-    </FaPageMain>
+        </div>
+        <!-- 表格区(flex-1 撑满,内部滚动) -->
+        <div v-loading="loading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="tableColumns"
+            :data="dataList"
+          >
+            <template #cell-operation="{ row }">
+              <div class="flex-center gap-2">
+                <FaButton variant="outline" size="icon-sm" title="详情" @click="goDetail(row.original)">
+                  <FaIcon name="i-ri:eye-line" />
+                </FaButton>
+                <FaButton variant="outline" size="icon-sm" title="编辑" @click="onEdit(row.original)">
+                  <FaIcon name="i-ri:edit-line" />
+                </FaButton>
+                <FaDropdown
+                  :items="[[
+                    row.original.archived_at
+                      ? { label: '恢复', handle: () => onRestore(row.original) }
+                      : { label: '归档', variant: 'destructive', handle: () => onArchive(row.original) },
+                  ]]"
+                >
+                  <FaButton variant="outline" size="icon-sm">
+                    <FaIcon name="i-ri:more-line" />
+                  </FaButton>
+                </FaDropdown>
+              </div>
+            </template>
+          </FaTable>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

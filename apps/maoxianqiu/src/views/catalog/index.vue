@@ -6,8 +6,10 @@ import type {
   CatalogItemWithRelations,
   DiagnosisDict,
   IntakeQuestion,
+  LabAnalyte,
   LabPanel,
   LabPanelCategory,
+  LabPanelWithAnalytes,
   StoreCatalogItemWithCatalog,
 } from '@/types/catalog'
 import { FaInput } from '@fantastic-admin/components'
@@ -47,6 +49,8 @@ const itemFilters = ref({
 })
 
 const itemColumns = computed<TableColumn<CatalogItemWithRelations>[]>(() => [
+  // B-R-1:批量迁移需要勾选项目,增加选择列
+  { id: '__selection__', type: 'selection' },
   { accessorKey: 'code', header: '编码', width: 120 },
   { accessorKey: 'name', header: '名称' },
   {
@@ -228,6 +232,83 @@ function onDeleteItem(row: CatalogItemWithRelations) {
       })
     },
   })
+}
+
+// ==================== 目录项跨类目批量迁移(B-R-1) ====================
+const selectedItemIds = ref<string[]>([])
+const migrateModalVisible = ref(false)
+const migrateTargetCategoryId = ref('')
+const migrateSubmitting = ref(false)
+
+/** 目录表格勾选变化时收集选中的项目 id(B-R-1) */
+function onItemSelectionChange(rows: CatalogItemWithRelations[]) {
+  selectedItemIds.value = rows.map(r => r.id)
+}
+
+/** 打开批量迁移弹窗:勾选项目 → 选择目标类目 → 确认执行(B-R-1) */
+function onOpenMigrateItems() {
+  if (!tenantStore.currentTenantId) {
+    useFaToast().warning('请先选择租户')
+    return
+  }
+  if (!selectedCategoryId.value) {
+    useFaToast().warning('请先在左侧类目树选择来源类目')
+    return
+  }
+  if (selectedItemIds.value.length === 0) {
+    useFaToast().warning('请先勾选要迁移的项目')
+    return
+  }
+  migrateTargetCategoryId.value = ''
+  migrateModalVisible.value = true
+}
+
+/** 确认执行批量迁移(B-R-1,走 Hono Command + catalog_items_bulk_migrate RPC) */
+async function onConfirmMigrateItems() {
+  if (!migrateTargetCategoryId.value) {
+    useFaToast().warning('请选择目标类目')
+    return
+  }
+  migrateSubmitting.value = true
+  try {
+    const res = await apiCatalog.migrateItems({
+      tenantId: tenantStore.currentTenantId,
+      sourceCategoryId: selectedCategoryId.value,
+      itemIds: selectedItemIds.value,
+      targetCategoryId: migrateTargetCategoryId.value,
+    })
+    const result = res.data ?? res
+    useFaToast().success(`迁移完成:成功 ${result.migratedCount ?? 0} 项,跳过 ${result.skippedCount ?? 0} 项`)
+    migrateModalVisible.value = false
+    selectedItemIds.value = []
+    loadItems()
+  }
+  catch (e: unknown) {
+    useFaToast().error((e as Error)?.message || '迁移失败')
+  }
+  finally {
+    migrateSubmitting.value = false
+  }
+}
+
+/** 导出目录 CSV(B-R-3,按当前筛选条件) */
+async function onExportItems() {
+  if (!tenantStore.currentTenantId) {
+    useFaToast().warning('请先选择租户')
+    return
+  }
+  try {
+    await apiCatalog.exportItems({
+      tenantId: tenantStore.currentTenantId,
+      categoryId: selectedCategoryId.value || undefined,
+      keyword: itemFilters.value.keyword || undefined,
+      billingType: itemFilters.value.billingType || undefined,
+    })
+    useFaToast().success('导出成功')
+  }
+  catch (e: unknown) {
+    useFaToast().error((e as Error)?.message || '导出失败')
+  }
 }
 
 // ==================== 门店价格覆盖 ====================
@@ -664,10 +745,10 @@ function onDeleteDiagnosis(row: DiagnosisDict) {
 
 // ==================== 检验 panel ====================
 const labLoading = ref(false)
-const labPanelList = ref<LabPanel[]>([])
+const labPanelList = ref<LabPanelWithAnalytes[]>([])
 const labFilters = ref({ category: '' as '' | LabPanelCategory, isActive: '' as string })
 
-const labPanelColumns = computed<TableColumn<LabPanel>[]>(() => [
+const labPanelColumns = computed<TableColumn<LabPanelWithAnalytes>[]>(() => [
   { accessorKey: 'code', header: '编码', width: 120 },
   { accessorKey: 'name', header: '名称' },
   {
@@ -676,6 +757,15 @@ const labPanelColumns = computed<TableColumn<LabPanel>[]>(() => [
     cell: info => LAB_PANEL_CATEGORY_LABELS[info.getValue() as LabPanelCategory] ?? info.getValue(),
   },
   { accessorKey: 'sample_type', header: '样本类型', cell: info => info.getValue() ?? '-' },
+  // B-R-5:展示关联收费项(编码/名称)
+  {
+    accessorKey: 'catalog_item',
+    header: '关联收费项',
+    cell: (info) => {
+      const v = info.getValue() as { code?: string, name?: string } | null | undefined
+      return v ? `${v.code ?? ''} ${v.name ?? ''}`.trim() : '-'
+    },
+  },
   {
     accessorKey: 'is_active',
     header: '状态',
@@ -684,11 +774,255 @@ const labPanelColumns = computed<TableColumn<LabPanel>[]>(() => [
   {
     id: 'operation',
     header: '操作',
-    width: 140,
+    width: 180,
     align: 'center',
     fixed: 'right',
   },
 ])
+
+// exam 类型目录项(panel 关联收费项下拉,B-R-5)
+const examItems = ref<CatalogItemWithRelations[]>([])
+
+/** 加载 exam 类型目录项,供 panel 关联收费项下拉选择(B-R-5) */
+async function loadExamItems() {
+  if (!tenantStore.currentTenantId) {
+    examItems.value = []
+    return
+  }
+  try {
+    const res = await apiCatalog.listItems({
+      tenantId: tenantStore.currentTenantId,
+      billingType: 'exam',
+      limit: 500,
+    })
+    examItems.value = (res.data.list ?? []) as CatalogItemWithRelations[]
+  }
+  catch (e: unknown) {
+    useFaToast().error((e as Error)?.message || '加载检验收费项失败')
+  }
+}
+
+// panel 新增/编辑弹窗(B-R-5)
+const panelModalVisible = ref(false)
+const panelEditingId = ref<string | null>(null)
+const panelForm = ref({ code: '', name: '', sampleType: '', catalogItemId: '' as string })
+const panelSubmitting = ref(false)
+
+/** 打开新增/编辑检验 panel 弹窗(含关联收费项下拉,B-R-5) */
+function onOpenLabPanelModal(row?: LabPanelWithAnalytes) {
+  if (!tenantStore.currentTenantId) {
+    useFaToast().warning('请先选择租户')
+    return
+  }
+  if (examItems.value.length === 0) {
+    loadExamItems()
+  }
+  panelEditingId.value = row?.id ?? null
+  panelForm.value = {
+    code: row?.code ?? '',
+    name: row?.name ?? '',
+    sampleType: row?.sample_type ?? '',
+    catalogItemId: row?.catalog_item_id ?? '',
+  }
+  panelModalVisible.value = true
+}
+
+/** 确认保存检验 panel(新增/编辑,B-R-5) */
+async function onConfirmLabPanel() {
+  if (!panelForm.value.code.trim() || !panelForm.value.name.trim()) {
+    useFaToast().warning('编码和名称不能为空')
+    return
+  }
+  panelSubmitting.value = true
+  try {
+    const payload = {
+      name: panelForm.value.name.trim(),
+      sampleType: panelForm.value.sampleType?.trim() || undefined,
+      catalogItemId: panelForm.value.catalogItemId || null,
+    }
+    if (panelEditingId.value) {
+      await apiCatalog.updateLabPanel(panelEditingId.value, payload)
+      useFaToast().success('已更新')
+    }
+    else {
+      await apiCatalog.createLabPanel({
+        tenantId: tenantStore.currentTenantId,
+        code: panelForm.value.code.trim(),
+        ...payload,
+        category: labFilters.value.category || undefined,
+      })
+      useFaToast().success('已创建')
+    }
+    panelModalVisible.value = false
+    loadLabPanels()
+  }
+  catch (e: unknown) {
+    useFaToast().error((e as Error)?.message || '保存失败')
+  }
+  finally {
+    panelSubmitting.value = false
+  }
+}
+
+// ==================== analyte 管理(B-R-9 + G-R-4) ====================
+const analyteModalVisible = ref(false)
+const analytePanel = ref<LabPanelWithAnalytes | null>(null)
+const analyteList = ref<LabAnalyte[]>([])
+const analyteLoading = ref(false)
+
+/** analyte 表格列(B-R-9;报告模板/外送标记为 G-R-4 字段) */
+const analyteColumns = computed<TableColumn<LabAnalyte>[]>(() => [
+  { accessorKey: 'code', header: '编码', width: 100 },
+  { accessorKey: 'name', header: '名称' },
+  { accessorKey: 'unit', header: '单位', width: 90, cell: info => info.getValue() ?? '-' },
+  {
+    accessorKey: 'ref_range_text',
+    header: '参考范围',
+    width: 110,
+    cell: info => info.getValue() ?? '-',
+  },
+  {
+    accessorKey: 'is_critical',
+    header: '危急值',
+    width: 80,
+    cell: info => info.getValue() ? '是' : '否',
+  },
+  {
+    accessorKey: 'is_outsourced',
+    header: '外送',
+    width: 80,
+    cell: info => info.getValue() ? '是' : '否',
+  },
+  {
+    accessorKey: 'report_template',
+    header: '报告模板',
+    cell: info => info.getValue() ?? '-',
+  },
+  {
+    id: 'operation',
+    header: '操作',
+    width: 90,
+    align: 'center',
+    fixed: 'right',
+  },
+])
+
+/** 打开 panel 的 analyte 明细管理弹窗(B-R-9,含报告模板/外送标记 G-R-4) */
+async function onOpenAnalyteModal(row: LabPanelWithAnalytes) {
+  analytePanel.value = row
+  analyteModalVisible.value = true
+  await loadAnalytes(row.id)
+}
+
+/** 加载 panel 下的 analyte 列表 */
+async function loadAnalytes(panelId: string) {
+  analyteLoading.value = true
+  try {
+    const res = await apiCatalog.listLabAnalytes({ panelId })
+    analyteList.value = (res.data.list ?? []) as LabAnalyte[]
+  }
+  catch (e: unknown) {
+    useFaToast().error((e as Error)?.message || '加载检验指标失败')
+  }
+  finally {
+    analyteLoading.value = false
+  }
+}
+
+// analyte 新增/编辑弹窗
+const analyteFormVisible = ref(false)
+const analyteEditingId = ref<string | null>(null)
+const analyteForm = ref({
+  code: '',
+  name: '',
+  unit: '',
+  refRangeLow: undefined as number | undefined,
+  refRangeHigh: undefined as number | undefined,
+  refRangeText: '',
+  isCritical: false,
+  reportTemplate: '',
+  isOutsourced: false,
+})
+const analyteSubmitting = ref(false)
+
+/** 打开新增/编辑 analyte 弹窗 */
+function onOpenAnalyteForm(row?: LabAnalyte) {
+  analyteEditingId.value = row?.id ?? null
+  analyteForm.value = {
+    code: row?.code ?? '',
+    name: row?.name ?? '',
+    unit: row?.unit ?? '',
+    refRangeLow: row?.ref_range_low ?? undefined,
+    refRangeHigh: row?.ref_range_high ?? undefined,
+    refRangeText: row?.ref_range_text ?? '',
+    isCritical: row?.is_critical ?? false,
+    reportTemplate: row?.report_template ?? '',
+    isOutsourced: row?.is_outsourced ?? false,
+  }
+  analyteFormVisible.value = true
+}
+
+/** 确认保存 analyte(新增/编辑) */
+async function onConfirmAnalyte() {
+  if (!analytePanel.value) {
+    return
+  }
+  if (!analyteForm.value.code.trim() || !analyteForm.value.name.trim()) {
+    useFaToast().warning('编码和名称不能为空')
+    return
+  }
+  analyteSubmitting.value = true
+  try {
+    const payload = {
+      name: analyteForm.value.name.trim(),
+      unit: analyteForm.value.unit?.trim() || undefined,
+      refRangeLow: analyteForm.value.refRangeLow,
+      refRangeHigh: analyteForm.value.refRangeHigh,
+      refRangeText: analyteForm.value.refRangeText?.trim() || undefined,
+      isCritical: analyteForm.value.isCritical,
+      reportTemplate: analyteForm.value.reportTemplate?.trim() || undefined,
+      isOutsourced: analyteForm.value.isOutsourced,
+    }
+    if (analyteEditingId.value) {
+      await apiCatalog.updateLabAnalyte(analyteEditingId.value, payload)
+      useFaToast().success('已更新')
+    }
+    else {
+      await apiCatalog.createLabAnalyte({
+        panelId: analytePanel.value.id,
+        code: analyteForm.value.code.trim(),
+        ...payload,
+      })
+      useFaToast().success('已创建')
+    }
+    analyteFormVisible.value = false
+    await loadAnalytes(analytePanel.value.id)
+  }
+  catch (e: unknown) {
+    useFaToast().error((e as Error)?.message || '保存失败')
+  }
+  finally {
+    analyteSubmitting.value = false
+  }
+}
+
+/** 删除 analyte */
+function onDeleteAnalyte(row: LabAnalyte) {
+  useFaModal().confirm({
+    title: '确认删除',
+    content: `确认删除检验指标「${row.name}」吗？`,
+    onConfirm: () => {
+      apiCatalog.deleteLabAnalyte(row.id).then(() => {
+        useFaToast().success('删除成功')
+        if (analytePanel.value) {
+          loadAnalytes(analytePanel.value.id)
+        }
+      }).catch((e: unknown) => {
+        useFaToast().error((e as Error)?.message || '删除失败')
+      })
+    },
+  })
+}
 
 /** 加载检验 panel 列表 */
 async function loadLabPanels() {
@@ -707,7 +1041,7 @@ async function loadLabPanels() {
       page,
       pageSize: size,
     })
-    labPanelList.value = (res.data.list ?? []) as LabPanel[]
+    labPanelList.value = (res.data.list ?? []) as LabPanelWithAnalytes[]
     labPagination.value.total = res.data.total ?? 0
   }
   catch (e: unknown) {
@@ -726,36 +1060,6 @@ function onLabPageChange(page: number) {
 /** 检验 panel 每页条数切换 */
 function onLabSizeChangeFn(size: number) {
   onLabSizeChange(size).then(() => loadLabPanels())
-}
-
-/** 新增检验 panel */
-function onCreateLabPanel() {
-  if (!tenantStore.currentTenantId) {
-    useFaToast().warning('请先选择租户')
-    return
-  }
-  openSimpleFormModal('新增检验 panel', [
-    { key: 'code', label: '编码', placeholder: '如 LP-001', required: true },
-    { key: 'name', label: '名称', placeholder: '如 血常规', required: true },
-    { key: 'sampleType', label: '样本类型', placeholder: '如 全血/血清/尿液' },
-  ], async () => {
-    try {
-      await apiCatalog.createLabPanel({
-        tenantId: tenantStore.currentTenantId,
-        code: simpleFormState.value.code.trim(),
-        name: simpleFormState.value.name.trim(),
-        category: labFilters.value.category || undefined,
-        sampleType: simpleFormState.value.sampleType?.trim() || undefined,
-      })
-      useFaToast().success('已创建')
-      loadLabPanels()
-      return true
-    }
-    catch (e: unknown) {
-      useFaToast().error((e as Error)?.message || '创建失败')
-      return false
-    }
-  })
 }
 
 /** 切换 panel 启停 */
@@ -903,6 +1207,11 @@ onMounted(() => {
                           <FaButton variant="outline" @click="onResetItems">
                             重置
                           </FaButton>
+                          <!-- B-R-3:按当前筛选条件导出 CSV -->
+                          <FaButton variant="outline" @click="onExportItems">
+                            <FaIcon name="i-ri:download-2-line" />
+                            导出
+                          </FaButton>
                           <FaButton type="primary" @click="loadItems">
                             <FaIcon name="i-ri:search-line" />
                             筛选
@@ -922,7 +1231,17 @@ onMounted(() => {
                       border
                       :columns="itemColumns"
                       :data="itemList"
+                      :selectable="true"
+                      :multiple="true"
+                      @selection-change="onItemSelectionChange"
                     >
+                      <template #toolbar>
+                        <!-- B-R-1:勾选项目后批量迁移到目标类目 -->
+                        <FaButton type="primary" variant="secondary" @click="onOpenMigrateItems">
+                          <FaIcon name="i-ri:node-tree" />
+                          批量迁移
+                        </FaButton>
+                      </template>
                       <template #cell-operation="{ row }">
                         <div class="flex-center gap-2">
                           <FaButton variant="outline" size="icon-sm" @click="onEditItem(row.original)">
@@ -947,6 +1266,24 @@ onMounted(() => {
                   </div>
                   <FaPagination :page="itemPagination.page" :size="itemPagination.size" :total="itemPagination.total" class="mt-2 shrink-0" @page-change="onItemPageChange" @size-change="onItemSizeChangeFn" />
                 </div>
+                <!-- B-R-1:目录项跨类目批量迁移弹窗 -->
+                <FaModal v-model="migrateModalVisible" title="批量迁移目录项" :loading="migrateSubmitting" @confirm="onConfirmMigrateItems">
+                  <div class="space-y-3 py-1">
+                    <FaAlert type="info" :closable="false">
+                      已勾选 <b>{{ selectedItemIds.length }}</b> 个目录项,将把当前类目下勾选的项目迁移到目标类目。
+                    </FaAlert>
+                    <FaLabel label="目标类目" required>
+                      <FaSelect
+                        v-model="migrateTargetCategoryId"
+                        :options="[
+                          { label: '请选择目标类目', value: '' },
+                          ...categories.filter(c => c.id !== selectedCategoryId).map(c => ({ label: `${c.name}(${c.code})`, value: c.id })),
+                        ]"
+                        class="w-full"
+                      />
+                    </FaLabel>
+                  </div>
+                </FaModal>
               </template>
 
               <!-- ==================== 门店价格 ==================== -->
@@ -1279,15 +1616,19 @@ onMounted(() => {
                       :data="labPanelList"
                     >
                       <template #toolbar>
-                        <FaButton type="primary" @click="onCreateLabPanel">
+                        <FaButton type="primary" @click="onOpenLabPanelModal()">
                           <FaIcon name="i-ri:add-line" />
                           新增 panel
                         </FaButton>
                       </template>
                       <template #cell-operation="{ row }">
                         <div class="flex-center gap-2">
+                          <FaButton variant="outline" size="icon-sm" @click="onOpenLabPanelModal(row.original)">
+                            <FaIcon name="i-ri:edit-line" />
+                          </FaButton>
                           <FaDropdown
                             :items="[[
+                              { label: '指标明细', handle: () => onOpenAnalyteModal(row.original) },
                               { label: row.original.is_active ? '停用' : '启用', handle: () => onToggleLabPanelActive(row.original) },
                               { label: '删除', variant: 'destructive', handle: () => onDeleteLabPanel(row.original) },
                             ]]"
@@ -1305,6 +1646,100 @@ onMounted(() => {
                   </div>
                   <FaPagination :page="labPagination.page" :size="labPagination.size" :total="labPagination.total" class="mt-2 shrink-0" @page-change="onLabPageChange" @size-change="onLabSizeChangeFn" />
                 </div>
+
+                <!-- B-R-5:panel 新增/编辑弹窗(含关联收费项下拉) -->
+                <FaModal v-model="panelModalVisible" :title="panelEditingId ? '编辑检验 panel' : '新增检验 panel'" :loading="panelSubmitting" @confirm="onConfirmLabPanel">
+                  <div class="gap-x-4 gap-y-3 grid grid-cols-2">
+                    <FaLabel label="编码" required>
+                      <FaInput v-model="panelForm.code" :disabled="!!panelEditingId" placeholder="如 LP-001" class="w-full" />
+                    </FaLabel>
+                    <FaLabel label="名称" required>
+                      <FaInput v-model="panelForm.name" placeholder="如 血常规" class="w-full" />
+                    </FaLabel>
+                    <FaLabel label="样本类型">
+                      <FaInput v-model="panelForm.sampleType" placeholder="如 全血/血清/尿液" class="w-full" />
+                    </FaLabel>
+                    <FaLabel label="关联收费项">
+                      <FaSelect
+                        v-model="panelForm.catalogItemId"
+                        :options="[
+                          { label: '不关联', value: '' },
+                          ...examItems.map(i => ({ label: `${i.code} ${i.name}`, value: i.id })),
+                        ]"
+                        class="w-full"
+                        placeholder="选择 exam 收费项"
+                      />
+                    </FaLabel>
+                  </div>
+                </FaModal>
+
+                <!-- B-R-9/G-R-4:panel 指标明细(analyte)管理弹窗 -->
+                <FaModal v-model="analyteModalVisible" :title="`指标明细 - ${analytePanel?.name ?? ''}`" :footer="false" width="820px">
+                  <div class="flex flex-col gap-3">
+                    <div class="flex justify-end">
+                      <FaButton type="primary" @click="onOpenAnalyteForm()">
+                        <FaIcon name="i-ri:add-line" />
+                        新增指标
+                      </FaButton>
+                    </div>
+                    <div v-loading="analyteLoading" class="max-h-96 overflow-auto">
+                      <FaTable
+                        row-key="id"
+                        stripe
+                        border
+                        :columns="analyteColumns"
+                        :data="analyteList"
+                      >
+                        <template #cell-operation="{ row }">
+                          <div class="flex-center gap-2">
+                            <FaButton variant="outline" size="icon-sm" @click="onOpenAnalyteForm(row.original)">
+                              <FaIcon name="i-ri:edit-line" />
+                            </FaButton>
+                            <FaButton variant="outline" size="icon-sm" @click="onDeleteAnalyte(row.original)">
+                              <FaIcon name="i-ri:delete-bin-line" />
+                            </FaButton>
+                          </div>
+                        </template>
+                        <template #empty>
+                          <FaEmptyState description="暂无检验指标" />
+                        </template>
+                      </FaTable>
+                    </div>
+                  </div>
+                </FaModal>
+
+                <!-- analyte 新增/编辑弹窗(G-R-4:含报告模板/外送检测) -->
+                <FaModal v-model="analyteFormVisible" :title="analyteEditingId ? '编辑检验指标' : '新增检验指标'" :loading="analyteSubmitting" @confirm="onConfirmAnalyte">
+                  <div class="gap-x-4 gap-y-3 grid grid-cols-2">
+                    <FaLabel label="编码" required>
+                      <FaInput v-model="analyteForm.code" :disabled="!!analyteEditingId" placeholder="如 AT-001" class="w-full" />
+                    </FaLabel>
+                    <FaLabel label="名称" required>
+                      <FaInput v-model="analyteForm.name" placeholder="如 WBC" class="w-full" />
+                    </FaLabel>
+                    <FaLabel label="单位">
+                      <FaInput v-model="analyteForm.unit" placeholder="如 ×10⁹/L" class="w-full" />
+                    </FaLabel>
+                    <FaLabel label="参考范围(低)">
+                      <FaInput v-model="analyteForm.refRangeLow" type="number" placeholder="如 4" class="w-full" />
+                    </FaLabel>
+                    <FaLabel label="参考范围(高)">
+                      <FaInput v-model="analyteForm.refRangeHigh" type="number" placeholder="如 10" class="w-full" />
+                    </FaLabel>
+                    <FaLabel label="参考范围(文本)">
+                      <FaInput v-model="analyteForm.refRangeText" placeholder="如 4-10" class="w-full" />
+                    </FaLabel>
+                    <FaLabel label="危急值">
+                      <FaSwitch v-model="analyteForm.isCritical" />
+                    </FaLabel>
+                    <FaLabel label="外送检测">
+                      <FaSwitch v-model="analyteForm.isOutsourced" />
+                    </FaLabel>
+                    <FaLabel label="报告模板" class="col-span-2">
+                      <FaInput v-model="analyteForm.reportTemplate" placeholder="报告展示时的文本模板" class="w-full" />
+                    </FaLabel>
+                  </div>
+                </FaModal>
               </template>
             </FaTabs>
           </div>

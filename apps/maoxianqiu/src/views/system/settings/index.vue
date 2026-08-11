@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { EffectiveSettingItem } from '@/api/modules/settings'
 import apiSettings from '@/api/modules/settings'
+import apiFile from '@/api/modules/file'
 import BusinessStoreSelector from '@/components/business/StoreSelector/index.vue'
 import { supabase } from '@/lib/supabase'
 import { useAppTenantStore } from '@/store/modules/app/tenant'
@@ -37,6 +38,11 @@ const tenantForm = ref({
   timezone: '',
   currency: '',
   locale: '',
+  address: '',
+  detailAddress: '',
+  // R-C6(3.4.2.3-05):医院 Logo 文件 id 与预览 URL
+  logoFileId: '',
+  logoPreviewUrl: '',
 })
 const tenantSaving = ref(false)
 
@@ -53,6 +59,20 @@ async function loadTenant() {
       timezone: t.timezone ?? '',
       currency: t.currency ?? '',
       locale: t.locale ?? '',
+      address: t.address ?? '',
+      detailAddress: t.detail_address ?? '',
+      logoFileId: t.logo_file_id ?? '',
+      logoPreviewUrl: '',
+    }
+    // 已保存 Logo:生成短期预览 URL(失败静默,不影响其它信息加载)
+    if (tenantForm.value.logoFileId) {
+      try {
+        const res: any = await apiFile.getDownloadUrl({ fileId: tenantForm.value.logoFileId })
+        tenantForm.value.logoPreviewUrl = res?.data?.downloadUrl ?? ''
+      }
+      catch {
+        tenantForm.value.logoPreviewUrl = ''
+      }
     }
   }
   catch (e) {
@@ -65,19 +85,37 @@ async function loadTenant() {
   }
 }
 
+/**
+ * Logo 上传完成回调(R-C6)
+ * 走 R2 预签名上传链路(FileUploader 组件封装),保存 file_id 待 saveTenant 提交。
+ * @param fileId 上传完成后返回的文件 id
+ */
+function onLogoUploaded(fileId: string) {
+  tenantForm.value.logoFileId = fileId
+  tenantForm.value.logoPreviewUrl = ''
+}
+
 async function saveTenant() {
   if (!tenantStore.currentTenantId) {
     return
   }
   tenantSaving.value = true
   try {
-    await apiSettings.updateTenant(tenantStore.currentTenantId, {
-      name: tenantForm.value.name,
-      shortName: tenantForm.value.shortName,
-      timezone: tenantForm.value.timezone,
-      currency: tenantForm.value.currency,
-      locale: tenantForm.value.locale,
-    })
+    // apiSettings.updateTenant 类型仅含基础字段,地址/Logo 等新字段由后端 updateTenantSchema 接收,此处扩展透传
+    await (apiSettings.updateTenant as (id: string, patch: Record<string, unknown>) => Promise<unknown>)(
+      tenantStore.currentTenantId,
+      {
+        name: tenantForm.value.name,
+        shortName: tenantForm.value.shortName,
+        timezone: tenantForm.value.timezone,
+        currency: tenantForm.value.currency,
+        locale: tenantForm.value.locale,
+        address: tenantForm.value.address,
+        detailAddress: tenantForm.value.detailAddress,
+        // R-C6:Logo 文件 id(未上传过时保持 undefined,不误清空原值)
+        ...(tenantForm.value.logoFileId ? { logoFileId: tenantForm.value.logoFileId } : {}),
+      },
+    )
     useFaToast().success('医院信息已保存')
   }
   catch (e) {
@@ -207,8 +245,13 @@ async function loadRules() {
   }
   rulesLoading.value = true
   try {
-    const res = await apiSettings.getEffectiveSettings(tenantStore.currentTenantId, rulesStoreId.value || undefined)
-    rules.value = res.items ?? []
+    // 并行拉取 business(业务规则)+ security(登录提醒)+ points(消费积分)三个命名空间的生效配置
+    const [bizRes, secRes, pointsRes] = await Promise.all([
+      apiSettings.getEffectiveSettings(tenantStore.currentTenantId, rulesStoreId.value || undefined, 'business'),
+      apiSettings.getEffectiveSettings(tenantStore.currentTenantId, rulesStoreId.value || undefined, 'security'),
+      apiSettings.getEffectiveSettings(tenantStore.currentTenantId, rulesStoreId.value || undefined, 'points'),
+    ])
+    rules.value = [...(bizRes.items ?? []), ...(secRes.items ?? []), ...(pointsRes.items ?? [])]
     ruleBoolDrafts.value = {}
     ruleNumberDrafts.value = {}
     for (const item of rules.value) {
@@ -369,19 +412,63 @@ function onPrintStoreChange() {
 }
 
 // 打印编辑弹窗
+/**
+ * 显示内容项默认配置(R-5 3.4.2.3-03)
+ * 开关:showCustomerPhone / showPetInfo / showOperator / showDoctor / showSubtotal(折扣前金额)
+ * 文本:header(抬头) / footer(页脚) / statement(声明)
+ */
+const PRINT_CONFIG_DEFAULTS: Record<string, boolean | string> = {
+  showCustomerPhone: true,
+  showPetInfo: true,
+  showOperator: true,
+  showDoctor: true,
+  showSubtotal: true,
+  header: '',
+  footer: '',
+  statement: '',
+}
 const printModal = ref(false)
-const printForm = ref({ id: '', paper_size: '80mm', label: '', is_default: false, is_active: true })
+/** 打印设置表单(config 为显示内容项配置,R-5 序列化存入 print_settings.config jsonb) */
+const printForm = ref<{
+  id: string
+  paper_size: string
+  label: string
+  is_default: boolean
+  is_active: boolean
+  config: Record<string, any>
+}>({ id: '', paper_size: '80mm', label: '', is_default: false, is_active: true, config: { ...PRINT_CONFIG_DEFAULTS } })
 const printSaving = ref(false)
 const PAPER_SIZES = [
   { label: '58mm', value: '58mm' },
   { label: '80mm', value: '80mm' },
   { label: 'A4', value: 'a4' },
 ]
+/** 显示内容项开关列表(渲染侧按此配置控制字段显隐) */
+const PRINT_CONTENT_ITEMS = [
+  { key: 'showCustomerPhone', label: '客户手机号' },
+  { key: 'showPetInfo', label: '宠物信息' },
+  { key: 'showOperator', label: '操作员' },
+  { key: 'showDoctor', label: '医生' },
+  { key: 'showSubtotal', label: '折扣前金额' },
+]
 
+/**
+ * 打开打印设置编辑弹窗(R-5)
+ * 从 row.config jsonb 合并显示内容项配置(缺省补默认值),新建时使用默认配置。
+ * @param row 打印设置行(可空,空表示新建)
+ */
 function openPrintEdit(row: any | null) {
+  const cfg = row?.config && typeof row.config === 'object' ? row.config : {}
   printForm.value = row
-    ? { id: row.id, paper_size: row.paper_size, label: row.label, is_default: row.is_default, is_active: row.is_active }
-    : { id: '', paper_size: '80mm', label: '', is_default: false, is_active: true }
+    ? {
+        id: row.id,
+        paper_size: row.paper_size,
+        label: row.label,
+        is_default: row.is_default,
+        is_active: row.is_active,
+        config: { ...PRINT_CONFIG_DEFAULTS, ...cfg },
+      }
+    : { id: '', paper_size: '80mm', label: '', is_default: false, is_active: true, config: { ...PRINT_CONFIG_DEFAULTS } }
   printModal.value = true
 }
 
@@ -395,7 +482,8 @@ async function savePrint() {
   }
   printSaving.value = true
   try {
-    await apiSettings.savePrintSetting({
+    // apiSettings.savePrintSetting 类型未含 config(R-5 新增),此处类型断言透传序列化 jsonb
+    await (apiSettings.savePrintSetting as (row: Record<string, unknown>) => Promise<unknown>)({
       id: printForm.value.id || undefined,
       tenant_id: tenantStore.currentTenantId,
       store_id: printStoreId.value,
@@ -403,6 +491,7 @@ async function savePrint() {
       label: printForm.value.label,
       is_default: printForm.value.is_default,
       is_active: printForm.value.is_active,
+      config: { ...printForm.value.config },
     })
     useFaToast().success('已保存')
     printModal.value = false
@@ -582,6 +671,33 @@ onMounted(loadTenant)
           <FaLabel label="语言" class="block">
             <FaInput v-model="tenantForm.locale" placeholder="如 zh-CN" class="w-full" :disabled="!canManageTenant" />
           </FaLabel>
+          <FaLabel label="医院地址" class="block">
+            <FaInput v-model="tenantForm.address" placeholder="如 上海市浦东新区" class="w-full" :disabled="!canManageTenant" />
+          </FaLabel>
+          <FaLabel label="详细地址" class="block">
+            <FaInput v-model="tenantForm.detailAddress" placeholder="街道门牌号等(可选)" class="w-full" :disabled="!canManageTenant" />
+          </FaLabel>
+        </div>
+        <!-- R-C6(3.4.2.3-05):Logo 上传/预览(R2 预签名链路,保存 file_id 至 tenants.logo_file_id) -->
+        <div class="mt-4">
+          <FaLabel label="医院 Logo" class="block">
+            <FileUploader
+              category="image"
+              entity-type="tenant"
+              :entity-id="tenantStore.currentTenantId"
+              :tenant-id="tenantStore.currentTenantId"
+              :max="1"
+              :disabled="!canManageTenant"
+              :description="canManageTenant ? '上传医院 Logo(图片,用于打印模板 {{hospital.logo}})' : '当前无维护权限'"
+              @uploaded="(e: any) => onLogoUploaded(e.fileId)"
+            />
+          </FaLabel>
+          <img
+            v-if="tenantForm.logoPreviewUrl"
+            :src="tenantForm.logoPreviewUrl"
+            alt="医院 Logo 预览"
+            class="mt-2 border rounded max-h-20"
+          >
         </div>
         <div class="mt-4">
           <PermissionButton permission="settings.tenant.manage" :loading="tenantSaving" @click="saveTenant">
@@ -825,6 +941,24 @@ onMounted(loadTenant)
         </FaLabel>
         <FaLabel label="名称" class="block">
           <FaInput v-model="printForm.label" placeholder="如 80mm 小票" class="w-full" />
+        </FaLabel>
+        <!-- R-5(3.4.2.3-03):小票显示内容项开关 + 抬头/页脚/声明文本 -->
+        <FaLabel label="显示内容项" class="block">
+          <div class="grid grid-cols-2 gap-x-4 gap-y-2">
+            <div v-for="item in PRINT_CONTENT_ITEMS" :key="item.key" class="flex items-center gap-2">
+              <FaSwitch v-model="printForm.config[item.key]" />
+              <span class="text-sm">{{ item.label }}</span>
+            </div>
+          </div>
+        </FaLabel>
+        <FaLabel label="抬头" class="block">
+          <FaInput v-model="printForm.config.header" placeholder="小票抬头文本(可选)" class="w-full" />
+        </FaLabel>
+        <FaLabel label="页脚" class="block">
+          <FaInput v-model="printForm.config.footer" placeholder="小票页脚文本(可选)" class="w-full" />
+        </FaLabel>
+        <FaLabel label="声明" class="block">
+          <FaInput v-model="printForm.config.statement" placeholder="免责声明等(可选)" class="w-full" />
         </FaLabel>
         <div class="flex gap-6">
           <FaLabel label="默认" class="block">

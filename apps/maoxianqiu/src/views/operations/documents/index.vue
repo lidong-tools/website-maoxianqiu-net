@@ -371,14 +371,17 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col min-h-0 inset-0 absolute overflow-hidden">
+    <!-- 注释掉标题和描述区域(UI界面-人工测试报告 #8) -->
+    <!--
     <EntityPageHeader compact title="业务文档中心" description="处方/收费单/病历摘要/检验/影像/出院/疫苗/寄养交接;服务端安全模板渲染,审计可追溯" />
-
-    <FaPageMain>
-      <FaSearchBar :show-toggle="false">
-        <template #default>
-          <div class="gap-x-8 gap-y-2 grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
-            <FaLabel label="门店" class="col-span-1">
+    -->
+    <div class="p-2 flex flex-1 flex-col gap-2 h-full min-h-0 overflow-hidden">
+      <!-- 上卡片: 筛选 + 文档配置/实时预览 -->
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <div class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 flex flex-wrap gap-3 items-center">
+            <FaLabel label="门店" class="w-44">
               <FaSelect
                 v-model="search.storeId"
                 :options="storeOptions"
@@ -386,194 +389,200 @@ onMounted(async () => {
                 @change="onStoreChange"
               />
             </FaLabel>
-            <div class="flex gap-2 col-end--1 justify-end">
+            <div class="ml-auto flex gap-2 items-center">
               <FaButton @click="openCreateTemplate">
                 <FaIcon name="i-ri:file-add-line" />
                 新建模板
               </FaButton>
             </div>
           </div>
-        </template>
-      </FaSearchBar>
+        </div>
+        <div class="p-4 flex-1 min-h-0 overflow-auto">
+          <!-- 左:文档配置 / 右:实时预览 -->
+          <div class="gap-6 grid grid-cols-1 lg:grid-cols-[380px_1fr]">
+            <!-- 左列配置 -->
+            <div class="space-y-4">
+              <div class="p-4 border border-gray-200 rounded-lg space-y-4 dark:border-gray-700">
+                <p class="text-sm font-medium">
+                  文档配置
+                </p>
 
-      <!-- 左:文档配置 / 右:实时预览 -->
-      <div class="mt-4 gap-6 grid grid-cols-1 lg:grid-cols-[380px_1fr]">
-        <!-- 左列配置 -->
-        <div class="space-y-4">
-          <div class="p-4 border border-gray-200 rounded-lg space-y-4 dark:border-gray-700">
-            <p class="text-sm font-medium">
-              文档配置
-            </p>
+                <FaLabel label="文档类型">
+                  <FaSelect
+                    v-model="documentType"
+                    :options="DOCUMENT_TYPE_OPTIONS"
+                    class="w-full"
+                    @change="onDocumentTypeChange"
+                  />
+                </FaLabel>
 
-            <FaLabel label="文档类型">
-              <FaSelect
-                v-model="documentType"
-                :options="DOCUMENT_TYPE_OPTIONS"
-                class="w-full"
-                @change="onDocumentTypeChange"
-              />
-            </FaLabel>
+                <FaLabel label="业务单据">
+                  <DocumentEntityPicker
+                    v-model="entityId"
+                    :document-type="documentType"
+                    class="w-full"
+                  />
+                </FaLabel>
 
-            <FaLabel label="业务单据">
-              <DocumentEntityPicker
-                v-model="entityId"
-                :document-type="documentType"
-                class="w-full"
-              />
-            </FaLabel>
+                <FaLabel label="模板">
+                  <FaSelect
+                    v-model="templateId"
+                    :options="[
+                      { label: '自动(门店/租户/系统)', value: '' },
+                      ...filteredTemplates.map(t => ({
+                        label: `${t.name} [${templateLevelLabel(t)} v${t.version}]`,
+                        value: t.id,
+                      })),
+                    ]"
+                    class="w-full"
+                  />
+                </FaLabel>
 
-            <FaLabel label="模板">
-              <FaSelect
-                v-model="templateId"
-                :options="[
-                  { label: '自动(门店/租户/系统)', value: '' },
-                  ...filteredTemplates.map(t => ({
-                    label: `${t.name} [${templateLevelLabel(t)} v${t.version}]`,
-                    value: t.id,
-                  })),
-                ]"
-                class="w-full"
-              />
-            </FaLabel>
+                <FaLabel label="纸型">
+                  <FaSelect
+                    v-model="paperSize"
+                    :options="PAPER_SIZE_OPTIONS"
+                    class="w-full"
+                  />
+                </FaLabel>
 
-            <FaLabel label="纸型">
-              <FaSelect
-                v-model="paperSize"
-                :options="PAPER_SIZE_OPTIONS"
-                class="w-full"
-              />
-            </FaLabel>
-
-            <div class="flex gap-2">
-              <FaButton type="primary" :loading="previewLoading" @click="onPreview">
-                <FaIcon name="i-ri:eye-line" />
-                预览
-              </FaButton>
-              <FaButton :loading="previewLoading" @click="onRender">
-                <FaIcon name="i-ri:file-line" />
-                渲染
-              </FaButton>
-              <FaButton variant="outline" :loading="previewLoading" @click="onPrint">
-                <FaIcon name="i-ri:printer-line" />
-                打印
-              </FaButton>
-            </div>
-            <p class="text-xs text-muted-foreground">
-              切换纸型仅改变预览宽度;打印时请确保打印机纸张匹配。
-            </p>
-          </div>
-
-          <!-- 模板列表 -->
-          <div class="p-4 border border-gray-200 rounded-lg dark:border-gray-700">
-            <p class="text-sm font-medium mb-3">
-              可用模板({{ filteredTemplates.length }})
-            </p>
-            <div class="max-h-72 overflow-auto space-y-2">
-              <div
-                v-for="tpl in filteredTemplates"
-                :key="tpl.id"
-                class="text-sm px-3 py-2 border border-gray-200 rounded-md flex gap-2 cursor-pointer items-center justify-between dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
-                :class="templateId === tpl.id ? 'border-primary' : ''"
-                @click="templateId = tpl.id"
-              >
-                <div class="min-w-0">
-                  <div class="truncate">
-                    {{ tpl.name }}
-                  </div>
-                  <div class="text-xs text-muted-foreground">
-                    {{ templateLevelLabel(tpl) }} · v{{ tpl.version }} · {{ tpl.paper_size }}{{ tpl.is_default ? ' · 默认' : '' }}
-                  </div>
+                <div class="flex gap-2">
+                  <FaButton type="primary" :loading="previewLoading" @click="onPreview">
+                    <FaIcon name="i-ri:eye-line" />
+                    预览
+                  </FaButton>
+                  <FaButton :loading="previewLoading" @click="onRender">
+                    <FaIcon name="i-ri:file-line" />
+                    渲染
+                  </FaButton>
+                  <FaButton variant="outline" :loading="previewLoading" @click="onPrint">
+                    <FaIcon name="i-ri:printer-line" />
+                    打印
+                  </FaButton>
                 </div>
-                <FaButton v-if="tpl.level !== 'system'" variant="outline" size="sm" @click.stop="openEditTemplate(tpl)">
-                  编辑
-                </FaButton>
+                <p class="text-xs text-muted-foreground">
+                  切换纸型仅改变预览宽度;打印时请确保打印机纸张匹配。
+                </p>
               </div>
-              <p v-if="filteredTemplates.length === 0" class="text-xs text-muted-foreground py-2">
-                当前类型暂无可用模板
-              </p>
+
+              <!-- 模板列表 -->
+              <div class="p-4 border border-gray-200 rounded-lg dark:border-gray-700">
+                <p class="text-sm font-medium mb-3">
+                  可用模板({{ filteredTemplates.length }})
+                </p>
+                <div class="max-h-72 overflow-auto space-y-2">
+                  <div
+                    v-for="tpl in filteredTemplates"
+                    :key="tpl.id"
+                    class="text-sm px-3 py-2 border border-gray-200 rounded-md flex gap-2 cursor-pointer items-center justify-between dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                    :class="templateId === tpl.id ? 'border-primary' : ''"
+                    @click="templateId = tpl.id"
+                  >
+                    <div class="min-w-0">
+                      <div class="truncate">
+                        {{ tpl.name }}
+                      </div>
+                      <div class="text-xs text-muted-foreground">
+                        {{ templateLevelLabel(tpl) }} · v{{ tpl.version }} · {{ tpl.paper_size }}{{ tpl.is_default ? ' · 默认' : '' }}
+                      </div>
+                    </div>
+                    <FaButton v-if="tpl.level !== 'system'" variant="outline" size="sm" @click.stop="openEditTemplate(tpl)">
+                      编辑
+                    </FaButton>
+                  </div>
+                  <p v-if="filteredTemplates.length === 0" class="text-xs text-muted-foreground py-2">
+                    当前类型暂无可用模板
+                  </p>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        <!-- 右列预览 -->
-        <div class="min-w-0">
-          <DocumentPreviewPanel
-            :html="previewHtml"
-            :paper-size="paperSize"
-            :loading="previewLoading"
-          />
-          <div v-if="lastRender" class="text-xs text-muted-foreground mt-3">
-            生效模板: {{ lastRender.templateName }} ({{ TEMPLATE_LEVEL_LABELS[lastRender.templateLevel] ?? lastRender.templateLevel }} v{{ lastRender.templateVersion }}) · 纸型 {{ lastRender.paperSize }}
-          </div>
-        </div>
-      </div>
-
-      <!-- 历史 -->
-      <div class="mx--4 my-4 border-t border-t-dashed" />
-      <div class="mb-2 flex items-center justify-between">
-        <p class="text-sm font-medium">
-          文档历史(近 {{ historyTotal }} 条)
-        </p>
-      </div>
-      <FaTable
-        v-loading="historyLoading"
-        table-root-class="rounded-lg overflow-hidden"
-        row-key="id"
-        stripe
-        border
-        :columns="historyColumns"
-        :data="historyList"
-      />
-
-      <!-- 模板管理弹窗 -->
-      <FaModal
-        v-model="manageVisible"
-        :title="manageMode === 'create' ? '新建文档模板' : '编辑文档模板'"
-        confirm-text="保存"
-        :loading="manageSubmitting"
-        width="720px"
-        @confirm="saveTemplate"
-      >
-        <div class="space-y-4">
-          <div class="gap-3 grid grid-cols-2">
-            <FaLabel label="模板名称">
-              <FaInput v-model="manageForm.name" placeholder="模板名称" class="w-full" />
-            </FaLabel>
-            <FaLabel label="纸型">
-              <FaSelect v-model="manageForm.paperSize" :options="PAPER_SIZE_OPTIONS" class="w-full" />
-            </FaLabel>
-            <FaLabel v-if="manageMode === 'create'" label="生效范围">
-              <FaSelect
-                v-model="manageForm.storeScope"
-                :options="[
-                  { label: '租户默认', value: 'tenant' },
-                  { label: '门店覆盖', value: 'store' },
-                ]"
-                class="w-full"
+            <!-- 右列预览 -->
+            <div class="min-w-0">
+              <DocumentPreviewPanel
+                :html="previewHtml"
+                :paper-size="paperSize"
+                :loading="previewLoading"
               />
-            </FaLabel>
-            <div class="pb-1 flex gap-4 items-end">
-              <FaCheckbox v-model="manageForm.isDefault">
-                设为默认
-              </FaCheckbox>
-              <FaCheckbox v-model="manageForm.isActive">
-                启用
-              </FaCheckbox>
+              <div v-if="lastRender" class="text-xs text-muted-foreground mt-3">
+                生效模板: {{ lastRender.templateName }} ({{ TEMPLATE_LEVEL_LABELS[lastRender.templateLevel] ?? lastRender.templateLevel }} v{{ lastRender.templateVersion }}) · 纸型 {{ lastRender.paperSize }}
+              </div>
             </div>
           </div>
-          <FaLabel label="模板内容(HTML)">
-            <textarea
-              v-model="manageForm.templateHtml"
-              rows="12"
-              class="text-xs font-mono p-2 border border-gray-300 rounded-md w-full dark:border-gray-700 dark:bg-gray-900"
-              placeholder="仅支持安全变量 {{path}} 与 {{#each path}}...{{/each}},禁止脚本"
+        </div>
+      </div>
+
+      <!-- 下卡片: 历史表格 -->
+      <div class="border rounded-lg bg-card flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+        <div class="px-4 pt-3 border-b shrink-0">
+          <div class="pb-3 flex items-center">
+            <p class="text-sm font-medium">
+              文档历史(近 {{ historyTotal }} 条)
+            </p>
+          </div>
+        </div>
+        <div v-loading="historyLoading" class="flex-1 min-h-0 overflow-hidden">
+          <FaTable
+            class="h-full min-h-0"
+            table-root-class="overflow-hidden"
+            row-key="id"
+            stripe
+            border
+            :columns="historyColumns"
+            :data="historyList"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- 模板管理弹窗 -->
+    <FaModal
+      v-model="manageVisible"
+      :title="manageMode === 'create' ? '新建文档模板' : '编辑文档模板'"
+      confirm-text="保存"
+      :loading="manageSubmitting"
+      width="720px"
+      @confirm="saveTemplate"
+    >
+      <div class="space-y-4">
+        <div class="gap-3 grid grid-cols-2">
+          <FaLabel label="模板名称">
+            <FaInput v-model="manageForm.name" placeholder="模板名称" class="w-full" />
+          </FaLabel>
+          <FaLabel label="纸型">
+            <FaSelect v-model="manageForm.paperSize" :options="PAPER_SIZE_OPTIONS" class="w-full" />
+          </FaLabel>
+          <FaLabel v-if="manageMode === 'create'" label="生效范围">
+            <FaSelect
+              v-model="manageForm.storeScope"
+              :options="[
+                { label: '租户默认', value: 'tenant' },
+                { label: '门店覆盖', value: 'store' },
+              ]"
+              class="w-full"
             />
           </FaLabel>
-          <p class="text-xs text-muted-foreground">
-            安全变量示例: &#123;&#123;hospital.name&#125;&#125; / &#123;&#123;pet.name&#125;&#125; / &#123;&#123;invoice.total&#125;&#125;;列表用 &#123;&#123;#each invoice.items&#125;&#125;...&#123;&#123;/each&#125;&#125;。禁止 &lt;script&gt;、onclick、javascript:、&#123;&#123;&#123; 等。
-          </p>
+          <div class="pb-1 flex gap-4 items-end">
+            <FaCheckbox v-model="manageForm.isDefault">
+              设为默认
+            </FaCheckbox>
+            <FaCheckbox v-model="manageForm.isActive">
+              启用
+            </FaCheckbox>
+          </div>
         </div>
-      </FaModal>
-    </FaPageMain>
+        <FaLabel label="模板内容(HTML)">
+          <textarea
+            v-model="manageForm.templateHtml"
+            rows="12"
+            class="text-xs font-mono p-2 border border-gray-300 rounded-md w-full dark:border-gray-700 dark:bg-gray-900"
+            placeholder="仅支持安全变量 {{path}} 与 {{#each path}}...{{/each}},禁止脚本"
+          />
+        </FaLabel>
+        <p class="text-xs text-muted-foreground">
+          安全变量示例: &#123;&#123;hospital.name&#125;&#125; / &#123;&#123;pet.name&#125;&#125; / &#123;&#123;invoice.total&#125;&#125;;列表用 &#123;&#123;#each invoice.items&#125;&#125;...&#123;&#123;/each&#125;&#125;。禁止 &lt;script&gt;、onclick、javascript:、&#123;&#123;&#123; 等。
+        </p>
+      </div>
+    </FaModal>
   </div>
 </template>

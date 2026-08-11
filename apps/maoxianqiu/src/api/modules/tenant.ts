@@ -18,6 +18,8 @@ export default {
    * @param data.ownerName 租户所有者姓名
    * @param data.ownerPhone 租户所有者电话(可选)
    * @param data.timezone 时区(默认 Asia/Shanghai)
+   * @param data.address 医院地址(可选)
+   * @param data.detailAddress 医院详细地址(可选)
    * @param data.idempotencyKey 幂等键(重复请求返回首次结果)
    */
   initialize(data: {
@@ -30,6 +32,8 @@ export default {
     ownerName: string
     ownerPhone?: string
     timezone?: string
+    address?: string
+    detailAddress?: string
     idempotencyKey?: string
   }) {
     return api.post('tenants/initialize', data)

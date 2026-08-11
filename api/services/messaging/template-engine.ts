@@ -24,8 +24,12 @@ export const VARIABLE_WHITELIST: readonly WhitelistVariable[] = [
   { key: 'appointment.time', label: '预约时间' },
   { key: 'appointment.type', label: '预约类型' },
   { key: 'store.name', label: '门店名称' },
+  { key: 'store.phone', label: '门店电话' },
+  { key: 'store.address', label: '门店地址' },
   { key: 'doctor.name', label: '医生姓名' },
   { key: 'hospital.name', label: '医院名称' },
+  { key: 'hospital.phone', label: '医院电话' },
+  { key: 'hospital.address', label: '医院地址' },
   { key: 'order.total', label: '订单金额' },
 ] as const
 

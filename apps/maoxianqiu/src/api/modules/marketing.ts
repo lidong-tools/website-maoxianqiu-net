@@ -160,6 +160,8 @@ export interface Campaign {
     run_no: number
     status: string
     audience_count: number
+    /** F-R-3:已生成投递数(发布后回填,0 表示未生成) */
+    dispatch_count?: number | null
     completed_at: string | null
   } | null
 }
@@ -365,10 +367,19 @@ export default {
   },
 
   /**
-   * 发布活动(走 Hono RPC:Snapshot Audience + 建 Run,marketing.publish)
+   * 发布活动(走 Hono RPC:Snapshot Audience + 建 Run + 触发投递生成,marketing.publish)
+   * F-R-3:发布后服务端调 dispatch_campaign_run 生成 queued 投递,返回 dispatch_count
    */
   publishCampaign(id: string, data: { tenantId: string, customerIds?: string[] }) {
-    return api.post<{ run_id: string, run_no: number, campaign_id: string, audience_count: number, rule_version: string }>(
+    return api.post<{
+      run_id: string
+      run_no: number
+      campaign_id: string
+      audience_count: number
+      rule_version: string
+      dispatch_count?: number
+      dispatch_error?: string
+    }>(
       `marketing/campaigns/${id}/publish`,
       data,
     )
